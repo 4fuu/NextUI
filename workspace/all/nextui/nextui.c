@@ -135,6 +135,7 @@ typedef struct Entry {
 	char* path;
 	char* name;
 	char* unique;
+	char* icon; // optional pak.json icon path; NULL for legacy paks and non-pak entries
 	int type;
 	int alpha; // index in parent Directory's alphas Array, which points to the index of an Entry in its entries Array :sweat_smile:
 } Entry;
@@ -146,13 +147,38 @@ static Entry* Entry_new(char* path, int type) {
 	self->path = strdup(path);
 	self->name = strdup(display_name);
 	self->unique = NULL;
+	self->icon = NULL;
 	self->type = type;
 	self->alpha = 0;
+
+	// pak.json is optional metadata: a legacy launch.sh-only pak keeps the
+	// directory name, and an absent or malformed manifest never changes how
+	// the pak is listed or launched.
+	if (type==ENTRY_PAK) {
+		PakManifest manifest;
+		if (pak_manifest_load(path, &manifest)==PAK_MANIFEST_OK) {
+			if (manifest.name[0]) {
+				free(self->name);
+				self->name = strdup(manifest.name);
+			}
+			if (manifest.icon[0]) {
+				if (manifest.icon[0]=='/') {
+					self->icon = strdup(manifest.icon);
+				}
+				else {
+					char icon_path[MAX_PATH];
+					int len = snprintf(icon_path, sizeof(icon_path), "%s/%s", path, manifest.icon);
+					if (len>0 && (size_t)len<sizeof(icon_path)) self->icon = strdup(icon_path);
+				}
+			}
+		}
+	}
 	return self;
 }
 
 static Entry* Entry_newNamed(char* path, int type, const char* displayName) {
 	Entry *self = Entry_new(path, type);
+	free(self->name);
 	self->name = strdup(displayName);
 	return self;
 }
@@ -161,6 +187,7 @@ static void Entry_free(Entry* self) {
 	free(self->path);
 	free(self->name);
 	if (self->unique) free(self->unique);
+	if (self->icon) free(self->icon);
 	free(self);
 }
 
@@ -422,15 +449,24 @@ static int hasEmu(char* emu_name);
 static Recent* Recent_new(char* path, char* alias) {
 	Recent* self = malloc(sizeof(Recent));
 
-	char sd_path[256]; // only need to get emu name
+	char sd_path[256];
 	sprintf(sd_path, "%s%s", SDCARD_PATH, path);
-
-	char emu_name[256];
-	getEmuName(sd_path, emu_name);
 
 	self->path = strdup(path);
 	self->alias = alias ? strdup(alias) : NULL;
-	self->available = hasEmu(emu_name);
+
+	// Apps share the recents list with ROMs. A pak is available while its
+	// launch.sh still exists; everything else keeps the emulator lookup.
+	if (suffixMatch(".pak", sd_path)) {
+		char launch_path[256];
+		snprintf(launch_path, sizeof(launch_path), "%s/launch.sh", sd_path);
+		self->available = exists(launch_path);
+	}
+	else {
+		char emu_name[256];
+		getEmuName(sd_path, emu_name);
+		self->available = hasEmu(emu_name);
+	}
 	return self;
 }
 static void Recent_free(Recent* self) {
@@ -627,7 +663,7 @@ static int hasRecents(void) {
 				if (recents->count<MAX_RECENTS) {
 					// this logic replaces an existing disc from a multi-disc game with the last used
 					char m3u_path[256];
-					if (hasM3u(sd_path, m3u_path)) { // TODO: this might tank launch speed
+					if (!suffixMatch(".pak", sd_path) && hasM3u(sd_path, m3u_path)) { // TODO: this might tank launch speed
 						char parent_path[256];
 						strcpy(parent_path, path);
 						char* tmp = strrchr(parent_path, '/') + 1;
@@ -807,6 +843,68 @@ static Array* getCollections(void)
 	return NULL;
 }
 
+static int isLaunchablePak(const char* path) {
+	char launch_path[256];
+	int len = snprintf(launch_path, sizeof(launch_path), "%s/launch.sh", path);
+	return len>0 && (size_t)len<sizeof(launch_path) && exists(launch_path);
+}
+
+static void addPakEntries(Array* entries, const char* path) {
+	DIR* dh = opendir(path);
+	if (!dh) return;
+
+	struct dirent* dp;
+	char full_path[256];
+	while ((dp = readdir(dh)) != NULL) {
+		if (hide(dp->d_name)) continue;
+		if (!suffixMatch(".pak", dp->d_name)) continue;
+		if (dp->d_type!=DT_DIR && dp->d_type!=DT_UNKNOWN) continue;
+
+		int len = snprintf(full_path, sizeof(full_path), "%s/%s", path, dp->d_name);
+		if (len<=0 || (size_t)len>=sizeof(full_path)) continue;
+		if (!isLaunchablePak(full_path)) continue;
+
+		// Keep B1's metadata/version scan for paks first seen from the app root.
+		pak_manifest_note_scan(full_path, SHARED_USERDATA_PATH "/.paks");
+		Array_push(entries, Entry_new(full_path, ENTRY_PAK));
+	}
+	closedir(dh);
+}
+
+static Array* getApps(void) {
+	Array* entries = Array_new();
+
+	// Tools/$PLATFORM is the canonical app install root (Pak Store and .pakz
+	// both land there). It is not a game-only folder, so show-tools no longer
+	// hides installed apps. Emus are legacy paks and are still listed.
+	if (!simple_mode) {
+		char tools_path[256];
+		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
+		addPakEntries(entries, tools_path);
+	}
+
+	char emus_path[256];
+	snprintf(emus_path, sizeof(emus_path), "%s/Emus/%s", SDCARD_PATH, PLATFORM);
+	addPakEntries(entries, emus_path);
+	addPakEntries(entries, SDCARD_PATH "/Emus");
+	addPakEntries(entries, PAKS_PATH "/Emus"); // built-in emulator paks
+
+	EntryArray_sort(entries);
+
+	// The launcher has no way to tell two identical labels apart; keep the first.
+	for (int i=1; i<entries->count; ) {
+		Entry* prev = entries->items[i-1];
+		Entry* entry = entries->items[i];
+		if (exactMatch(prev->name, entry->name)) {
+			Entry_free(entry);
+			Array_remove(entries, entry);
+		}
+		else i++;
+	}
+
+	return entries;
+}
+
 static Array* getQuickEntries(void) {
 	Array* entries = Array_new();
 
@@ -817,15 +915,20 @@ static Array* getQuickEntries(void) {
 	if (hasCollections())
 		Array_push(entries, Entry_newNamed(COLLECTIONS_PATH, ENTRY_DIR, TR("Collections")));
 
-	// Not sure we need this, its just a button press away (B)
-	Array_push(entries, Entry_newNamed(ROMS_PATH, ENTRY_DIR, TR("Games")));
-
-	// Add tools if applicable
-    if (hasTools() && !simple_mode) {
+	// Games is no longer a default navigation category. Old game content stays
+	// reachable through Collections, Recents, or an app that browses files.
+	// Tools remains as a generic tools-folder shortcut; installed apps are
+	// already listed flat at the root.
+    if (hasTools() && CFG_getShowTools() && !simple_mode) {
 		char tools_path[256];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
 		Array_push(entries, Entry_newNamed(tools_path, ENTRY_DIR, TR("Tools")));
     }
+
+	// Keep the quick switcher non-empty on a card with no recents, collections
+	// or tools; an empty Recents view is still a valid place to land.
+	if (entries->count==0)
+		Array_push(entries, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, TR("Recents")));
 
 	return entries;
 }
@@ -858,15 +961,15 @@ static Array* getRoot(void) {
     Array* root = Array_new();
 
     if (hasRecents() && CFG_getShowRecents())
-		Array_push(root, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, TR("Recently Played")));
+		Array_push(root, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, TR("Recents")));
 
-	Array *entries = getRoms();
+	Array *entries = getApps();
 
 	// Handle collections
 	if (hasCollections() && CFG_getShowCollections()) {
         if (entries->count) {
             Array_push(root, Entry_newNamed(COLLECTIONS_PATH, ENTRY_DIR, TR("Collections")));
-        } else { // No visible systems, promote collections to root
+        } else { // No visible apps, promote collections to root
 			Array *collections = getCollections();
 			Array_yoink(entries, collections);
         }
@@ -874,13 +977,6 @@ static Array* getRoot(void) {
 
     // Move entries to root
 	Array_yoink(root, entries);
-
-	// Add tools if applicable
-    if (hasTools() && CFG_getShowTools() && !simple_mode) {
-		char tools_path[256];
-		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-		Array_push(root, Entry_newNamed(tools_path, ENTRY_DIR, TR("Tools")));
-    }
 
     return root;
 }
@@ -1225,6 +1321,7 @@ static int autoResume(void) {
 }
 
 static void openPak(char* path) {
+	addRecent(path, NULL); // apps share the recents list with ROMs
 	saveLast(path);
 
 	// State-capable apps receive NEXTUI_APP_* below. Legacy paks keep the exact
