@@ -16,6 +16,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <limits.h>
+#include "pak_manifest.h"
 
 ///////////////////////////////////////
 
@@ -1031,6 +1032,10 @@ static void addEntries(Array* entries, char* path) {
 					type = ENTRY_ROM;
 				}
 			}
+			// B1: read pak.json when present and record the installed version.
+			// Legacy launch.sh-only paks are untouched; the display name stays
+			// the directory name (no icon/menu-root work in this step).
+			if (type==ENTRY_PAK) pak_manifest_note_scan(full_path, SHARED_USERDATA_PATH "/.paks");
 			Array_push(entries, Entry_new(full_path, type));
 		}
 		closedir(dh);
