@@ -79,6 +79,11 @@ parse_hook_cmd() {
 	export HOOK_CMD HOOK_EMU_PATH HOOK_TYPE HOOK_ROM_PATH HOOK_LAST
 }
 
+# C3: shared device session lifecycle. desktop is a preview platform, so the
+# helper exports NEXTUI_PAK_PATH but does not start a device service.
+. "$SYSTEM_PATH/../res/nextui-session.sh"
+nextui_devserv_start
+
 #######################################
 
 EXEC_PATH="/tmp/nextui_exec"
@@ -91,7 +96,9 @@ touch "$EXEC_PATH"  && sync
 		CMD=`cat $NEXT_PATH`
 		parse_hook_cmd "$CMD"
 		"$SYSTEM_PATH/bin/run_hooks.sh" pre-launch.d
+		nextui_session_start
 		eval $CMD
+		nextui_session_stop
 		"$SYSTEM_PATH/bin/run_hooks.sh" post-launch.d
 		rm -f $NEXT_PATH
 	fi

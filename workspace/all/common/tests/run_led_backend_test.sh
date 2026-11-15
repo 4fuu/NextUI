@@ -19,6 +19,7 @@ compiler="${CC:-cc}"
     ../device_grants.c \
     ../device_identity.c \
     ../device_protocol.c \
+    ../device_session.c \
     ../json_lite.c \
     ../pak_manifest.c \
     ../sha256_lite.c \

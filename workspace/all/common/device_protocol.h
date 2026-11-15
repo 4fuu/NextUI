@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "device_gate.h"
+#include "device_session.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,9 +18,13 @@ extern "C" {
  *   {"op":"status","app":"id","pak":"/path/to/App.pak"}
  *   {"op":"call","app":"id","pak":"/path/to/App.pak",
  *    "capability":"display.brightness","action":"get","args":{"value":5}}
+ *   {"op":"session-start","app":"id","pak":"/path/to/App.pak"}
+ *   {"op":"session-stop","session_id":"0123456789abcdef"}
+ *   {"op":"session-status"}
  *
  * There is deliberately no grant/revoke operation here. The app-facing service
- * can only report status and dispatch already-authorized calls.
+ * can only report status, dispatch already-authorized calls, and run the C3
+ * session lifecycle. Session operations do not bypass the capability gate.
  */
 
 #define DEVICE_PROTOCOL_LINE_MAX 8192
@@ -31,6 +36,9 @@ typedef enum
     DEVICE_OP_PING,
     DEVICE_OP_STATUS,
     DEVICE_OP_CALL,
+    DEVICE_OP_SESSION_START,
+    DEVICE_OP_SESSION_STOP,
+    DEVICE_OP_SESSION_STATUS,
 } DeviceOp;
 
 typedef struct
@@ -40,6 +48,7 @@ typedef struct
     char pak[DEVICE_GRANT_PATH_MAX];
     char capability[DEVICE_GRANT_CAPABILITY_MAX];
     char action[DEVICE_GATE_ACTION_MAX];
+    char session_id[DEVICE_SESSION_ID_MAX];
     int has_args;
     char args[DEVICE_PROTOCOL_ARGS_MAX];
 } DeviceRequestMessage;
@@ -54,11 +63,19 @@ int device_protocol_build_request(const char* op, const char* app, const char* p
                                   const char* capability, const char* action, const char* args,
                                   char* out, size_t out_size);
 
+/* Session requests reuse the app/pak/id fields without capability/action. */
+int device_protocol_build_session_request(const char* op, const char* app, const char* pak,
+                                          const char* session_id, char* out, size_t out_size);
+
 /* Response writers; each returns 1 when the whole line fit. */
 int device_protocol_write_ping_response(char* out, size_t out_size);
 int device_protocol_write_call_response(const DeviceCallResult* result, char* out, size_t out_size);
 int device_protocol_write_status_response(const DeviceStatusResult* status, char* out,
                                           size_t out_size);
+int device_protocol_write_session_response(const DeviceSession* session,
+                                           DeviceSessionResult result, int cleaned,
+                                           const char* error, const char* detail, char* out,
+                                           size_t out_size);
 int device_protocol_write_error_response(const char* error, const char* detail, char* out,
                                          size_t out_size);
 

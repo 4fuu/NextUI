@@ -10,27 +10,35 @@
 #include <unistd.h>
 
 #define DEFAULT_SOCKET_PATH "/tmp/nextui-devserv.sock"
-#define CONNECT_ATTEMPTS 40
+#define DEFAULT_CONNECT_WAIT_MS 2000
 #define CONNECT_DELAY_MS 50
+
+static long connect_wait_ms = DEFAULT_CONNECT_WAIT_MS;
 
 static void usage(FILE* stream)
 {
     fprintf(stream,
-            "usage: nextdev [--socket PATH] [--pak DIR] [--app ID] <command> [arguments]\n"
+            "usage: nextdev [--socket PATH] [--pak DIR] [--app ID] [--session-id ID]\n"
+            "               [--wait-ms N] <command> [arguments]\n"
             "\n"
             "commands:\n"
             "  ping                         check that devserv is reachable\n"
             "  status                       report declared/granted/available capabilities\n"
             "  call <cap> [action] [args]   request a capability (args is a JSON value)\n"
+            "  session-start                snapshot a device session (--pak recommended)\n"
+            "  session-stop                 restore a session; --session-id is the guard\n"
+            "  session-status               report the current or last session\n"
             "\n"
             "options:\n"
-            "  --socket PATH   devserv socket (default $NEXTUI_DEVSERV_SOCKET or %s)\n"
-            "  --pak DIR       pak directory (default $NEXTUI_PAK_PATH)\n"
-            "  --app ID        expected app id; devserv rejects a mismatch\n"
+            "  --socket PATH      devserv socket (default $NEXTUI_DEVSERV_SOCKET or %s)\n"
+            "  --pak DIR          pak directory (default $NEXTUI_PAK_PATH)\n"
+            "  --app ID           expected app id; devserv rejects a mismatch\n"
+            "  --session-id ID    hex generation id for session-stop\n"
+            "  --wait-ms N        bounded connect wait, 0..10000 (default %d)\n"
             "\n"
             "Prints the raw JSON response. Exit codes: 0 allowed/served, 1 denied or\n"
             "unavailable, 2 usage error, 3 communication error.\n",
-            DEFAULT_SOCKET_PATH);
+            DEFAULT_SOCKET_PATH, DEFAULT_CONNECT_WAIT_MS);
 }
 
 static void sleep_milliseconds(long milliseconds)
@@ -44,6 +52,7 @@ static void sleep_milliseconds(long milliseconds)
 static int connect_to(const char* path)
 {
     struct sockaddr_un address;
+    int attempts;
     int attempt;
 
     if (strlen(path) >= sizeof address.sun_path)
@@ -56,7 +65,10 @@ static int connect_to(const char* path)
     address.sun_family = AF_UNIX;
     memcpy(address.sun_path, path, strlen(path) + 1);
 
-    for (attempt = 0; attempt < CONNECT_ATTEMPTS; attempt++)
+    attempts = (int)((connect_wait_ms + CONNECT_DELAY_MS - 1) / CONNECT_DELAY_MS);
+    if (attempts < 1) attempts = 1;
+
+    for (attempt = 0; attempt < attempts; attempt++)
     {
         int descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
         int saved;
@@ -128,12 +140,14 @@ int main(int argc, char* argv[])
     const char* capability = NULL;
     const char* action = NULL;
     const char* args = NULL;
+    const char* session_id = NULL;
     const char* op;
     char request[DEVICE_PROTOCOL_LINE_MAX];
     char response[DEVICE_PROTOCOL_LINE_MAX];
     int descriptor;
     int argument = 1;
     int socket_overridden = 0;
+    int session_command = 0;
     int ok;
 
     snprintf(socket_path, sizeof socket_path, "%s", DEFAULT_SOCKET_PATH);
@@ -160,6 +174,24 @@ int main(int argc, char* argv[])
         else if (strcmp(argv[argument], "--app") == 0 && argument + 1 < argc)
         {
             app = argv[argument + 1];
+            argument += 2;
+        }
+        else if (strcmp(argv[argument], "--session-id") == 0 && argument + 1 < argc)
+        {
+            session_id = argv[argument + 1];
+            argument += 2;
+        }
+        else if (strcmp(argv[argument], "--wait-ms") == 0 && argument + 1 < argc)
+        {
+            char* end = NULL;
+            long value = strtol(argv[argument + 1], &end, 10);
+
+            if (end == argv[argument + 1] || *end != '\0' || value < 0 || value > 10000)
+            {
+                fprintf(stderr, "nextdev: --wait-ms must be 0..10000\n");
+                return 2;
+            }
+            connect_wait_ms = value;
             argument += 2;
         }
         else if (strcmp(argv[argument], "--help") == 0 || strcmp(argv[argument], "-h") == 0)
@@ -225,6 +257,36 @@ int main(int argc, char* argv[])
             return 2;
         }
     }
+    else if (strcmp(command, "session-start") == 0)
+    {
+        op = "session-start";
+        session_command = 1;
+        if (argument != argc)
+        {
+            usage(stderr);
+            return 2;
+        }
+    }
+    else if (strcmp(command, "session-stop") == 0)
+    {
+        op = "session-stop";
+        session_command = 1;
+        if (argument != argc)
+        {
+            usage(stderr);
+            return 2;
+        }
+    }
+    else if (strcmp(command, "session-status") == 0)
+    {
+        op = "session-status";
+        session_command = 1;
+        if (argument != argc)
+        {
+            usage(stderr);
+            return 2;
+        }
+    }
     else
     {
         fprintf(stderr, "nextdev: unknown command: %s\n", command);
@@ -232,8 +294,17 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    if (!device_protocol_build_request(op, app, pak, capability, action, args, request,
-                                       sizeof request))
+    if (session_command)
+    {
+        if (!device_protocol_build_session_request(op, app, pak, session_id, request,
+                                                   sizeof request))
+        {
+            fprintf(stderr, "nextdev: request is too long\n");
+            return 2;
+        }
+    }
+    else if (!device_protocol_build_request(op, app, pak, capability, action, args, request,
+                                            sizeof request))
     {
         fprintf(stderr, "nextdev: request is too long\n");
         return 2;

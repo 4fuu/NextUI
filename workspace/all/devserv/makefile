@@ -29,6 +29,8 @@ SOURCE = $(TARGET).c \
 	../common/device_grants.c \
 	../common/device_identity.c \
 	../common/device_protocol.c \
+	../common/device_session.c \
+	../common/device_session_platform.c \
 	../common/json_lite.c \
 	../common/led_lease.c \
 	../common/led_lease_platform.c \
@@ -44,6 +46,13 @@ CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 LDFLAGS += -lmsettings -lsamplerate
+
+ifeq ($(PLATFORM), desktop)
+CFLAGS += -DNEXTUI_SESSION_DESKTOP=1 -DNEXTUI_SESSION_NO_MUTE=1
+endif
+ifeq ($(PLATFORM), h700)
+CFLAGS += -DNEXTUI_SESSION_NO_MUTE=1
+endif
 
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 

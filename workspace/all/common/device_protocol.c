@@ -2,6 +2,7 @@
 
 #include "json_lite.h"
 
+#include <stdio.h>
 #include <string.h>
 
 typedef struct
@@ -69,6 +70,30 @@ static void writer_bool(Writer* writer, int value)
     writer_raw(writer, value ? "true" : "false");
 }
 
+static void writer_int(Writer* writer, int value)
+{
+    char text[32];
+
+    snprintf(text, sizeof text, "%d", value);
+    writer_raw(writer, text);
+}
+
+static void writer_long(Writer* writer, long value)
+{
+    char text[32];
+
+    snprintf(text, sizeof text, "%ld", value);
+    writer_raw(writer, text);
+}
+
+static void writer_session_id(Writer* writer, unsigned long long value)
+{
+    char text[32];
+
+    snprintf(text, sizeof text, "%016llx", value);
+    writer_raw(writer, text);
+}
+
 static void writer_key(Writer* writer, const char* key)
 {
     writer_string(writer, key);
@@ -121,6 +146,7 @@ int device_protocol_parse_request(const char* line, DeviceRequestMessage* messag
         SEEN_CAPABILITY = 1u << 3,
         SEEN_ACTION = 1u << 4,
         SEEN_ARGS = 1u << 5,
+        SEEN_SESSION_ID = 1u << 6,
     };
     JsonLiteCursor cursor;
     char op[16];
@@ -220,6 +246,20 @@ int device_protocol_parse_request(const char* line, DeviceRequestMessage* messag
                 return 0;
             }
         }
+        else if (key_length < sizeof key && strcmp(key, "session_id") == 0)
+        {
+            if (!(seen & SEEN_SESSION_ID))
+            {
+                seen |= SEEN_SESSION_ID;
+                if (!parse_string_into(&cursor, message->session_id,
+                                       sizeof message->session_id))
+                    return 0;
+            }
+            else if (!json_lite_skip_value(&cursor, 2))
+            {
+                return 0;
+            }
+        }
         else if (key_length < sizeof key && strcmp(key, "args") == 0)
         {
             if (!(seen & SEEN_ARGS))
@@ -274,6 +314,21 @@ int device_protocol_parse_request(const char* line, DeviceRequestMessage* messag
         message->op = DEVICE_OP_CALL;
         return message->pak[0] != '\0' && message->capability[0] != '\0';
     }
+    if (strcmp(op, "session-start") == 0)
+    {
+        message->op = DEVICE_OP_SESSION_START;
+        return 1;
+    }
+    if (strcmp(op, "session-stop") == 0)
+    {
+        message->op = DEVICE_OP_SESSION_STOP;
+        return 1;
+    }
+    if (strcmp(op, "session-status") == 0)
+    {
+        message->op = DEVICE_OP_SESSION_STATUS;
+        return 1;
+    }
     return 0;
 }
 
@@ -313,6 +368,35 @@ int device_protocol_build_request(const char* op, const char* app, const char* p
         writer_prefix(&writer, &first);
         writer_key(&writer, "args");
         writer_raw(&writer, args);
+    }
+    writer_char(&writer, '}');
+    return writer_finish(&writer);
+}
+
+int device_protocol_build_session_request(const char* op, const char* app, const char* pak,
+                                          const char* session_id, char* out, size_t out_size)
+{
+    Writer writer;
+    int first = 1;
+
+    writer_init(&writer, out, out_size);
+    writer_char(&writer, '{');
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "op", op != NULL ? op : "");
+    if (app != NULL && app[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "app", app);
+    }
+    if (pak != NULL && pak[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "pak", pak);
+    }
+    if (session_id != NULL && session_id[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "session_id", session_id);
     }
     writer_char(&writer, '}');
     return writer_finish(&writer);
@@ -475,6 +559,143 @@ int device_protocol_write_status_response(const DeviceStatusResult* status, char
         writer_char(&writer, '}');
     }
     writer_char(&writer, ']');
+    writer_char(&writer, '}');
+    return writer_finish(&writer);
+}
+
+int device_protocol_write_session_response(const DeviceSession* session,
+                                           DeviceSessionResult result, int cleaned,
+                                           const char* error, const char* detail, char* out,
+                                           size_t out_size)
+{
+    Writer writer;
+    int first = 1;
+    int field;
+    unsigned long long id;
+    const char* effective_error = error;
+    const char* effective_detail = detail;
+    int ok;
+
+    writer_init(&writer, out, out_size);
+    if (session == NULL)
+    {
+        writer_raw(&writer, "{\"ok\":false,\"error\":\"bad_request\","
+                            "\"detail\":\"missing session\"}");
+        return writer_finish(&writer);
+    }
+
+    if (effective_error == NULL && result != DEVICE_SESSION_OK
+        && result != DEVICE_SESSION_NOT_ACTIVE)
+        effective_error = device_session_result_name(result);
+    ok = effective_error == NULL;
+    if (effective_detail == NULL) effective_detail = session->detail;
+    id = session->active ? session->id
+                         : (session->last_id != 0 ? session->last_id : session->id);
+
+    writer_char(&writer, '{');
+    writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "ok", ok);
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "service", "devserv");
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "session", session->active ? "active" : "inactive");
+    if (id != 0)
+    {
+        writer_prefix(&writer, &first);
+        writer_key(&writer, "session_id");
+        writer_char(&writer, '"');
+        writer_session_id(&writer, id);
+        writer_char(&writer, '"');
+    }
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "app", session->app);
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "pak", session->pak);
+    writer_prefix(&writer, &first);
+    writer_key(&writer, "started_at");
+    writer_long(&writer, session->started_at);
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "result", device_session_result_name(result));
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "last_result",
+                        device_session_result_name(session->last_result));
+    writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "cleaned", cleaned);
+    writer_prefix(&writer, &first);
+    writer_key(&writer, "restored");
+    writer_int(&writer, session->restored_count);
+    writer_prefix(&writer, &first);
+    writer_key(&writer, "skipped");
+    writer_int(&writer, session->skipped_count);
+    writer_prefix(&writer, &first);
+    writer_key(&writer, "failed");
+    writer_int(&writer, session->failed_count);
+
+    writer_prefix(&writer, &first);
+    writer_key(&writer, "led");
+    writer_char(&writer, '{');
+    {
+        int led_first = 1;
+        writer_prefix(&writer, &led_first);
+        writer_field_string(&writer, "state", device_session_led_state_name(session->led_state));
+        writer_prefix(&writer, &led_first);
+        writer_field_bool(&writer, "used", session->led_used);
+        if (session->led_detail[0] != '\0')
+        {
+            writer_prefix(&writer, &led_first);
+            writer_field_string(&writer, "detail", session->led_detail);
+        }
+    }
+    writer_char(&writer, '}');
+
+    writer_prefix(&writer, &first);
+    writer_key(&writer, "fields");
+    writer_char(&writer, '[');
+    for (field = 0; field < DEVICE_SESSION_FIELD_COUNT; field++)
+    {
+        const DeviceSessionFieldState* state = &session->fields[field];
+        int field_first = 1;
+
+        if (field > 0) writer_char(&writer, ',');
+        writer_char(&writer, '{');
+        writer_prefix(&writer, &field_first);
+        writer_field_string(&writer, "name", device_session_field_name((DeviceSessionField)field));
+        writer_prefix(&writer, &field_first);
+        writer_field_bool(&writer, "available", state->available);
+        writer_prefix(&writer, &field_first);
+        writer_field_bool(&writer, "captured", state->captured);
+        writer_prefix(&writer, &field_first);
+        writer_field_bool(&writer, "changed", state->changed);
+        writer_prefix(&writer, &field_first);
+        writer_field_bool(&writer, "restored", state->restored);
+        writer_prefix(&writer, &field_first);
+        writer_field_bool(&writer, "skipped", state->skipped);
+        if (state->captured)
+        {
+            writer_prefix(&writer, &field_first);
+            writer_key(&writer, "value");
+            writer_int(&writer, state->value);
+        }
+        if (state->detail[0] != '\0')
+        {
+            writer_prefix(&writer, &field_first);
+            writer_field_string(&writer, "detail", state->detail);
+        }
+        writer_char(&writer, '}');
+    }
+    writer_char(&writer, ']');
+
+    if (!ok)
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "error", effective_error);
+    }
+    if (effective_detail != NULL && effective_detail[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "detail", effective_detail);
+    }
+
     writer_char(&writer, '}');
     return writer_finish(&writer);
 }

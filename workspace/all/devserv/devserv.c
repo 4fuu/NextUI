@@ -2,7 +2,11 @@
 #include "device_backend_leds_platform.h"
 #include "device_gate.h"
 #include "device_protocol.h"
+#include "device_session.h"
+#include "device_session_platform.h"
+#include "pak_manifest.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -18,6 +22,8 @@
 #define REQUEST_TIMEOUT_SECONDS 2
 
 static volatile sig_atomic_t running = 1;
+static DeviceSession session_state;
+static const DeviceSessionOps* session_ops;
 
 static void handle_signal(int signal_number)
 {
@@ -36,7 +42,9 @@ static void usage(FILE* stream)
             "The socket defaults to $NEXTUI_DEVSERV_SOCKET or %s.\n"
             "Grants must be configured explicitly; there is no implicit /tmp store.\n"
             "Backend: led.control through the existing NextUI LED path; every other\n"
-            "hardware capability reports unavailable.\n",
+            "hardware capability reports unavailable.\n"
+            "Sessions: session-start/stop/status restore only fields the service saw\n"
+            "change; haptics is unavailable and LED teardown is delegated to C2.\n",
             DEFAULT_SOCKET_PATH);
 }
 
@@ -228,8 +236,82 @@ static void send_error(int descriptor, const char* error, const char* detail)
     send_response(descriptor, response);
 }
 
+static int parse_session_id(const char* text, unsigned long long* out)
+{
+    const char* cursor;
+    char* end = NULL;
+    unsigned long long value;
+
+    if (out == NULL) return 0;
+    if (text == NULL || text[0] == '\0')
+    {
+        *out = 0;
+        return 1;
+    }
+    if (strlen(text) > 16) return 0;
+    for (cursor = text; *cursor != '\0'; cursor++)
+        if (!isxdigit((unsigned char)*cursor)) return 0;
+
+    errno = 0;
+    value = strtoull(text, &end, 16);
+    if (errno != 0 || end == text || *end != '\0') return 0;
+    *out = value;
+    return 1;
+}
+
+/* Session identity is descriptive, not an authorization decision. Reuse the
+ * same canonical path and manifest-id rules the gate uses so a session and a
+ * grant describe the same installation. */
+static int session_identity(const char* claimed_app, const char* pak, char* app_out,
+                            size_t app_size, char* pak_out, size_t pak_size)
+{
+    char resolved[DEVICE_GRANT_PATH_MAX];
+    PakManifest manifest;
+    const char* base;
+
+    if (app_out == NULL || app_size == 0 || pak_out == NULL || pak_size == 0) return -1;
+    app_out[0] = '\0';
+    pak_out[0] = '\0';
+
+    if (pak != NULL && pak[0] != '\0')
+    {
+        const char* canonical = pak;
+
+        if (realpath(pak, resolved) != NULL) canonical = resolved;
+        snprintf(pak_out, pak_size, "%s", canonical);
+
+        if (pak_manifest_load(pak_out, &manifest) == PAK_MANIFEST_OK && manifest.id[0] != '\0')
+            snprintf(app_out, app_size, "%s", manifest.id);
+        else
+        {
+            base = strrchr(pak_out, '/');
+            snprintf(app_out, app_size, "%s", base != NULL ? base + 1 : pak_out);
+        }
+    }
+
+    if (claimed_app != NULL && claimed_app[0] != '\0')
+    {
+        if (app_out[0] == '\0')
+            snprintf(app_out, app_size, "%s", claimed_app);
+        else if (strcmp(app_out, claimed_app) != 0)
+            return 0;
+    }
+    return 1;
+}
+
+static void session_shutdown(void)
+{
+    DeviceSessionResult result;
+
+    if (session_ops == NULL || !device_session_is_active(&session_state)) return;
+    result = device_session_end(&session_state, session_ops, 0);
+    if (result == DEVICE_SESSION_PARTIAL)
+        fprintf(stderr, "devserv: session restore partial: %s\n", session_state.detail);
+}
+
 static void handle_connection(int descriptor, const char* grants_path,
-                              const DeviceBackend* backend)
+                              const DeviceBackend* backend, DeviceSession* session,
+                              const DeviceSessionOps* ops)
 {
     char line[DEVICE_PROTOCOL_LINE_MAX];
     char response[DEVICE_PROTOCOL_LINE_MAX];
@@ -300,12 +382,101 @@ static void handle_connection(int descriptor, const char* grants_path,
             request.args = message.has_args ? message.args : NULL;
 
             (void)device_gate_call(&request, grants_path, backend, &result);
+            if (result.error == DEVICE_GATE_OK)
+                device_session_note_capability(session, message.capability, message.action);
             if (!device_protocol_write_call_response(&result, response, sizeof response))
                 snprintf(response, sizeof response,
                          "{\"ok\":false,\"error\":\"backend_error\","
                          "\"detail\":\"response too large\"}");
             break;
         }
+
+        case DEVICE_OP_SESSION_START:
+        {
+            char app[DEVICE_SESSION_APP_MAX];
+            char pak[DEVICE_SESSION_PAK_MAX];
+            DeviceSessionResult result;
+            const char* error = NULL;
+            const char* detail = NULL;
+            int identity;
+
+            identity = session_identity(message.app, message.pak, app, sizeof app, pak,
+                                        sizeof pak);
+            if (identity < 0)
+            {
+                send_error(descriptor, "bad_request", "invalid session identity");
+                return;
+            }
+            if (identity == 0)
+            {
+                send_error(descriptor, "bad_request", "app does not match the pak manifest");
+                return;
+            }
+
+            result = device_session_begin(session, ops, app, pak);
+            if (result == DEVICE_SESSION_ALREADY_ACTIVE)
+            {
+                error = "session_active";
+                detail = "a session is already active";
+            }
+            else if (result == DEVICE_SESSION_BAD_ARGUMENT)
+            {
+                error = "bad_request";
+                detail = "invalid session arguments";
+            }
+            if (!device_protocol_write_session_response(session, result, 0, error, detail,
+                                                        response, sizeof response))
+                snprintf(response, sizeof response,
+                         "{\"ok\":false,\"error\":\"backend_error\","
+                         "\"detail\":\"response too large\"}");
+            break;
+        }
+
+        case DEVICE_OP_SESSION_STOP:
+        {
+            unsigned long long expected = 0;
+            DeviceSessionResult result;
+            int was_active = device_session_is_active(session);
+            const char* error = NULL;
+            const char* detail = NULL;
+
+            if (!parse_session_id(message.session_id, &expected))
+            {
+                send_error(descriptor, "bad_request", "invalid session id");
+                return;
+            }
+
+            result = device_session_end(session, ops, expected);
+            if (result == DEVICE_SESSION_STALE)
+            {
+                error = "session_stale";
+                detail = "session id does not match the active session";
+            }
+            else if (result == DEVICE_SESSION_PARTIAL)
+            {
+                error = "restore_partial";
+                detail = session->detail;
+            }
+            else if (result == DEVICE_SESSION_BAD_ARGUMENT)
+            {
+                error = "bad_request";
+                detail = "invalid session";
+            }
+            if (!device_protocol_write_session_response(session, result, was_active, error, detail,
+                                                        response, sizeof response))
+                snprintf(response, sizeof response,
+                         "{\"ok\":false,\"error\":\"backend_error\","
+                         "\"detail\":\"response too large\"}");
+            break;
+        }
+
+        case DEVICE_OP_SESSION_STATUS:
+            if (!device_protocol_write_session_response(session, DEVICE_SESSION_OK, 0, NULL, NULL,
+                                                        response, sizeof response))
+                snprintf(response, sizeof response,
+                         "{\"ok\":false,\"error\":\"backend_error\","
+                         "\"detail\":\"response too large\"}");
+            break;
 
         default:
             send_error(descriptor, "bad_request", "unknown operation");
@@ -386,6 +557,10 @@ int main(int argc, char* argv[])
     (void)atexit(device_backend_leds_shutdown);
 #endif
 
+    session_ops = device_session_platform_ops();
+    device_session_init(&session_state);
+    (void)atexit(session_shutdown);
+
     umask(0077);
     signal(SIGPIPE, SIG_IGN);
     memset(&action, 0, sizeof action);
@@ -400,6 +575,7 @@ int main(int argc, char* argv[])
     printf("devserv: listening on %s\n", socket_path);
     printf("devserv: grants %s\n", grants_path);
     printf("devserv: backend %s\n", backend->name);
+    printf("devserv: session %s\n", session_ops != NULL ? session_ops->name : "none");
     fflush(stdout);
 
     while (running)
@@ -412,7 +588,7 @@ int main(int argc, char* argv[])
             fprintf(stderr, "devserv: accept: %s\n", strerror(errno));
             break;
         }
-        handle_connection(connection, grants_path, backend);
+        handle_connection(connection, grants_path, backend, &session_state, session_ops);
         close(connection);
     }
 

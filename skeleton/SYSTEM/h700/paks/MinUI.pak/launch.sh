@@ -137,6 +137,11 @@ parse_hook_cmd() {
 	export HOOK_CMD HOOK_EMU_PATH HOOK_TYPE HOOK_ROM_PATH HOOK_LAST
 }
 
+# C3: shared device session lifecycle. The helper starts devserv once with the
+# persistent grants path under SHARED_USERDATA_PATH and wraps the app command.
+. "$SYSTEM_PATH/../res/nextui-session.sh"
+nextui_devserv_start
+
 #######################################
 
 # kill show2.elf if running
@@ -157,7 +162,9 @@ while [ -f "$EXEC_PATH" ]; do
 		CMD="$(cat "$NEXT_PATH")"
 		parse_hook_cmd "$CMD"
 		"$SYSTEM_PATH/bin/run_hooks.sh" pre-launch.d
+		nextui_session_start
 		eval "$CMD"
+		nextui_session_stop
 		"$SYSTEM_PATH/bin/run_hooks.sh" post-launch.d
 		rm -f "$NEXT_PATH"
 		# reset to performance when exiting, UI will reset to auto if needed

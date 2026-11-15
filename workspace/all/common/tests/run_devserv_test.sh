@@ -26,6 +26,70 @@ trap cleanup EXIT
 compiler="${CC:-cc}"
 common="$ROOT/workspace/all/common"
 
+cat > "$BUILD_DIR/session_ops_none.c" <<'EOF'
+#include "device_session_platform.h"
+
+#include <stdio.h>
+
+static int none_available(void* context, DeviceSessionField field, char* detail,
+                          size_t detail_size)
+{
+    (void)context;
+    (void)field;
+    snprintf(detail, detail_size, "no session backend in the host E2E build");
+    return 0;
+}
+
+static int none_read(void* context, DeviceSessionField field, int* value, char* detail,
+                     size_t detail_size)
+{
+    (void)context;
+    (void)field;
+    (void)value;
+    snprintf(detail, detail_size, "no session backend in the host E2E build");
+    return 0;
+}
+
+static int none_write(void* context, DeviceSessionField field, int value, char* detail,
+                      size_t detail_size)
+{
+    (void)context;
+    (void)field;
+    (void)value;
+    snprintf(detail, detail_size, "no session backend in the host E2E build");
+    return 0;
+}
+
+static int none_led_available(void* context, char* detail, size_t detail_size)
+{
+    (void)context;
+    snprintf(detail, detail_size, "C2 led lease is not linked in the host E2E build");
+    return 0;
+}
+
+static int none_led_release(void* context, char* detail, size_t detail_size)
+{
+    (void)context;
+    snprintf(detail, detail_size, "C2 led lease is not linked in the host E2E build");
+    return 0;
+}
+
+static const DeviceSessionOps OPS = {
+    "none-host-e2e",
+    NULL,
+    none_available,
+    none_read,
+    none_write,
+    none_led_available,
+    none_led_release,
+};
+
+const DeviceSessionOps* device_session_platform_ops(void)
+{
+    return &OPS;
+}
+EOF
+
 "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 \
     -DNEXTUI_DEVSERV_BACKEND_NONE -I"$common" \
     "$ROOT/workspace/all/devserv/devserv.c" \
@@ -35,6 +99,8 @@ common="$ROOT/workspace/all/common"
     "$common/device_grants.c" \
     "$common/device_identity.c" \
     "$common/device_protocol.c" \
+    "$common/device_session.c" \
+    "$BUILD_DIR/session_ops_none.c" \
     "$common/json_lite.c" \
     "$common/pak_manifest.c" \
     "$common/sha256_lite.c" \
@@ -43,6 +109,7 @@ common="$ROOT/workspace/all/common"
 "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 -I"$common" \
     "$ROOT/workspace/all/nextdev/nextdev.c" \
     "$common/device_protocol.c" \
+    "$common/device_session.c" \
     "$common/json_lite.c" \
     -o "$BUILD_DIR/nextdev"
 
@@ -243,6 +310,94 @@ run_nextdev ping
 [[ "$STATUS" -eq 0 ]]
 expect_contains "$OUTPUT" '"service":"devserv"'
 expect_contains "$OUTPUT" '"ok":true'
+
+# C3 session lifecycle over the real socket. The host build deliberately has no
+# session backend, so every field must report unavailable with no fake value.
+run_nextdev --pak "$PAK" session-start
+[[ "$STATUS" -eq 0 ]]
+expect_contains "$OUTPUT" '"ok":true'
+expect_contains "$OUTPUT" '"session":"active"'
+expect_contains "$OUTPUT" '"app":"declared.app"'
+expect_contains "$OUTPUT" "\"pak\":\"$PAK\""
+expect_contains "$OUTPUT" '"available":false'
+expect_contains "$OUTPUT" '"captured":false'
+expect_contains "$OUTPUT" '"led":{"state":"unavailable"'
+SESSION_ID="$(printf '%s' "$OUTPUT" | sed -n 's/.*"session_id":"\([0-9a-f]*\)".*/\1/p')"
+[[ -n "$SESSION_ID" ]]
+
+run_nextdev session-status
+[[ "$STATUS" -eq 0 ]]
+expect_contains "$OUTPUT" '"session":"active"'
+expect_contains "$OUTPUT" "\"session_id\":\"$SESSION_ID\""
+
+# A second start must not replace the token or re-snapshot.
+run_nextdev --pak "$PAK" session-start
+[[ "$STATUS" -eq 1 ]]
+expect_contains "$OUTPUT" '"error":"session_active"'
+expect_contains "$OUTPUT" "\"session_id\":\"$SESSION_ID\""
+
+# A stale stop cannot tear down the active session.
+run_nextdev --session-id deadbeef session-stop
+[[ "$STATUS" -eq 1 ]]
+expect_contains "$OUTPUT" '"error":"session_stale"'
+run_nextdev session-status
+expect_contains "$OUTPUT" '"session":"active"'
+expect_contains "$OUTPUT" "\"session_id\":\"$SESSION_ID\""
+
+run_nextdev --session-id "$SESSION_ID" session-stop
+[[ "$STATUS" -eq 0 ]]
+expect_contains "$OUTPUT" '"session":"inactive"'
+expect_contains "$OUTPUT" '"cleaned":true'
+expect_contains "$OUTPUT" '"result":"ok"'
+
+# Repeated stop is idempotent and does not claim to have cleaned anything.
+run_nextdev --session-id "$SESSION_ID" session-stop
+[[ "$STATUS" -eq 0 ]]
+expect_contains "$OUTPUT" '"session":"inactive"'
+expect_contains "$OUTPUT" '"result":"not_active"'
+expect_contains "$OUTPUT" '"cleaned":false'
+
+# Every start gets a different generation id.
+run_nextdev --pak "$PAK" session-start
+[[ "$STATUS" -eq 0 ]]
+SESSION_ID_2="$(printf '%s' "$OUTPUT" | sed -n 's/.*"session_id":"\([0-9a-f]*\)".*/\1/p')"
+[[ -n "$SESSION_ID_2" && "$SESSION_ID_2" != "$SESSION_ID" ]]
+run_nextdev --session-id "$SESSION_ID" session-stop
+[[ "$STATUS" -eq 1 ]]
+expect_contains "$OUTPUT" '"error":"session_stale"'
+run_nextdev --session-id "$SESSION_ID_2" session-stop
+[[ "$STATUS" -eq 0 ]]
+
+# A session without a pak is allowed (the service records an empty identity).
+run_nextdev session-start
+[[ "$STATUS" -eq 0 ]]
+expect_contains "$OUTPUT" '"session":"active"'
+run_nextdev session-stop
+[[ "$STATUS" -eq 0 ]]
+expect_contains "$OUTPUT" '"cleaned":true'
+run_nextdev session-stop
+[[ "$STATUS" -eq 0 ]]
+expect_contains "$OUTPUT" '"result":"not_active"'
+
+# Claimed identity must match the pak manifest, and ids must be hex.
+run_nextdev --pak "$PAK" --app another.app session-start
+[[ "$STATUS" -eq 1 ]]
+expect_contains "$OUTPUT" '"error":"bad_request"'
+expect_contains "$OUTPUT" 'does not match'
+run_nextdev --session-id not-hex session-stop
+[[ "$STATUS" -eq 1 ]]
+expect_contains "$OUTPUT" '"error":"bad_request"'
+
+# Raw socket requests use the same operations and token.
+OUTPUT="$("$RAW" "$SOCKET" '{"op":"session-start","pak":"'"$PAK"'"}')"
+expect_contains "$OUTPUT" '"session":"active"'
+RAW_ID="$(printf '%s' "$OUTPUT" | sed -n 's/.*"session_id":"\([0-9a-f]*\)".*/\1/p')"
+[[ -n "$RAW_ID" ]]
+OUTPUT="$("$RAW" "$SOCKET" '{"op":"session-stop","session_id":"'"$RAW_ID"'"}')"
+expect_contains "$OUTPUT" '"cleaned":true'
+
+# Session operations never require a grant: the store is still absent here.
+[[ ! -e "$GRANTS" ]]
 
 run_nextdev --pak "$PAK" status
 [[ "$STATUS" -eq 0 ]]

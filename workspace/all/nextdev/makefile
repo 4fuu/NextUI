@@ -22,6 +22,7 @@ TARGET = nextdev
 INCDIR = -I. -I../common/
 SOURCE = $(TARGET).c \
 	../common/device_protocol.c \
+	../common/device_session.c \
 	../common/json_lite.c
 
 CC = $(CROSS_COMPILE)gcc
