@@ -105,6 +105,8 @@ typedef struct
 	// Theme
 	char fontFile[256];
 	int fontStyle; // 0x00 = TTF_STYLE_NORMAL, 0x01 = TTF_STYLE_BOLD, etc.
+	bool fontExplicit; // true once the user picked a font; language defaults must not override it
+	char language[8]; // "en" (default) or "zh"; invalid persisted values fall back to "en"
 	uint32_t color1_255; // not screen mapped
 	uint32_t color2_255; // not screen mapped
 	uint32_t color3_255; // not screen mapped
@@ -202,7 +204,9 @@ typedef struct
 #define TRANSITION_COMFY  2
 
 #define CFG_DEFAULT_FONT_FILE "font1.ttf"  // Next
+#define CFG_LANGUAGE_DEFAULT_FONT_FILE "font3.ttf" // Chinese UI default; missing -> CFG_DEFAULT_FONT_FILE
 #define CFG_DEFAULT_FONT_STYLE 0x01 // TTF_STYLE_BOLD (MinUI default)
+#define CFG_DEFAULT_LANGUAGE "en"
 #define CFG_DEFAULT_COLOR1 0xffffffffU
 #define CFG_DEFAULT_COLOR2 0x9b2257ffU
 #define CFG_DEFAULT_COLOR3 0x1e2329ffU
@@ -285,14 +289,21 @@ void CFG_init(FontLoad_callback_t fontCallback, ColorSet_callback_t ccb);
 void CFG_print(void);
 void CFG_get(const char *key, char * value);
 // void CFG_defaults(NextUISettings*);
-// The font filename to use as the UI font.
-// Built-in: "font1.ttf" (Next, default), "font2.ttf" (OG)
-// Custom fonts go in RES_PATH alongside built-in fonts.
+// The active font filename. When the user has not chosen one explicitly this
+// follows the language: font3.ttf for zh, font1.ttf for en. Missing language
+// fonts fall back to font1.ttf. Built-in: "font1.ttf" (Next), "font2.ttf" (OG);
+// custom fonts also live in RES_PATH.
 const char* CFG_getFontFile(void);
+// Choose a font explicitly, or pass NULL/"" to return to the language default.
+// An explicit choice is persisted and survives language changes.
 void CFG_setFontFile(const char* filename);
 // The font style to use for the UI font.
 int CFG_getFontStyle(void);
 void CFG_setFontStyle(int style);
+// The UI language: "en" or "zh". Anything else (including a missing or
+// corrupted persisted value) is normalized to "en".
+const char* CFG_getLanguage(void);
+void CFG_setLanguage(const char* language);
 // The colors to use for the UI. These are packed 0xRRGGBBAA values.
 // 0 - Color1 (primary hint/asset colour)
 // 1 - Color2 (accent colour)

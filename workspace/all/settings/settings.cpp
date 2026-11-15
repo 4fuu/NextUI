@@ -8,6 +8,7 @@ extern "C"
 #include "displaycal.h"
 #include "ra_auth.h"
 #include "ra_sync.h"
+#include "i18n.h"
 }
 
 #include <csignal>
@@ -100,14 +101,16 @@ static std::vector<FontEntry> enumerateFonts() {
     std::vector<FontEntry> fonts;
     fonts.push_back({"font1.ttf", "Next"});
     fonts.push_back({"font2.ttf", "OG"});
+    fonts.push_back({"font3.ttf", "Next CJK"});
 
     DIR *dir = opendir(RES_PATH);
     if (dir) {
         struct dirent *ent;
         while ((ent = readdir(dir)) != NULL) {
             if (ent->d_name[0] == '.') continue;
-            // skip built-in/system fonts (font1/font2 already added above)
-            if (strcmp(ent->d_name, "font1.ttf") == 0 || strcmp(ent->d_name, "font2.ttf") == 0)
+            // skip built-in/system fonts (font1/font2/font3 already added above)
+            if (strcmp(ent->d_name, "font1.ttf") == 0 || strcmp(ent->d_name, "font2.ttf") == 0 ||
+                strcmp(ent->d_name, "font3.ttf") == 0)
                 continue;
             if (strncmp(ent->d_name, "BPreplay", 8) == 0)
                 continue;
@@ -475,6 +478,14 @@ int main(int argc, char *argv[])
         }
 
         std::vector<AbstractMenuItem *> appearanceItems;
+        appearanceItems.push_back(new MenuItem{
+            ListItemType::Generic, TR("Language"),
+            TR("The interface language. Takes effect after returning to the desktop."),
+            std::vector<std::any>{std::string("en"), std::string("zh")},
+            std::vector<std::string>{"English", TR("Simplified Chinese")},
+            []() -> std::any { return std::string(CFG_getLanguage()); },
+            [](const std::any &value) { CFG_setLanguage(std::any_cast<std::string>(value).c_str()); },
+            []() { CFG_setLanguage(CFG_DEFAULT_LANGUAGE); }});
         auto fonts = enumerateFonts();
         std::vector<std::any> font_values;
         std::vector<std::string> font_labels;
@@ -485,7 +496,7 @@ int main(int argc, char *argv[])
         appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Font", "The font to render all UI text.", font_values, font_labels,
             []() -> std::any { return std::string(CFG_getFontFile()); },
             [](const std::any &value) { CFG_setFontFile(std::any_cast<std::string>(value).c_str()); },
-            []() { CFG_setFontFile(CFG_DEFAULT_FONT_FILE); }});
+            []() { CFG_setFontFile(NULL); }});
         appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Font style", "The style to render the UI font (e.g. bold)", std::vector<std::any>{0, 1}, std::vector<std::string>{"Normal", "Bold"},
             []() -> std::any { return CFG_getFontStyle(); },
             [](const std::any &value) { CFG_setFontStyle(std::any_cast<int>(value)); },
@@ -1138,27 +1149,27 @@ int main(int argc, char *argv[])
         MenuList *buttonMenu = buildFnButtonMenu(); // nullptr if this device has none
 
         std::vector<AbstractMenuItem*> mainItems = {
-            new MenuItem{ListItemType::Generic, "Appearance", "UI customization", {}, {}, nullptr, nullptr, DeferToSubmenu, appearanceMenu},
-            new MenuItem{ListItemType::Generic, "Display", "", {}, {}, nullptr, nullptr, DeferToSubmenu, displayMenu},
-            new MenuItem{ListItemType::Generic, "System", "", {}, {}, nullptr, nullptr, DeferToSubmenu, systemMenu},
+            new MenuItem{ListItemType::Generic, TR("Appearance"), TR("UI customization"), {}, {}, nullptr, nullptr, DeferToSubmenu, appearanceMenu},
+            new MenuItem{ListItemType::Generic, TR("Display"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, displayMenu},
+            new MenuItem{ListItemType::Generic, TR("System"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, systemMenu},
         };
 
         if(deviceInfo.hasMuteToggle())
-            mainItems.push_back(new MenuItem{ListItemType::Generic, "FN switch", "FN switch settings", {}, {}, nullptr, nullptr, DeferToSubmenu,
-                new MenuList(MenuItemType::Fixed, "FN Switch", muteItems)});
+            mainItems.push_back(new MenuItem{ListItemType::Generic, TR("FN switch"), TR("FN switch settings"), {}, {}, nullptr, nullptr, DeferToSubmenu,
+                new MenuList(MenuItemType::Fixed, TR("FN switch"), muteItems)});
 
         if(buttonMenu)
-            mainItems.push_back(new MenuItem{ListItemType::Generic, "Assignments", "Customize button assignments", {}, {}, nullptr, nullptr, DeferToSubmenu, buttonMenu});
+            mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Assignments"), TR("Customize button assignments"), {}, {}, nullptr, nullptr, DeferToSubmenu, buttonMenu});
 
-        mainItems.push_back(new MenuItem{ListItemType::Generic, "In-Game", "In-game settings for MinArch", {}, {}, nullptr, nullptr, DeferToSubmenu, minarchMenu});
+        mainItems.push_back(new MenuItem{ListItemType::Generic, TR("In-Game"), TR("In-game settings for MinArch"), {}, {}, nullptr, nullptr, DeferToSubmenu, minarchMenu});
 
         if(deviceInfo.hasWifi())
-            mainItems.push_back(new MenuItem{ListItemType::Generic, "Network", "", {}, {}, nullptr, nullptr, DeferToSubmenu, new Wifi::Menu(appQuit, ctx.dirty)});
+            mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Network"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, new Wifi::Menu(appQuit, ctx.dirty)});
 
         if(deviceInfo.hasBluetooth())
-            mainItems.push_back(new MenuItem{ListItemType::Generic, "Bluetooth", "", {}, {}, nullptr, nullptr, DeferToSubmenu, new Bluetooth::Menu(appQuit, ctx.dirty)});
+            mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Bluetooth"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, new Bluetooth::Menu(appQuit, ctx.dirty)});
 
-        mainItems.push_back(new MenuItem{ListItemType::Generic, "About", "", {}, {}, nullptr, nullptr, DeferToSubmenu, aboutMenu});
+        mainItems.push_back(new MenuItem{ListItemType::Generic, TR("About"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, aboutMenu});
 
         ctx.menu = new MenuList(MenuItemType::List, "Main", mainItems);
 
@@ -1248,10 +1259,10 @@ int main(int argc, char *argv[])
                         GFX_blitHardwareHints(ctx.screen, ctx.show_setting);
                     else
                     {
-                        char *hints[] = {(char *)("MENU"), (char *)("SLEEP"), NULL};
+                        char *hints[] = {(char *)("MENU"), (char *)TR("SLEEP"), NULL};
                         GFX_blitButtonGroup(hints, 0, ctx.screen, 0);
                     }
-                    char *hints[] = {(char *)("B"), (char *)("BACK"), (char *)("A"), (char *)("OKAY"), NULL};
+                    char *hints[] = {(char *)("B"), (char *)TR("BACK"), (char *)("A"), (char *)TR("OKAY"), NULL};
                     GFX_blitButtonGroup(hints, 1, ctx.screen, 1);
                 }
 

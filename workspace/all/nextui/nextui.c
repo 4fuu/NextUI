@@ -11,6 +11,7 @@
 #include "api.h"
 #include "utils.h"
 #include "config.h"
+#include "i18n.h"
 #include <sys/resource.h>
 #include <pthread.h>
 #include <assert.h>
@@ -148,7 +149,7 @@ static Entry* Entry_new(char* path, int type) {
 	return self;
 }
 
-static Entry* Entry_newNamed(char* path, int type, char* displayName) {
+static Entry* Entry_newNamed(char* path, int type, const char* displayName) {
 	Entry *self = Entry_new(path, type);
 	self->name = strdup(displayName);
 	return self;
@@ -809,19 +810,19 @@ static Array* getQuickEntries(void) {
 
 	// We assume Menu_init was already called and populated this
 	if (recents && recents->count)
-		Array_push(entries, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, "Recents"));
+		Array_push(entries, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, TR("Recents")));
 
 	if (hasCollections())
-		Array_push(entries, Entry_new(COLLECTIONS_PATH, ENTRY_DIR));
+		Array_push(entries, Entry_newNamed(COLLECTIONS_PATH, ENTRY_DIR, TR("Collections")));
 
 	// Not sure we need this, its just a button press away (B)
-	Array_push(entries, Entry_newNamed(ROMS_PATH, ENTRY_DIR, "Games"));
+	Array_push(entries, Entry_newNamed(ROMS_PATH, ENTRY_DIR, TR("Games")));
 
 	// Add tools if applicable
     if (hasTools() && !simple_mode) {
 		char tools_path[256];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-        Array_push(entries, Entry_new(tools_path, ENTRY_DIR));
+		Array_push(entries, Entry_newNamed(tools_path, ENTRY_DIR, TR("Tools")));
     }
 
 	return entries;
@@ -855,14 +856,14 @@ static Array* getRoot(void) {
     Array* root = Array_new();
 
     if (hasRecents() && CFG_getShowRecents())
-		Array_push(root, Entry_new(FAUX_RECENT_PATH, ENTRY_DIR));
+		Array_push(root, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, TR("Recently Played")));
 
 	Array *entries = getRoms();
 
 	// Handle collections
 	if (hasCollections() && CFG_getShowCollections()) {
         if (entries->count) {
-            Array_push(root, Entry_new(COLLECTIONS_PATH, ENTRY_DIR));
+            Array_push(root, Entry_newNamed(COLLECTIONS_PATH, ENTRY_DIR, TR("Collections")));
         } else { // No visible systems, promote collections to root
 			Array *collections = getCollections();
 			Array_yoink(entries, collections);
@@ -876,7 +877,7 @@ static Array* getRoot(void) {
     if (hasTools() && CFG_getShowTools() && !simple_mode) {
 		char tools_path[256];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-        Array_push(root, Entry_new(tools_path, ENTRY_DIR));
+		Array_push(root, Entry_newNamed(tools_path, ENTRY_DIR, TR("Tools")));
     }
 
     return root;
@@ -965,7 +966,7 @@ static Array* getDiscs(char* path){
 				Entry* entry = Entry_new(disc_path, ENTRY_ROM);
 				free(entry->name);
 				char name[16];
-				sprintf(name, "Disc %i", disc);
+				snprintf(name, sizeof(name), TR("Disc %i"), disc);
 				entry->name = strdup(name);
 				Array_push(entries, entry);
 			}
@@ -2703,9 +2704,9 @@ int main (int argc, char *argv[]) {
 
 				// buttons (duped and trimmed from below)
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
-				else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU","SLEEP",  NULL }, 0, screen, 0);
+				else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU",(char*)TR("SLEEP"),  NULL }, 0, screen, 0);
 
-				GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OPEN", NULL }, 1, screen, 1);
+				GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"), "A",(char*)TR("OPEN"), NULL }, 1, screen, 1);
 
 				if(CFG_getShowQuickswitcherUI()) {
 					#define MENU_ITEM_SIZE 72 // item size, top line
@@ -2880,10 +2881,10 @@ int main (int argc, char *argv[]) {
 						SDL_FreeSurface(text);
 					}
 
-					GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 0);
+					GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"),  NULL }, 0, screen, 0);
 
-					if(can_resume) GFX_blitButtonGroup((char*[]){ "Y", "REMOVE", "A","RESUME", NULL }, 1, screen, 1);
-					else GFX_blitButtonGroup((char*[]){ "A","OPEN", NULL }, 1, screen, 1);
+					if(can_resume) GFX_blitButtonGroup((char*[]){ "Y", (char*)TR("REMOVE"), "A",(char*)TR("RESUME"), NULL }, 1, screen, 1);
+					else GFX_blitButtonGroup((char*[]){ "A",(char*)TR("OPEN"), NULL }, 1, screen, 1);
 
 					if(has_preview) {
 						// lotta memory churn here
@@ -2962,15 +2963,15 @@ int main (int argc, char *argv[]) {
 								GFX_animateSurface(tmpsur,0-screen->w,0,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
 						}
 						SDL_FreeSurface(tmpsur);
-						GFX_blitMessage(font.large, "No Preview", screen, &preview_rect);
+						GFX_blitMessage(font.large, (char*)TR("No Preview"), screen, &preview_rect);
 					}
 					Entry_free(selectedEntry);
 				}
 				else {
 					SDL_Rect preview_rect = {ox,oy,screen->w,screen->h};
 					SDL_FillRect(screen, &preview_rect, 0);
-					GFX_blitMessage(font.large, "No Recents", screen, &preview_rect);
-					GFX_blitButtonGroup((char*[]){ "B","BACK", NULL }, 1, screen, 1);
+					GFX_blitMessage(font.large, (char*)TR("No Recents"), screen, &preview_rect);
+					GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"), NULL }, 1, screen, 1);
 				}
 
 				GFX_flipHidden();
@@ -3060,23 +3061,23 @@ int main (int argc, char *argv[]) {
 
 				// buttons
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
-				else if (can_resume) GFX_blitButtonGroup((char*[]){ "X","RESUME",  NULL }, 0, screen, 0);
+				else if (can_resume) GFX_blitButtonGroup((char*[]){ "X",(char*)TR("RESUME"),  NULL }, 0, screen, 0);
 				else GFX_blitButtonGroup((char*[]){
 					BTN_SLEEP==BTN_POWER?"POWER":"MENU",
-					BTN_SLEEP==BTN_POWER||simple_mode?"SLEEP":"INFO",
+					BTN_SLEEP==BTN_POWER||simple_mode?(char*)TR("SLEEP"):(char*)TR("INFO"),
 					NULL }, 0, screen, 0);
 
 				if (total==0) {
 					if (stack->count>1) {
-						GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 1);
+						GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"),  NULL }, 0, screen, 1);
 					}
 				}
 				else {
 					if (stack->count>1) {
-						GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OPEN", NULL }, 1, screen, 1);
+						GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"), "A",(char*)TR("OPEN"), NULL }, 1, screen, 1);
 					}
 					else {
-						GFX_blitButtonGroup((char*[]){ "A","OPEN", NULL }, 0, screen, 1);
+						GFX_blitButtonGroup((char*[]){ "A",(char*)TR("OPEN"), NULL }, 0, screen, 1);
 					}
 				}
 
@@ -3177,7 +3178,7 @@ int main (int argc, char *argv[]) {
 				}
 				else {
 					// TODO: for some reason screen's dimensions end up being 0x0 in GFX_blitMessage...
-					GFX_blitMessage(font.large, "Empty folder", screen, &(SDL_Rect){0,0,screen->w,screen->h}); //, NULL);
+					GFX_blitMessage(font.large, (char*)TR("Empty folder"), screen, &(SDL_Rect){0,0,screen->w,screen->h}); //, NULL);
 				}
 
 				lastScreen = SCREEN_GAMELIST;
