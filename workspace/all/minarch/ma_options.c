@@ -61,12 +61,13 @@ void OptionList_init(const struct retro_core_option_definition *defs) {
 			strcpy(item->name, getOptionNameFromKey(def->key,def->desc));
 
 			if (def->info) {
-				len = strlen(def->info) + 1;
-				item->desc = calloc(len, sizeof(char));
-				strncpy(item->desc, def->info, len);
+				size_t info_len = strlen(def->info);
+				size_t wrap_cap = info_len * 2 + 1;
+				item->desc = calloc(wrap_cap, sizeof(char));
+				strncpy(item->desc, def->info, info_len);
 
-				item->full = calloc(len, sizeof(char));
-				strncpy(item->full, item->desc, len);
+				item->full = calloc(wrap_cap, sizeof(char));
+				strncpy(item->full, item->desc, info_len);
 				// item->desc[len-1] = '\0';
 
 				GFX_wrapText(font.tiny, item->desc, DEVICE_WIDTH - SCALE1(2*PADDING), 2);
@@ -152,8 +153,12 @@ void OptionList_v2_init(const struct retro_core_options_v2 *opt_defs) {
 			item->category = def->category_key ? strdup(def->category_key) : NULL;
 
 			if (def->info) {
-				item->desc = strdup(def->info);
-				item->full = strdup(item->desc);
+				size_t info_len = strlen(def->info);
+				size_t wrap_cap = info_len * 2 + 1;
+				item->desc = calloc(wrap_cap, sizeof(char));
+				strcpy(item->desc, def->info);
+				item->full = calloc(wrap_cap, sizeof(char));
+				strcpy(item->full, item->desc);
 
 				GFX_wrapText(font.tiny, item->desc, DEVICE_WIDTH - SCALE1(2*PADDING), 2);
 				GFX_wrapText(font.medium, item->full, DEVICE_WIDTH - SCALE1(2*PADDING), 16);

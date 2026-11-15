@@ -1015,6 +1015,108 @@ void GFX_delay(void)
 FALLBACK_IMPLEMENTATION int PLAT_supportsOverscan(void) { return 0; }
 FALLBACK_IMPLEMENTATION void PLAT_setEffectColor(int next_color) {}
 
+// UTF-8 text layout helpers. Truncation and wrapping must never split a
+// multi-byte sequence, and CJK text needs break opportunities between
+// characters because it does not use spaces.
+
+static int GFX_utf8Decode(const char *str, uint32_t *codepoint)
+{
+	const unsigned char *s = (const unsigned char *)str;
+	unsigned char c = s[0];
+	int len;
+	uint32_t cp;
+
+	if (c < 0x80)
+	{
+		*codepoint = c;
+		return 1;
+	}
+	if ((c & 0xE0) == 0xC0)
+	{
+		cp = c & 0x1F;
+		len = 2;
+	}
+	else if ((c & 0xF0) == 0xE0)
+	{
+		cp = c & 0x0F;
+		len = 3;
+	}
+	else if ((c & 0xF8) == 0xF0)
+	{
+		cp = c & 0x07;
+		len = 4;
+	}
+	else
+	{
+		// Invalid lead byte: consume it alone so callers always advance.
+		*codepoint = c;
+		return 1;
+	}
+
+	for (int i = 1; i < len; i++)
+	{
+		if ((s[i] & 0xC0) != 0x80)
+		{
+			// Truncated or invalid sequence: consume the lead byte alone.
+			*codepoint = c;
+			return 1;
+		}
+		cp = (cp << 6) | (s[i] & 0x3F);
+	}
+	*codepoint = cp;
+	return len;
+}
+
+static int GFX_isCJK(uint32_t cp)
+{
+	return (cp >= 0x1100 && cp <= 0x11FF) ||  // Hangul Jamo
+		   (cp >= 0x2E80 && cp <= 0x303F) ||  // CJK radicals and punctuation
+		   (cp >= 0x3040 && cp <= 0x33FF) ||  // Kana and CJK compatibility
+		   (cp >= 0x3400 && cp <= 0x4DBF) ||  // CJK extension A
+		   (cp >= 0x4E00 && cp <= 0x9FFF) ||  // CJK unified ideographs
+		   (cp >= 0xA960 && cp <= 0xA97F) ||  // Hangul Jamo extension A
+		   (cp >= 0xAC00 && cp <= 0xD7FF) ||  // Hangul syllables
+		   (cp >= 0xF900 && cp <= 0xFAFF) ||  // CJK compatibility ideographs
+		   (cp >= 0xFE30 && cp <= 0xFE4F) ||  // CJK compatibility forms
+		   (cp >= 0xFF00 && cp <= 0xFFEF) ||  // Fullwidth forms
+		   (cp >= 0x20000 && cp <= 0x2FA1F);  // CJK extensions B-F
+}
+
+static int GFX_hasCJK(const char *str)
+{
+	if (!str)
+		return 0;
+	while (*str)
+	{
+		uint32_t cp;
+		str += GFX_utf8Decode(str, &cp);
+		if (GFX_isCJK(cp))
+			return 1;
+	}
+	return 0;
+}
+
+static int GFX_isSpace(uint32_t cp)
+{
+	return cp == ' ' || cp == '\t' || cp == 0x3000;
+}
+
+static void GFX_trimTrailingSpaces(char *line, size_t *len)
+{
+	while (*len > 0)
+	{
+		size_t start = *len - 1;
+		while (start > 0 && ((unsigned char)line[start] & 0xC0) == 0x80)
+			start--;
+		uint32_t cp;
+		GFX_utf8Decode(line + start, &cp);
+		if (!GFX_isSpace(cp))
+			break;
+		*len = start;
+		line[start] = '\0';
+	}
+}
+
 int GFX_truncateText(TTF_Font *font, const char *in_name, char *out_name, int max_width, int padding)
 {
 	int text_width;
@@ -1024,8 +1126,18 @@ int GFX_truncateText(TTF_Font *font, const char *in_name, char *out_name, int ma
 
 	while (text_width > max_width)
 	{
-		int len = strlen(out_name);
-		strcpy(&out_name[len - 4], "...\0");
+		size_t len = strlen(out_name);
+		if (len <= 3)
+			break; // Nothing left to shorten without splitting a character.
+
+		// Replace the last four bytes (the previous character plus the
+		// ellipsis tail) with an ellipsis, but back up to the start of the
+		// character that owns byte len-4 so a UTF-8 sequence is never cut.
+		size_t cut = len - 4;
+		while (cut > 0 && ((unsigned char)out_name[cut] & 0xC0) == 0x80)
+			cut--;
+		memcpy(&out_name[cut], "...", 3);
+		out_name[cut + 3] = '\0';
 		TTF_SizeUTF8(font, out_name, &text_width, NULL);
 		text_width += padding;
 	}
@@ -1051,28 +1163,21 @@ int GFX_getTextWidth(TTF_Font *font, const char *in_name, char *out_name, int ma
 	return text_width;
 }
 
-int GFX_wrapText(TTF_Font *font, char *str, int max_width, int max_lines)
+// Original space-delimited wrapping. Kept separate so English/Latin text
+// continues to produce exactly the same output as before.
+static int GFX_wrapTextSpaces(TTF_Font *font, char *str, int max_width, int max_lines)
 {
-	if (!str)
-		return 0;
-
 	int line_width;
 	int max_line_width = 0;
 	char *line = str;
-	char buffer[MAX_PATH];
 
 	TTF_SizeUTF8(font, line, &line_width, NULL);
 	if (line_width <= max_width)
-	{
-		line_width = GFX_truncateText(font, line, buffer, max_width, 0);
-		strcpy(line, buffer);
 		return line_width;
-	}
 
 	char *prev = NULL;
 	char *tmp = line;
 	int lines = 1;
-	int i = 0;
 	while (!max_lines || lines < max_lines)
 	{
 		tmp = strchr(tmp, ' ');
@@ -1101,10 +1206,16 @@ int GFX_wrapText(TTF_Font *font, char *str, int max_width, int max_lines)
 				max_line_width = line_width;
 			tmp[0] = ' ';
 			tmp += 1;
-			prev[0] = '\n';
-			prev += 1;
-			line = prev;
-			lines += 1;
+			if (prev)
+			{
+				prev[0] = '\n';
+				prev += 1;
+				line = prev;
+				lines += 1;
+			}
+			// If prev is NULL the first word alone is wider than max_width;
+			// keep scanning and truncate the final line instead of
+			// dereferencing a missing break position.
 		}
 		else
 		{ // continue
@@ -1112,15 +1223,260 @@ int GFX_wrapText(TTF_Font *font, char *str, int max_width, int max_lines)
 			prev = tmp;
 			tmp += 1;
 		}
-		i += 1;
 	}
 
-	line_width = GFX_truncateText(font, line, buffer, max_width, 0);
-	strcpy(line, buffer);
+	// Truncate the final line. Use a buffer sized to the line instead of a
+	// fixed MAX_PATH scratch buffer so long descriptions cannot overflow.
+	size_t buffer_size = strlen(line) + 1;
+	char *buffer = malloc(buffer_size);
+	if (buffer)
+	{
+		line_width = GFX_truncateText(font, line, buffer, max_width, 0);
+		memcpy(line, buffer, strlen(buffer) + 1);
+		free(buffer);
+	}
+	else
+	{
+		TTF_SizeUTF8(font, line, &line_width, NULL);
+	}
 
 	if (line_width > max_line_width)
 		max_line_width = line_width;
 	return max_line_width;
+}
+
+// CJK-aware wrapping. Each CJK character is its own break opportunity;
+// runs of non-CJK text stay together as words. The result is written back
+// into str, which must have room for 2 * strlen(str) + 1 bytes.
+static int GFX_wrapTextCJK(TTF_Font *font, char *str, int max_width, int max_lines)
+{
+	size_t len = strlen(str);
+	size_t cap = len * 2 + 1;
+	char *out = malloc(cap);
+	char *line = malloc(cap);
+	if (!out || !line)
+	{
+		free(out);
+		free(line);
+		return 0;
+	}
+
+	size_t out_len = 0;
+	size_t line_len = 0;
+	int line_width = 0;
+	int max_line_width = 0;
+	int lines = 1;
+	const char *p = str;
+	int done = 0;
+
+	out[0] = '\0';
+	line[0] = '\0';
+
+	while (*p && !done)
+	{
+		if (*p == '\n')
+		{
+			p += 1;
+			if (max_lines && lines >= max_lines)
+				break; // Keep the current line, drop the rest.
+
+			GFX_trimTrailingSpaces(line, &line_len);
+			TTF_SizeUTF8(font, line, &line_width, NULL);
+			if (line_width > max_line_width)
+				max_line_width = line_width;
+			if (out_len + line_len + 2 > cap)
+			{
+				done = 1;
+				break;
+			}
+			memcpy(out + out_len, line, line_len);
+			out_len += line_len;
+			out[out_len++] = '\n';
+			lines += 1;
+			line_len = 0;
+			line[0] = '\0';
+			line_width = 0;
+			continue;
+		}
+
+		const char *token = p;
+		uint32_t cp;
+		int clen = GFX_utf8Decode(p, &cp);
+		if (GFX_isSpace(cp))
+		{
+			if (line_len == 0)
+			{
+				p += clen; // Drop whitespace at the start of a line.
+				continue;
+			}
+			if (line_len + clen + 1 > cap)
+			{
+				done = 1;
+				break;
+			}
+			memcpy(line + line_len, p, clen);
+			line_len += clen;
+			line[line_len] = '\0';
+			TTF_SizeUTF8(font, line, &line_width, NULL);
+			p += clen;
+			continue;
+		}
+
+		if (GFX_isCJK(cp))
+		{
+			p += clen;
+		}
+		else
+		{
+			p += clen;
+			while (*p && *p != '\n')
+			{
+				uint32_t next_cp;
+				int next_len = GFX_utf8Decode(p, &next_cp);
+				if (GFX_isSpace(next_cp) || GFX_isCJK(next_cp))
+					break;
+				p += next_len;
+			}
+		}
+
+		size_t token_len = (size_t)(p - token);
+		size_t before_len = line_len;
+		if (line_len + token_len + 1 > cap)
+		{
+			done = 1;
+			break;
+		}
+		memcpy(line + line_len, token, token_len);
+		line_len += token_len;
+		line[line_len] = '\0';
+
+		int candidate_width;
+		TTF_SizeUTF8(font, line, &candidate_width, NULL);
+		if (candidate_width <= max_width || before_len == 0)
+		{
+			line_width = candidate_width;
+			continue;
+		}
+
+		// The candidate does not fit: break before it, after trimming any
+		// whitespace at the end of the previous line.
+		line[before_len] = '\0';
+		line_len = before_len;
+		GFX_trimTrailingSpaces(line, &line_len);
+
+		if (line_len == 0)
+		{
+			// The line held only whitespace; start over with the token.
+			memcpy(line, token, token_len);
+			line_len = token_len;
+			line[line_len] = '\0';
+			TTF_SizeUTF8(font, line, &line_width, NULL);
+			continue;
+		}
+
+		TTF_SizeUTF8(font, line, &line_width, NULL);
+		if (line_width > max_line_width)
+			max_line_width = line_width;
+
+		if (max_lines && lines >= max_lines)
+		{
+			// One more line would exceed max_lines. Build the rest of this
+			// paragraph and truncate it into the last allowed line.
+			size_t rest_len = 0;
+			while (p[rest_len] && p[rest_len] != '\n')
+				rest_len++;
+
+			size_t remainder_size = line_len + token_len + rest_len + 1;
+			char *remainder = malloc(remainder_size);
+			char *truncated = malloc(remainder_size);
+			if (!remainder || !truncated)
+			{
+				free(remainder);
+				free(truncated);
+				done = 1;
+				break;
+			}
+			memcpy(remainder, line, line_len);
+			memcpy(remainder + line_len, token, token_len);
+			memcpy(remainder + line_len + token_len, p, rest_len);
+			remainder[line_len + token_len + rest_len] = '\0';
+
+			int truncated_width = GFX_truncateText(font, remainder, truncated, max_width, 0);
+			size_t truncated_len = strlen(truncated);
+			if (out_len + truncated_len + 1 <= cap)
+			{
+				memcpy(out + out_len, truncated, truncated_len + 1);
+				out_len += truncated_len;
+				if (truncated_width > max_line_width)
+					max_line_width = truncated_width;
+			}
+			free(remainder);
+			free(truncated);
+			done = 1;
+			break;
+		}
+
+		if (out_len + line_len + 2 > cap)
+		{
+			done = 1;
+			break;
+		}
+		memcpy(out + out_len, line, line_len);
+		out_len += line_len;
+		out[out_len++] = '\n';
+		lines += 1;
+
+		// Start the next line with the token that did not fit.
+		memcpy(line, token, token_len);
+		line_len = token_len;
+		line[line_len] = '\0';
+		TTF_SizeUTF8(font, line, &line_width, NULL);
+	}
+
+	if (!done)
+	{
+		GFX_trimTrailingSpaces(line, &line_len);
+		TTF_SizeUTF8(font, line, &line_width, NULL);
+		if (line_width > max_line_width)
+			max_line_width = line_width;
+
+		char *last = line;
+		char *truncated = NULL;
+		if (line_width > max_width)
+		{
+			size_t truncated_size = line_len + 1;
+			truncated = malloc(truncated_size);
+			if (truncated)
+			{
+				int truncated_width = GFX_truncateText(font, line, truncated, max_width, 0);
+				if (truncated_width > max_line_width)
+					max_line_width = truncated_width;
+				last = truncated;
+			}
+		}
+		size_t last_len = strlen(last);
+		if (out_len + last_len + 1 <= cap)
+		{
+			memcpy(out + out_len, last, last_len + 1);
+			out_len += last_len;
+		}
+		free(truncated);
+	}
+	out[out_len] = '\0';
+
+	memcpy(str, out, out_len + 1);
+	free(out);
+	free(line);
+	return max_line_width;
+}
+
+int GFX_wrapText(TTF_Font *font, char *str, int max_width, int max_lines)
+{
+	if (!str)
+		return 0;
+	if (!GFX_hasCJK(str))
+		return GFX_wrapTextSpaces(font, str, max_width, max_lines);
+	return GFX_wrapTextCJK(font, str, max_width, max_lines);
 }
 
 int GFX_blitWrappedText(TTF_Font *font, const char *text, int max_width, int max_lines, SDL_Color color, SDL_Surface *surface, int y)
@@ -2168,12 +2524,69 @@ void GFX_blitButton(char *hint, char *button, SDL_Surface *dst, SDL_Rect *dst_re
 	SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){ox + dst_rect->x, dst_rect->y + (SCALE1(BUTTON_SIZE) - text->h) / 2, text->w, text->h});
 	SDL_FreeSurface(text);
 }
+static void GFX_blitMessageCJK(TTF_Font *font, char *msg, SDL_Surface *dst, SDL_Rect *dst_rect)
+{
+	size_t len = strlen(msg);
+	char *wrapped = malloc(len * 2 + 1);
+	if (!wrapped)
+		return;
+	strcpy(wrapped, msg);
+	GFX_wrapText(font, wrapped, dst_rect->w, 0);
+
+	int line_count = 1;
+	for (char *p = wrapped; *p; p++)
+	{
+		if (*p == '\n')
+			line_count += 1;
+	}
+
+	int line_height = TTF_FontHeight(font);
+	int rendered_height = line_height * line_count;
+	int y = dst_rect->y + (dst_rect->h - rendered_height) / 2;
+	SDL_Color color = uintToColour(CFG_getColor(COLOR_LIST_TEXT));
+
+	char *line = wrapped;
+	for (int i = 0; i < line_count; i++)
+	{
+		char *end = strchr(line, '\n');
+		if (end)
+			*end = '\0';
+
+		if (*line)
+		{
+			SDL_Surface *text = TTF_RenderUTF8_Blended(font, line, color);
+			if (text)
+			{
+				int x = dst_rect->x + (dst_rect->w - text->w) / 2;
+				SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){x, y});
+				SDL_FreeSurface(text);
+			}
+		}
+
+		y += line_height;
+		if (!end)
+			break;
+		line = end + 1;
+	}
+	free(wrapped);
+}
+
 void GFX_blitMessage(TTF_Font *font, char *msg, SDL_Surface *dst, SDL_Rect *dst_rect)
 {
+	SDL_Rect full_rect;
 	if (!dst_rect)
-		dst_rect = &(SDL_Rect){0, 0, dst->w, dst->h};
+	{
+		full_rect = (SDL_Rect){0, 0, dst->w, dst->h};
+		dst_rect = &full_rect;
+	}
 
 	// LOG_info("GFX_blitMessage: %p (%ix%i)", dst, dst_rect->w,dst_rect->h);
+
+	if (GFX_hasCJK(msg))
+	{
+		GFX_blitMessageCJK(font, msg, dst, dst_rect);
+		return;
+	}
 
 	SDL_Surface *text;
 #define TEXT_BOX_MAX_ROWS 16
@@ -2194,30 +2607,39 @@ void GFX_blitMessage(TTF_Font *font, char *msg, SDL_Surface *dst, SDL_Rect *dst_
 	int y = dst_rect->y;
 	y += (dst_rect->h - rendered_height) / 2;
 
-	char line[256];
 	for (int i = 0; i < row_count; i++)
 	{
 		int len;
 		if (i + 1 < row_count)
 		{
 			len = rows[i + 1] - rows[i] - 1;
-			if (len)
-				strncpy(line, rows[i], len);
-			line[len] = '\0';
 		}
 		else
 		{
 			len = strlen(rows[i]);
-			strcpy(line, rows[i]);
 		}
 
 		if (len)
 		{
+			char stack_line[256];
+			char *line = stack_line;
+			if (len >= (int)sizeof(stack_line))
+			{
+				line = malloc((size_t)len + 1);
+				if (!line)
+					continue;
+			}
+			memcpy(line, rows[i], (size_t)len);
+			line[len] = '\0';
+
 			text = TTF_RenderUTF8_Blended_Wrapped(font, line, uintToColour(CFG_getColor(COLOR_LIST_TEXT)), dst_rect->w);
 			int x = dst_rect->x;
 			x += (dst_rect->w - text->w) / 2;
 			SDL_BlitSurface(text, NULL, dst, &(SDL_Rect){x, y});
 			SDL_FreeSurface(text);
+
+			if (line != stack_line)
+				free(line);
 		}
 		y += line_height;
 	}

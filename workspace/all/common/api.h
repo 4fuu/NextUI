@@ -361,6 +361,8 @@ void PLAT_resetScrollText(void);
 void GFX_scrollTextSurface(TTF_Font* font, const char* in_name, SDL_Surface** out_surface, int max_width, int height, int padding, SDL_Color color,float heightratio); // returns final width
 int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
 int GFX_getTextHeight(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
+// Wraps in place. The buffer must hold at least 2 * strlen(str) + 1 bytes:
+// CJK text can insert one line break between characters.
 int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines);
 int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max_lines, SDL_Color color, SDL_Surface* surface, int y); // returns new y position
 
