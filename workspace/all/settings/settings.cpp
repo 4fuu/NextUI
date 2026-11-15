@@ -567,7 +567,7 @@ int main(int argc, char *argv[])
         auto *appearanceMenu = new MenuList(MenuItemType::Fixed, "Appearance", std::move(appearanceItems));
 
         std::vector<AbstractMenuItem*> displayItems = {
-            new MenuItem{ListItemType::Generic, "Brightness", "Display brightness (0 to 10)", 0, 10, "",[]() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Brightness"), TR("Display brightness (0 to 10)"), 0, 10, "",[]() -> std::any
             { return GetBrightness(); }, [](const std::any &value)
             { SetBrightness(std::any_cast<int>(value)); },
             []() { SetBrightness(SETTINGS_DEFAULT_BRIGHTNESS);}},
@@ -577,7 +577,7 @@ int main(int argc, char *argv[])
         if(deviceInfo.hasColorTemperature())
         {
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, "Color temperature", "Color temperature (0 to 40)", 0, 40, "",[]() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Color temperature"), TR("Color temperature (0 to 40)"), 0, 40, "",[]() -> std::any
                 { return GetColortemp(); }, [](const std::any &value)
                 { SetColortemp(std::any_cast<int>(value)); },
                 []() { SetColortemp(SETTINGS_DEFAULT_COLORTEMP);}});
@@ -586,12 +586,12 @@ int main(int argc, char *argv[])
         if(deviceInfo.hasContrastSaturation())
         {
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, "Contrast", "Contrast enhancement (-4 to 5)", -4, 5, "",[]() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Contrast"), TR("Contrast enhancement (-4 to 5)"), -4, 5, "",[]() -> std::any
                 { return GetContrast(); }, [](const std::any &value)
                 { SetContrast(std::any_cast<int>(value)); },
                 []() { SetContrast(SETTINGS_DEFAULT_CONTRAST);}});
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, "Saturation", "Saturation enhancement (-5 to 5)", -5, 5, "",[]() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Saturation"), TR("Saturation enhancement (-5 to 5)"), -5, 5, "",[]() -> std::any
                 { return GetSaturation(); }, [](const std::any &value)
                 { SetSaturation(std::any_cast<int>(value)); },
                 []() { SetSaturation(SETTINGS_DEFAULT_SATURATION);}});
@@ -600,7 +600,7 @@ int main(int argc, char *argv[])
         if(deviceInfo.hasExposure())
         {
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, "Exposure", "Exposure enhancement (-4 to 5)", -4, 5, "",[]() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Exposure"), TR("Exposure enhancement (-4 to 5)"), -4, 5, "",[]() -> std::any
                 { return GetExposure(); }, [](const std::any &value)
                 { SetExposure(std::any_cast<int>(value)); },
                 []() { SetExposure(SETTINGS_DEFAULT_EXPOSURE);}});
@@ -624,33 +624,33 @@ int main(int argc, char *argv[])
                 deviceInfo.getModel() == DeviceInfo::RGCubeXX ? DISPLAYCAL_PRESET_RGCUBEXX :
                 DISPLAYCAL_PRESET_DEFAULT);
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, "White point correction", "Corrects the display white point to better match the \nsRGB standard, at the expense of some peak brightness.", {false, true}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("White point correction"), TR("Corrects the display white point to better match the \nsRGB standard, at the expense of some peak brightness."), {false, true}, on_off, []() -> std::any
                 { return GetDisplayCalEnabled() != 0; }, [](const std::any &value)
                 { SetDisplayCalEnabled(std::any_cast<bool>(value)); },
                 [defaultDisplayCal]() { SetDisplayCalEnabled(defaultDisplayCal.enabled); }});
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, "Red gain", "White point correction red channel gain (0 to 200)", DISPLAYCAL_GAIN_MIN, DISPLAYCAL_GAIN_MAX, "", []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Red gain"), TR("White point correction red channel gain (0 to 200)"), DISPLAYCAL_GAIN_MIN, DISPLAYCAL_GAIN_MAX, "", []() -> std::any
                 { return GetDisplayCalRedGain(); }, [](const std::any &value)
                 { SetDisplayCalRedGain(std::any_cast<int>(value)); },
                 [defaultDisplayCal]() { SetDisplayCalRedGain(defaultDisplayCal.red_gain); }});
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, "Green gain", "White point correction green channel gain (0 to 200)", DISPLAYCAL_GAIN_MIN, DISPLAYCAL_GAIN_MAX, "", []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Green gain"), TR("White point correction green channel gain (0 to 200)"), DISPLAYCAL_GAIN_MIN, DISPLAYCAL_GAIN_MAX, "", []() -> std::any
                 { return GetDisplayCalGreenGain(); }, [](const std::any &value)
                 { SetDisplayCalGreenGain(std::any_cast<int>(value)); },
                 [defaultDisplayCal]() { SetDisplayCalGreenGain(defaultDisplayCal.green_gain); }});
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, "Blue gain", "White point correction blue channel gain (0 to 200)", DISPLAYCAL_GAIN_MIN, DISPLAYCAL_GAIN_MAX, "", []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Blue gain"), TR("White point correction blue channel gain (0 to 200)"), DISPLAYCAL_GAIN_MIN, DISPLAYCAL_GAIN_MAX, "", []() -> std::any
                 { return GetDisplayCalBlueGain(); }, [](const std::any &value)
                 { SetDisplayCalBlueGain(std::any_cast<int>(value)); },
                 [defaultDisplayCal]() { SetDisplayCalBlueGain(defaultDisplayCal.blue_gain); }});
         }
         displayItems.push_back(
-            new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu});
+            new MenuItem{ListItemType::Button, TR("Reset to defaults"), TR("Resets all options in this menu to their default values."), ResetCurrentMenu});
 
-        auto displayMenu = new MenuList(MenuItemType::Fixed, "Display", displayItems);
+        auto displayMenu = new MenuList(MenuItemType::Fixed, TR("Display"), displayItems);
 
         std::vector<AbstractMenuItem*> systemItems = {
-            new MenuItem{ListItemType::Generic, "Volume", "Speaker volume",
+            new MenuItem{ListItemType::Generic, TR("Volume"), TR("Speaker volume"),
             {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20},
             {"Muted", "5%","10%","15%","20%","25%","30%","35%","40%","45%","50%","55%","60%","65%","70%","75%","80%","85%","90%","95%","100%"},
             []() -> std::any{ return GetVolume(); }, [](const std::any &value)
@@ -748,13 +748,13 @@ int main(int argc, char *argv[])
 
         std::vector<AbstractMenuItem*> muteItems =
         {
-            new MenuItem{ListItemType::Generic, "Volume when toggled", "Speaker volume (0-20)",
+            new MenuItem{ListItemType::Generic, TR("Volume when toggled"), TR("Speaker volume (0-20)"),
             {(int)SETTINGS_DEFAULT_MUTE_NO_CHANGE, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20},
             {"Unchanged", "Muted", "5%","10%","15%","20%","25%","30%","35%","40%","45%","50%","55%","60%","65%","70%","75%","80%","85%","90%","95%","100%"},
             []() -> std::any { return GetMutedVolume(); },
             [](const std::any &value) { SetMutedVolume(std::any_cast<int>(value)); },
             []() { SetMutedVolume(0); }},
-            new MenuItem{ListItemType::Generic, "FN switch disables LED", "Switch will also disable LEDs", {false, true}, on_off,
+            new MenuItem{ListItemType::Generic, TR("FN switch disables LED"), TR("Switch will also disable LEDs"), {false, true}, on_off,
             []() -> std::any { return CFG_getMuteLEDs(); },
             [](const std::any &value) { CFG_setMuteLEDs(std::any_cast<bool>(value)); },
             []() { CFG_setMuteLEDs(CFG_DEFAULT_MUTELEDS); }},

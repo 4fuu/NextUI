@@ -1,10 +1,13 @@
-# A3 final zh values - 32 entries, delivered 2026-11-15.
-# Source: workspace/all/common/i18n.c in thread T-01a1dff8-f4eb-73ca-8e1a-4a4cd923cd8a,
-# based on origin/main 3e41a1f (A3 only; A1/A2 deliberately excluded).
-# One simplified-Chinese value per line; comments start with #. The font build
-# collects every character from these lines, so this file is the single source
-# of truth for fixed-UI coverage. A3 said no Level-2/rare/traditional chars and
-# no non-ASCII digits or units are used.
+# Fixed-UI zh values - the single source of truth for font3.ttf coverage.
+# Source: workspace/all/common/i18n.c at integration/batch2@ee0eee7 plus the
+# display/sound/light settings rows (58 entries), regenerated 2026-11-15.
+# Original A3 snapshot: 32 entries delivered 2026-11-15 (thread
+# T-01a1dff8-f4eb-73ca-8e1a-4a4cd923cd8a, based on origin/main 3e41a1f).
+# Extension: Settings Display page, the System/FN-switch volume rows and the
+# FN-switch LED row. One simplified-Chinese value per line; comments start
+# with #. The font build collects every character from these lines, so this
+# file must stay in sync with i18n.c. Still no Level-2/rare/traditional chars
+# and no non-ASCII digits or units.
 最近游玩
 最近
 收藏
@@ -37,3 +40,29 @@ MinArch 的游戏内设置
 语言
 界面显示语言。返回桌面后生效。
 简体中文
+亮度
+显示亮度（0 到 10）
+色温
+色温（0 到 40）
+对比度
+对比度增强（-4 到 5）
+饱和度
+饱和度增强（-5 到 5）
+曝光
+曝光增强（-4 到 5）
+白点校正
+校正显示白点，使其更接近 sRGB 标准，但会牺牲一定的峰值亮度。
+红色增益
+白点校正红色通道增益（0 到 200）
+绿色增益
+白点校正绿色通道增益（0 到 200）
+蓝色增益
+白点校正蓝色通道增益（0 到 200）
+恢复默认设置
+将本菜单中的所有选项恢复为默认值。
+音量
+扬声器音量
+切换时音量
+扬声器音量（0-20）
+FN 开关关闭 LED
+该开关同时关闭 LED。

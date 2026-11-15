@@ -50,6 +50,38 @@ static const I18nEntry zhTable[] = {
     {"Language", "语言"},
     {"The interface language. Takes effect after returning to the desktop.", "界面显示语言。返回桌面后生效。"},
     {"Simplified Chinese", "简体中文"},
+
+    // Settings: Display page labels and hints.
+    {"Brightness", "亮度"},
+    {"Display brightness (0 to 10)", "显示亮度（0 到 10）"},
+    {"Color temperature", "色温"},
+    {"Color temperature (0 to 40)", "色温（0 到 40）"},
+    {"Contrast", "对比度"},
+    {"Contrast enhancement (-4 to 5)", "对比度增强（-4 到 5）"},
+    {"Saturation", "饱和度"},
+    {"Saturation enhancement (-5 to 5)", "饱和度增强（-5 到 5）"},
+    {"Exposure", "曝光"},
+    {"Exposure enhancement (-4 to 5)", "曝光增强（-4 到 5）"},
+    {"White point correction", "白点校正"},
+    {"Corrects the display white point to better match the \nsRGB standard, at the expense of some peak brightness.", "校正显示白点，使其更接近 sRGB 标准，但会牺牲一定的峰值亮度。"},
+    {"Red gain", "红色增益"},
+    {"White point correction red channel gain (0 to 200)", "白点校正红色通道增益（0 到 200）"},
+    {"Green gain", "绿色增益"},
+    {"White point correction green channel gain (0 to 200)", "白点校正绿色通道增益（0 到 200）"},
+    {"Blue gain", "蓝色增益"},
+    {"White point correction blue channel gain (0 to 200)", "白点校正蓝色通道增益（0 到 200）"},
+    {"Reset to defaults", "恢复默认设置"},
+    {"Resets all options in this menu to their default values.", "将本菜单中的所有选项恢复为默认值。"},
+
+    // Settings: sound rows (System page volume, FN switch page mute volume).
+    {"Volume", "音量"},
+    {"Speaker volume", "扬声器音量"},
+    {"Volume when toggled", "切换时音量"},
+    {"Speaker volume (0-20)", "扬声器音量（0-20）"},
+
+    // Settings: light row (FN switch page LED behavior).
+    {"FN switch disables LED", "FN 开关关闭 LED"},
+    {"Switch will also disable LEDs", "该开关同时关闭 LED。"},
 };
 
 #define ZH_TABLE_COUNT ((int)(sizeof(zhTable) / sizeof(zhTable[0])))
