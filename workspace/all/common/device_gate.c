@@ -231,6 +231,7 @@ DeviceGateError device_gate_call(const DeviceCallRequest* request, const char* g
     char backend_detail[DEVICE_GATE_DETAIL_MAX];
     DeviceGrants grants;
     DeviceGateError error;
+    const DeviceGrant* grant;
 
     if (result == NULL) return DEVICE_GATE_BAD_REQUEST;
     device_call_result_init(result);
@@ -321,9 +322,52 @@ DeviceGateError device_gate_call(const DeviceCallRequest* request, const char* g
             return error;
         }
 
-        if (device_grants_has(&grants, app.app, app.pak, app.version, request->capability))
+        grant = device_grants_find(&grants, app.app, app.pak, app.version,
+                                   request->capability);
+        if (grant != NULL)
         {
-            result->authorized = 1;
+            DeviceIdentity identity;
+            DeviceIdentityStatus identity_status = device_identity_scan(app.pak, 0, &identity);
+
+            if (identity_status != DEVICE_IDENTITY_OK)
+            {
+                set_detail(result->detail, sizeof result->detail, "pak identity is %s: %s",
+                           device_identity_status_name(identity_status), identity.detail);
+                result->error = DEVICE_GATE_IDENTITY_UNAVAILABLE;
+                return result->error;
+            }
+
+            /*
+             * Metadata is only a cheap "unchanged" witness. Any metadata change
+             * (including a touch that preserves bytes) triggers a content
+             * re-hash, so a same-version replacement cannot inherit silently.
+             */
+            if (strcmp(identity.metadata, grant->metadata) == 0)
+            {
+                result->authorized = 1;
+            }
+            else
+            {
+                identity_status = device_identity_scan(app.pak, 1, &identity);
+                if (identity_status != DEVICE_IDENTITY_OK)
+                {
+                    set_detail(result->detail, sizeof result->detail, "pak identity is %s: %s",
+                               device_identity_status_name(identity_status), identity.detail);
+                    result->error = DEVICE_GATE_IDENTITY_UNAVAILABLE;
+                    return result->error;
+                }
+                if (strcmp(identity.content, grant->content) == 0)
+                {
+                    result->authorized = 1;
+                }
+                else
+                {
+                    set_detail(result->detail, sizeof result->detail,
+                               "pak content changed since the grant");
+                    result->error = DEVICE_GATE_IDENTITY_MISMATCH;
+                    return result->error;
+                }
+            }
         }
         else if (device_grants_has_identity(&grants, app.app, request->capability))
         {
@@ -384,6 +428,7 @@ DeviceGateError device_gate_status(const char* claimed_app, const char* pak_path
 {
     ResolvedApp app;
     DeviceGrants grants;
+    DeviceIdentity identity;
     DeviceGateError error;
     size_t i;
 
@@ -410,6 +455,10 @@ DeviceGateError device_gate_status(const char* claimed_app, const char* pak_path
     memcpy(status->pak, app.pak, strlen(app.pak) + 1);
     status->manifest_status = app.manifest_status;
     status->grants_status = device_grants_load(grants_path, &grants);
+    status->identity_status = device_identity_scan(app.pak, 1, &identity);
+    if (status->identity_status != DEVICE_IDENTITY_OK)
+        snprintf(status->identity_detail, sizeof status->identity_detail, "%s",
+                 identity.detail);
 
     for (i = 0; i < device_capability_total() && status->capability_count < DEVICE_GATE_STATUS_MAX;
          i++)
@@ -429,11 +478,17 @@ DeviceGateError device_gate_status(const char* claimed_app, const char* pak_path
                                               sizeof ignored);
 
         if (!info->grant_required)
+        {
             entry->authorized = 1;
-        else if (status->grants_status == DEVICE_GRANTS_STATUS_OK
-                 || status->grants_status == DEVICE_GRANTS_STATUS_MISSING)
-            entry->authorized = device_grants_has(&grants, app.app, app.pak, app.version,
-                                                  info->name);
+        }
+        else if (status->identity_status == DEVICE_IDENTITY_OK
+                 && (status->grants_status == DEVICE_GRANTS_STATUS_OK
+                     || status->grants_status == DEVICE_GRANTS_STATUS_MISSING))
+        {
+            const DeviceGrant* grant = device_grants_find(&grants, app.app, app.pak,
+                                                          app.version, info->name);
+            entry->authorized = grant != NULL && strcmp(identity.content, grant->content) == 0;
+        }
 
         status->capability_count++;
     }
@@ -481,6 +536,7 @@ DeviceGateError device_gate_grant(const DeviceCallRequest* request, const char* 
     ResolvedApp app;
     const DeviceCapabilityInfo* capability;
     DeviceGrants grants;
+    DeviceIdentity identity;
     DeviceGateError error;
 
     set_detail(detail, detail_size, "");
@@ -520,11 +576,21 @@ DeviceGateError device_gate_grant(const DeviceCallRequest* request, const char* 
         return DEVICE_GATE_NOT_DECLARED;
     }
 
+    {
+        DeviceIdentityStatus identity_status = device_identity_scan(app.pak, 1, &identity);
+        if (identity_status != DEVICE_IDENTITY_OK)
+        {
+            set_detail(detail, detail_size, "pak identity is %s: %s",
+                       device_identity_status_name(identity_status), identity.detail);
+            return DEVICE_GATE_IDENTITY_UNAVAILABLE;
+        }
+    }
+
     error = load_grants_for_call(grants_path, &grants, detail, detail_size);
     if (error != DEVICE_GATE_OK) return error;
 
     if (!device_grants_add(&grants, app.app, app.pak, app.version, request->capability,
-                           (long)time(NULL)))
+                           identity.content, identity.metadata, (long)time(NULL)))
     {
         set_detail(detail, detail_size, "grant store is full or the record is invalid");
         return DEVICE_GATE_GRANT_STORE_ERROR;

@@ -439,6 +439,14 @@ int device_protocol_write_status_response(const DeviceStatusResult* status, char
     writer_prefix(&writer, &first);
     writer_field_string(&writer, "grants", device_grants_status_name(status->grants_status));
     writer_prefix(&writer, &first);
+    writer_field_string(&writer, "identity",
+                        device_identity_status_name(status->identity_status));
+    if (status->identity_detail[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "identity_detail", status->identity_detail);
+    }
+    writer_prefix(&writer, &first);
     writer_field_string(&writer, "backend", status->backend_name != NULL ? status->backend_name
                                                                          : "none");
 

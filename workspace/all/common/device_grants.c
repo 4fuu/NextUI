@@ -12,7 +12,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define DEVICE_GRANTS_MAX_BYTES (64u * 1024u)
+#define DEVICE_GRANTS_MAX_BYTES (256u * 1024u)
 #define DEVICE_GRANTS_ESCAPE_MAX (DEVICE_GRANT_PATH_MAX * 2 + 2)
 
 void device_grants_init(DeviceGrants* grants)
@@ -47,6 +47,23 @@ static int capability_name_valid(const char* capability)
         if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z')
             || (*p >= '0' && *p <= '9') || *p == '.' || *p == '_' || *p == '-')
             continue;
+        return 0;
+    }
+    return 1;
+}
+
+int device_grants_hash_valid(const char* hash)
+{
+    size_t length;
+    const unsigned char* p;
+
+    if (hash == NULL) return 0;
+    length = strlen(hash);
+    if (length != DEVICE_GRANT_HASH_HEX - 1) return 0;
+
+    for (p = (const unsigned char*)hash; *p != '\0'; p++)
+    {
+        if ((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f')) continue;
         return 0;
     }
     return 1;
@@ -94,6 +111,8 @@ static int parse_grant(JsonLiteCursor* cursor, DeviceGrant* grant)
         SEEN_PAK = 1u << 1,
         SEEN_VERSION = 1u << 2,
         SEEN_CAPABILITY = 1u << 3,
+        SEEN_CONTENT = 1u << 4,
+        SEEN_METADATA = 1u << 5,
     };
     unsigned seen = 0;
 
@@ -169,6 +188,30 @@ static int parse_grant(JsonLiteCursor* cursor, DeviceGrant* grant)
                 return 0;
             }
         }
+        else if (key_length < sizeof key && strcmp(key, "content") == 0)
+        {
+            if (!(seen & SEEN_CONTENT))
+            {
+                seen |= SEEN_CONTENT;
+                if (!parse_string_field(cursor, grant->content, sizeof grant->content)) return 0;
+            }
+            else if (!json_lite_skip_value(cursor, 2))
+            {
+                return 0;
+            }
+        }
+        else if (key_length < sizeof key && strcmp(key, "metadata") == 0)
+        {
+            if (!(seen & SEEN_METADATA))
+            {
+                seen |= SEEN_METADATA;
+                if (!parse_string_field(cursor, grant->metadata, sizeof grant->metadata)) return 0;
+            }
+            else if (!json_lite_skip_value(cursor, 2))
+            {
+                return 0;
+            }
+        }
         else if (key_length < sizeof key && strcmp(key, "granted_at") == 0)
         {
             long value;
@@ -192,11 +235,14 @@ static int parse_grant(JsonLiteCursor* cursor, DeviceGrant* grant)
         json_lite_skip_ws(cursor);
     }
 
-    if ((seen & (SEEN_APP | SEEN_PAK | SEEN_CAPABILITY)) != (SEEN_APP | SEEN_PAK | SEEN_CAPABILITY))
+    if ((seen & (SEEN_APP | SEEN_PAK | SEEN_CAPABILITY | SEEN_CONTENT | SEEN_METADATA))
+        != (SEEN_APP | SEEN_PAK | SEEN_CAPABILITY | SEEN_CONTENT | SEEN_METADATA))
         return 0;
 
     return device_grants_identity_valid(grant->app, grant->pak, grant->version,
-                                        grant->capability);
+                                        grant->capability)
+           && device_grants_hash_valid(grant->content)
+           && device_grants_hash_valid(grant->metadata);
 }
 
 static int parse_store(const char* text, size_t length, DeviceGrants* grants)
@@ -233,7 +279,9 @@ static int parse_store(const char* text, size_t length, DeviceGrants* grants)
             if (!seen_version)
             {
                 seen_version = 1;
-                if (!json_lite_parse_integer(&cursor, &version) || version != 1) return 0;
+                if (!json_lite_parse_integer(&cursor, &version)
+                    || version != DEVICE_GRANTS_VERSION)
+                    return 0;
             }
             else if (!json_lite_skip_value(&cursor, 2))
             {
@@ -400,7 +448,9 @@ int device_grants_save(const char* path, const DeviceGrants* grants)
     {
         if (!device_grants_identity_valid(grants->grants[i].app, grants->grants[i].pak,
                                           grants->grants[i].version,
-                                          grants->grants[i].capability))
+                                          grants->grants[i].capability)
+            || !device_grants_hash_valid(grants->grants[i].content)
+            || !device_grants_hash_valid(grants->grants[i].metadata))
             return 0;
     }
 
@@ -417,7 +467,7 @@ int device_grants_save(const char* path, const DeviceGrants* grants)
         return 0;
     }
 
-    if (fprintf(file, "{\"version\":1,\"grants\":[") < 0) ok = 0;
+    if (fprintf(file, "{\"version\":%d,\"grants\":[", DEVICE_GRANTS_VERSION) < 0) ok = 0;
 
     for (i = 0; ok && i < grants->count; i++)
     {
@@ -431,6 +481,10 @@ int device_grants_save(const char* path, const DeviceGrants* grants)
         if (ok && !write_escaped(file, grant->version, scratch, sizeof scratch)) ok = 0;
         if (ok && fprintf(file, "\",\"capability\":\"") < 0) ok = 0;
         if (ok && !write_escaped(file, grant->capability, scratch, sizeof scratch)) ok = 0;
+        if (ok && fprintf(file, "\",\"content\":\"") < 0) ok = 0;
+        if (ok && !write_escaped(file, grant->content, scratch, sizeof scratch)) ok = 0;
+        if (ok && fprintf(file, "\",\"metadata\":\"") < 0) ok = 0;
+        if (ok && !write_escaped(file, grant->metadata, scratch, sizeof scratch)) ok = 0;
         if (ok && fprintf(file, "\",\"granted_at\":%ld}", grant->granted_at) < 0) ok = 0;
     }
 
@@ -457,13 +511,14 @@ int device_grants_save(const char* path, const DeviceGrants* grants)
 /* Queries and mutations                                                      */
 /* ------------------------------------------------------------------------- */
 
-int device_grants_has(const DeviceGrants* grants, const char* app, const char* pak,
-                      const char* version, const char* capability)
+const DeviceGrant* device_grants_find(const DeviceGrants* grants, const char* app,
+                                      const char* pak, const char* version,
+                                      const char* capability)
 {
     size_t i;
 
-    if (grants == NULL || !device_grants_identity_valid(app, pak, version, capability))
-        return 0;
+    if (grants == NULL || app == NULL || pak == NULL || version == NULL || capability == NULL)
+        return NULL;
 
     for (i = 0; i < grants->count; i++)
     {
@@ -471,9 +526,16 @@ int device_grants_has(const DeviceGrants* grants, const char* app, const char* p
         if (strcmp(grant->app, app) == 0 && strcmp(grant->pak, pak) == 0
             && strcmp(grant->version, version) == 0
             && strcmp(grant->capability, capability) == 0)
-            return 1;
+            return grant;
     }
-    return 0;
+    return NULL;
+}
+
+int device_grants_has(const DeviceGrants* grants, const char* app, const char* pak,
+                      const char* version, const char* capability)
+{
+    if (!device_grants_identity_valid(app, pak, version, capability)) return 0;
+    return device_grants_find(grants, app, pak, version, capability) != NULL;
 }
 
 int device_grants_has_identity(const DeviceGrants* grants, const char* app, const char* capability)
@@ -500,12 +562,14 @@ static void remove_at(DeviceGrants* grants, size_t index)
 }
 
 int device_grants_add(DeviceGrants* grants, const char* app, const char* pak,
-                      const char* version, const char* capability, long granted_at)
+                      const char* version, const char* capability, const char* content,
+                      const char* metadata, long granted_at)
 {
     size_t i;
 
     if (grants == NULL || !device_grants_identity_valid(app, pak, version, capability))
         return 0;
+    if (!device_grants_hash_valid(content) || !device_grants_hash_valid(metadata)) return 0;
 
     /* One grant per installation and capability: a version change replaces the
      * old entry instead of leaving a stale version behind. */
@@ -528,6 +592,10 @@ int device_grants_add(DeviceGrants* grants, const char* app, const char* pak,
              version);
     snprintf(grants->grants[grants->count].capability,
              sizeof grants->grants[0].capability, "%s", capability);
+    snprintf(grants->grants[grants->count].content, sizeof grants->grants[0].content, "%s",
+             content);
+    snprintf(grants->grants[grants->count].metadata, sizeof grants->grants[0].metadata, "%s",
+             metadata);
     grants->grants[grants->count].granted_at = granted_at;
     grants->count++;
     return 1;

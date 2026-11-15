@@ -15,8 +15,10 @@ compiler="${CC:-cc}"
     ../device_caps.c \
     ../device_gate.c \
     ../device_grants.c \
+    ../device_identity.c \
     ../device_protocol.c \
     ../json_lite.c \
     ../pak_manifest.c \
+    ../sha256_lite.c \
     -o "$build_dir/device_gate_test"
 "$build_dir/device_gate_test"

@@ -25,9 +25,11 @@ SOURCE = $(TARGET).c \
 	../common/device_caps.c \
 	../common/device_gate.c \
 	../common/device_grants.c \
+	../common/device_identity.c \
 	../common/device_protocol.c \
 	../common/json_lite.c \
-	../common/pak_manifest.c
+	../common/pak_manifest.c \
+	../common/sha256_lite.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)

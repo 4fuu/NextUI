@@ -13,11 +13,13 @@ It does not isolate processes and must not be described as a security
 boundary.
 
 C1 ships the service, client, manifest requests, grant storage, and dispatch
-gate. It deliberately does not ship the settings authorization UI, the LED app
-lease (C2), device session snapshots/restore (C3), app exit (C4), or hardware
-backends. The production backend is `none`, so every hardware capability
-reports `unavailable` until a later task plugs in the existing NextUI device
-paths.
+gate. Grants bind the app id, canonical pak path, manifest version, capability,
+and the pak's current content fingerprint, so a same-path/same-version package
+replacement cannot silently inherit an old authorization. It deliberately does
+not ship the settings authorization UI, the LED app lease (C2), device session
+snapshots/restore (C3), app exit (C4), or hardware backends. The production
+backend is `none`, so every hardware capability reports `unavailable` until a
+later task plugs in the existing NextUI device paths.
 
 ## Manifest: request capabilities in pak.json
 
@@ -73,20 +75,26 @@ Location (device):
 $SHARED_USERDATA_PATH/device_grants.json
 ```
 
-Default on a host without that variable: `/tmp/nextui-device-grants.json`.
-`devserv --grants PATH` and `NEXTUI_DEVICE_GRANTS` override it.
+`devserv --grants PATH`, `NEXTUI_DEVICE_GRANTS`, or `SHARED_USERDATA_PATH`
+must configure it. **There is no implicit `/tmp` fallback:** the socket is
+ephemeral, but grants are persistent state, and `devserv` refuses to start when
+no persistent path is configured. Tests pass a temporary `--grants` path
+explicitly; production relies on launch.sh exporting `SHARED_USERDATA_PATH`
+(C3 wiring).
 
-Format:
+Format (schema version 2):
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "grants": [
     {
       "app": "com.example.player",
       "pak": "/mnt/SDCARD/Tools/tg5040/Player.pak",
       "version": "v1.2.3",
       "capability": "display.brightness",
+      "content": "<64 lowercase hex chars>",
+      "metadata": "<64 lowercase hex chars>",
       "granted_at": 1760000000
     }
   ]
@@ -94,8 +102,45 @@ Format:
 ```
 
 The store is written atomically (temporary file, `fsync`, rename) and is
-limited to 128 records. Only the settings layer writes it; the app-facing
-service opens it read-only for every request.
+limited to 128 records / 256 KiB. Only the settings layer writes it; the app-facing
+service opens it read-only for every request. Schema version 1 (pre-fingerprint
+C1) is invalid and fails closed; no C1 build shipped grants, so re-grant after
+updating.
+
+### Content identity
+
+`device_identity.c` fingerprints the installed pak:
+
+- **Included:** `pak.json`, `launch.sh`, and every other regular file under the
+  pak directory, recursively (binaries, libraries, assets, bundled configs).
+- **Excluded writable state:** directories `saves`, `savestates`, `states`,
+  `state`, `save`, `config`, `cache`, `tmp`, `logs`, `userdata`, `.userdata`;
+  files `default.cfg`, `.DS_Store`, `Thumbs.db`, and suffixes `.log`, `.cfg`,
+  `.ini`, `.sav`, `.srm`, `.state`, `.st`. A same-name file in an excluded
+  location can change without invalidating a grant; do not put executable code
+  there. Arbitrary user files preserved by an installer's `update_ignore` list
+  are not visible to the runtime, so if they live in the pak they are
+  fingerprinted and a user edit will require re-granting (fail-closed).
+- **Symlinks and special files:** the scanner uses `lstat` and never follows a
+  symlink. A symlink, FIFO, socket, or device node anywhere in the tree makes
+  the identity `unsupported`; gated calls return `identity_unavailable`. This
+  is the minimal safe degradation rather than silently skipping content.
+- **Read failures:** an unreadable directory/file or a short read makes the
+  identity `unreadable`; gated calls return `identity_unavailable`.
+- **Limits:** at most 256 included files, 32 MiB total, and 8 directory levels.
+  Exceeding any limit makes the identity `too_large`; gated calls return
+  `identity_unavailable`. These limits bound the work on a low-end device and
+  are a deliberate degradation for very large paks.
+
+The content hash is SHA-256 over sorted relative paths, sizes, and file bytes.
+The metadata hash covers relative paths, sizes, modes, inode, mtime, and
+ctime. At
+grant and `status` time the full content hash is computed. At call time a
+cheap metadata scan runs first; if it matches the grant, the content is treated
+as unchanged. If metadata changed (including a `touch`), the service re-hashes
+the content, so a same-version replacement cannot inherit. The residual
+metadata-preserving attack (an actor able to forge ctime/kernel metadata) is
+outside the cooperative model; there is still no publisher authentication.
 
 ### Identity and replacement
 
@@ -104,7 +149,8 @@ A grant matches only when **all** of these match:
 - app id (`pak.json` `id`, or the pak directory name when no safe id is set),
 - canonical pak directory (`realpath`),
 - manifest version (empty for an unversioned manifest),
-- capability.
+- capability,
+- current pak content fingerprint.
 
 Consequences:
 
@@ -114,11 +160,18 @@ Consequences:
   path's grant remains until revoked; the copy reports `identity_mismatch`.
 - Installing a new manifest version at the same path does not inherit the old
   grant. The user must grant again.
+- **Same id/path/version with changed content is denied.** Changing
+  `launch.sh`, the binary, or any other included file returns
+  `identity_mismatch` (detail "pak content changed since the grant") and the
+  user must re-grant. Unchanged content remains valid across calls and across
+  metadata-only touches. Restoring the exact granted bytes makes the old grant
+  valid again, because the grant is bound to those bytes.
 - Uninstalling or replacing an app should call `device_gate_revoke_all()` for
   the old installation.
-- **Residual limitation:** without package signing, an in-place replacement
-  that keeps the same id, path, and version is indistinguishable from the
-  original. This is why the gate is described as cooperative, not a sandbox.
+- **Content identity is not publisher authenticity.** It detects content
+  changes relative to the grant; it does not prove who built the pak. An actor
+  who can rewrite both the pak and the grant store can still authorize. The
+  client-path impersonation limitation above also remains.
 - The client supplies `--pak` (or `$NEXTUI_PAK_PATH`). C3 is expected to export
   a per-app path from launch.sh; until then apps pass it explicitly.
 
@@ -166,6 +219,7 @@ Requests:
   "pak": "/mnt/SDCARD/Tools/tg5040/Player.pak",
   "manifest": "ok",
   "grants": "ok",
+  "identity": "ok",
   "backend": "none",
   "capabilities": [
     {"name":"display.brightness","supported":true,"grant_required":true,
@@ -207,7 +261,8 @@ A granted call on missing hardware returns `ok: false`, `error: "unavailable"`,
 | `not_declared` | the pak did not request this gated capability |
 | `grant_store_invalid` | grant file is corrupt/unsupported; all gated calls denied |
 | `grant_store_error` | grant file could not be read/written |
-| `identity_mismatch` | app id differs from the manifest, or a grant belongs to another installation/version |
+| `identity_unavailable` | pak content identity is unreadable, unsupported (symlink/special file), or over limits |
+| `identity_mismatch` | app id differs from the manifest, or a grant belongs to another installation/version, or the pak content changed |
 | `unauthorized` | declared but no matching grant |
 | `unavailable` | authorized, but hardware/backend is absent |
 | `backend_error` | the backend failed or returned an invalid value |
@@ -247,9 +302,11 @@ DeviceGateError device_gate_reset_grants(const char* grants_path, char* detail,
                                          size_t detail_size);
 ```
 
-`grant` re-reads `pak.json` and refuses unknown, undeclared, and read-only
-capabilities. The settings UI (not part of C1) will call this API and then show
-the per-capability `available`/`authorized` status.
+`grant` re-reads `pak.json`, computes the current content fingerprint, and
+refuses unknown, undeclared, and read-only capabilities. It fails with
+`identity_unavailable` when the pak cannot be fingerprinted. The settings UI
+(not part of C1) will call this API and then show the per-capability
+`available`/`authorized` and status-level `identity` values.
 
 ## Backend seam
 

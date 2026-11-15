@@ -14,7 +14,6 @@
 #include <unistd.h>
 
 #define DEFAULT_SOCKET_PATH "/tmp/nextui-devserv.sock"
-#define DEFAULT_GRANTS_PATH "/tmp/nextui-device-grants.json"
 #define REQUEST_TIMEOUT_SECONDS 2
 
 static volatile sig_atomic_t running = 1;
@@ -28,13 +27,15 @@ static void handle_signal(int signal_number)
 static void usage(FILE* stream)
 {
     fprintf(stream,
-            "usage: devserv [--socket PATH] [--grants PATH]\n"
+            "usage: devserv [--socket PATH] --grants PATH\n"
+            "       devserv [--socket PATH]   (grants from $NEXTUI_DEVICE_GRANTS\n"
+            "                                 or $SHARED_USERDATA_PATH/device_grants.json)\n"
             "\n"
             "Serves newline-delimited JSON device requests on a Unix socket.\n"
-            "Defaults: socket $NEXTUI_DEVSERV_SOCKET or %s,\n"
-            "          grants $SHARED_USERDATA_PATH/device_grants.json or %s\n"
+            "The socket defaults to $NEXTUI_DEVSERV_SOCKET or %s.\n"
+            "Grants must be configured explicitly; there is no implicit /tmp store.\n"
             "Backend: none in C1; every hardware capability reports unavailable.\n",
-            DEFAULT_SOCKET_PATH, DEFAULT_GRANTS_PATH);
+            DEFAULT_SOCKET_PATH);
 }
 
 static int path_join(char* out, size_t out_size, const char* directory, const char* name)
@@ -43,21 +44,24 @@ static int path_join(char* out, size_t out_size, const char* directory, const ch
     return written >= 0 && (size_t)written < out_size;
 }
 
-static void default_grants_path(char* out, size_t out_size)
+/* Returns 0 when no persistent grant store is configured. */
+static int resolve_grants_path(char* out, size_t out_size)
 {
     const char* environment = getenv("NEXTUI_DEVICE_GRANTS");
+
     if (environment != NULL && environment[0] != '\0')
     {
         snprintf(out, out_size, "%s", environment);
-        return;
+        return 1;
     }
 
     environment = getenv("SHARED_USERDATA_PATH");
     if (environment != NULL && environment[0] != '\0'
         && path_join(out, out_size, environment, "device_grants.json"))
-        return;
+        return 1;
 
-    snprintf(out, out_size, "%s", DEFAULT_GRANTS_PATH);
+    out[0] = '\0';
+    return 0;
 }
 
 static int socket_is_live(const char* path)
@@ -322,7 +326,7 @@ int main(int argc, char* argv[])
     int i;
 
     snprintf(socket_path, sizeof socket_path, "%s", DEFAULT_SOCKET_PATH);
-    default_grants_path(grants_path, sizeof grants_path);
+    grants_path[0] = '\0';
 
     for (i = 1; i < argc; i++)
     {
@@ -361,6 +365,15 @@ int main(int argc, char* argv[])
     environment = getenv("NEXTUI_DEVSERV_SOCKET");
     if (!socket_overridden && environment != NULL && environment[0] != '\0')
         snprintf(socket_path, sizeof socket_path, "%s", environment);
+
+    if (grants_path[0] == '\0' && !resolve_grants_path(grants_path, sizeof grants_path))
+    {
+        fprintf(stderr,
+                "devserv: grants path is not configured; set SHARED_USERDATA_PATH,\n"
+                "         NEXTUI_DEVICE_GRANTS, or pass --grants PATH.\n"
+                "         Persistent grants are never stored in /tmp implicitly.\n");
+        return 2;
+    }
 
     umask(0077);
     signal(SIGPIPE, SIG_IGN);

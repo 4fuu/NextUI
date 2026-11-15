@@ -5,6 +5,7 @@
 
 #include "device_backend.h"
 #include "device_grants.h"
+#include "device_identity.h"
 #include "pak_manifest.h"
 
 #ifdef __cplusplus
@@ -20,8 +21,10 @@ extern "C" {
  *   2. known capability name
  *   3. declared request (gated capabilities only)
  *   4. exact grant: app id + canonical path + manifest version + capability
- *   5. backend availability (hardware present?)
- *   6. backend dispatch
+ *   5. pak content identity: metadata signature, then SHA-256 content hash when
+ *      metadata changed; a same-version content replacement is rejected
+ *   6. backend availability (hardware present?)
+ *   7. backend dispatch
  *
  * Authorization decides the error before availability, but responses still
  * report the backend's availability for that capability. Clients therefore see
@@ -48,6 +51,7 @@ typedef enum
     DEVICE_GATE_NOT_DECLARED,
     DEVICE_GATE_GRANT_STORE_INVALID,
     DEVICE_GATE_GRANT_STORE_ERROR,
+    DEVICE_GATE_IDENTITY_UNAVAILABLE,
     DEVICE_GATE_IDENTITY_MISMATCH,
     DEVICE_GATE_UNAUTHORIZED,
     DEVICE_GATE_UNAVAILABLE,
@@ -72,6 +76,8 @@ static inline const char* device_gate_error_name(DeviceGateError error)
         return "grant_store_invalid";
     case DEVICE_GATE_GRANT_STORE_ERROR:
         return "grant_store_error";
+    case DEVICE_GATE_IDENTITY_UNAVAILABLE:
+        return "identity_unavailable";
     case DEVICE_GATE_IDENTITY_MISMATCH:
         return "identity_mismatch";
     case DEVICE_GATE_UNAUTHORIZED:
@@ -123,6 +129,8 @@ typedef struct
     char pak[DEVICE_GRANT_PATH_MAX];
     PakManifestStatus manifest_status;
     DeviceGrantsStatus grants_status;
+    DeviceIdentityStatus identity_status;
+    char identity_detail[DEVICE_IDENTITY_DETAIL_MAX];
     const char* backend_name;
     int capability_count;
     DeviceCapabilityStatus capabilities[DEVICE_GATE_STATUS_MAX];

@@ -4,9 +4,12 @@
 #include "device_caps.h"
 #include "device_gate.h"
 #include "device_grants.h"
+#include "device_identity.h"
 #include "device_protocol.h"
 #include "pak_manifest.h"
+#include "sha256_lite.h"
 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +19,9 @@
 
 static int failures = 0;
 static int checks = 0;
+
+#define TEST_CONTENT_HASH "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+#define TEST_METADATA_HASH "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 static void check_true(const char* file, int line, const char* expression, int ok)
 {
@@ -124,6 +130,13 @@ static void reset_fake(void)
     fake.battery_available = 1;
     fake.led_available = 1;
     fake.rumble_available = 1;
+}
+
+static int add_test_grant(DeviceGrants* grants, const char* app, const char* pak,
+                          const char* version, const char* capability, long granted_at)
+{
+    return device_grants_add(grants, app, pak, version, capability, TEST_CONTENT_HASH,
+                             TEST_METADATA_HASH, granted_at);
 }
 
 static int path_join(char* out, size_t out_size, const char* a, const char* b)
@@ -288,6 +301,8 @@ static void test_status_matrix(void)
     CHECK_STR(status.backend_name, "fake");
     CHECK_INT(status.manifest_status, PAK_MANIFEST_OK);
     CHECK_INT(status.grants_status, DEVICE_GRANTS_STATUS_OK);
+    CHECK_INT(status.identity_status, DEVICE_IDENTITY_OK);
+    CHECK_STR(status.identity_detail, "");
     CHECK_INT(status.capability_count, 14);
 
     {
@@ -398,7 +413,7 @@ static void test_no_manifest_permission(void)
 
     /* Even a stored record cannot override the manifest declaration. */
     device_grants_init(&grants);
-    CHECK_INT(device_grants_add(&grants, "nodecl.app", pak, "v1.0.0", "display.brightness", 1), 1);
+    CHECK_INT(add_test_grant(&grants, "nodecl.app", pak, "v1.0.0", "display.brightness", 1), 1);
     CHECK_INT(device_grants_save(grants_path, &grants), 1);
     CHECK_INT(call_cap(pak, NULL, "display.brightness", NULL, NULL, &result),
               DEVICE_GATE_NOT_DECLARED);
@@ -472,6 +487,7 @@ static void test_corrupt_store(void)
 
     CHECK_INT(device_gate_status(NULL, pak, grants_path, &backend, &status), DEVICE_GATE_OK);
     CHECK_INT(status.grants_status, DEVICE_GRANTS_STATUS_INVALID);
+    CHECK_INT(status.identity_status, DEVICE_IDENTITY_OK);
     {
         const DeviceCapabilityStatus* entry = status_find(&status, "display.brightness");
         CHECK(entry != NULL);
@@ -487,7 +503,7 @@ static void test_corrupt_store(void)
     CHECK_INT(call_cap(pak, NULL, "display.brightness", NULL, NULL, &result),
               DEVICE_GATE_UNAUTHORIZED);
 
-    CHECK(write_grants_text("{\"version\":2,\"grants\":[]}"));
+    CHECK(write_grants_text("{\"version\":3,\"grants\":[]}"));
     CHECK_INT(call_cap(pak, NULL, "display.brightness", NULL, NULL, &result),
               DEVICE_GATE_GRANT_STORE_INVALID);
     CHECK(write_grants_text("{\"version\":1,\"grants\":[{\"app\":\"../evil\",\"pak\":\"/x\","
@@ -585,10 +601,67 @@ static void test_replacement(void)
     CHECK_INT(call_cap(pak, NULL, "led.control", NULL, NULL, &result),
               DEVICE_GATE_IDENTITY_MISMATCH);
 
-    /* Residual limitation: an in-place replacement that keeps id/path/version
-     * is indistinguishable without signing, so the grant still matches. */
+    /* Writable state inside the pak is excluded from the content identity. */
     CHECK(path_join(path, sizeof path, alt, "launch.sh"));
-    CHECK_INT(write_text(path, "#!/bin/sh\nexit 0\n# replaced binary\n"), 1);
+    {
+        char writable[800];
+        CHECK(path_join(writable, sizeof writable, alt, "settings.log"));
+        CHECK_INT(write_text(writable, "log one\n"), 1);
+        CHECK(path_join(writable, sizeof writable, alt, "default.cfg"));
+        CHECK_INT(write_text(writable, "option=one\n"), 1);
+        CHECK(path_join(writable, sizeof writable, alt, "saves"));
+        CHECK_INT(mkdir(writable, 0755), 0);
+        CHECK(path_join(writable, sizeof writable, alt, "saves/state.bin"));
+        CHECK_INT(write_text(writable, "save one\n"), 1);
+    }
+    CHECK_INT(call_cap(alt, NULL, "led.control", NULL, NULL, &result), DEVICE_GATE_OK);
+    {
+        char writable[800];
+        CHECK(path_join(writable, sizeof writable, alt, "settings.log"));
+        CHECK_INT(write_text(writable, "log two\n"), 1);
+        CHECK(path_join(writable, sizeof writable, alt, "default.cfg"));
+        CHECK_INT(write_text(writable, "option=two\n"), 1);
+        CHECK(path_join(writable, sizeof writable, alt, "saves/state.bin"));
+        CHECK_INT(write_text(writable, "save two\n"), 1);
+    }
+    CHECK_INT(call_cap(alt, NULL, "led.control", NULL, NULL, &result), DEVICE_GATE_OK);
+
+    /* A metadata-only touch re-hashes and still matches the granted bytes. */
+    {
+        struct timespec times[2];
+        times[0].tv_sec = 0;
+        times[0].tv_nsec = UTIME_NOW;
+        times[1].tv_sec = 0;
+        times[1].tv_nsec = UTIME_NOW;
+        CHECK_INT(utimensat(AT_FDCWD, path, times, 0), 0);
+    }
+    CHECK_INT(call_cap(alt, NULL, "led.control", NULL, NULL, &result), DEVICE_GATE_OK);
+
+    /* Same id/path/version, changed launch.sh: denied even after restoring mtime. */
+    {
+        struct stat before;
+        struct timespec restore[2];
+        CHECK_INT(stat(path, &before), 0);
+        CHECK_INT(write_text(path, "#!/bin/sh\nexit 0\n# replaced content\n"), 1);
+        restore[0] = before.st_atim;
+        restore[1] = before.st_mtim;
+        CHECK_INT(utimensat(AT_FDCWD, path, restore, 0), 0);
+    }
+    CHECK_INT(call_cap(alt, NULL, "led.control", NULL, NULL, &result),
+              DEVICE_GATE_IDENTITY_MISMATCH);
+    CHECK_INT(result.authorized, 0);
+    CHECK(strstr(result.detail, "content changed") != NULL);
+    {
+        DeviceStatusResult status;
+        CHECK_INT(device_gate_status(NULL, alt, grants_path, &backend, &status), DEVICE_GATE_OK);
+        const DeviceCapabilityStatus* entry = status_find(&status, "led.control");
+        CHECK(entry != NULL);
+        CHECK_INT(entry != NULL ? entry->authorized : -1, 0);
+        CHECK_INT(status.identity_status, DEVICE_IDENTITY_OK);
+    }
+
+    /* Restoring the exact granted bytes makes the old grant valid again. */
+    CHECK_INT(write_text(path, "#!/bin/sh\nexit 0\n"), 1);
     CHECK_INT(call_cap(alt, NULL, "led.control", NULL, NULL, &result), DEVICE_GATE_OK);
 }
 
@@ -743,8 +816,8 @@ static void test_grants_storage(void)
     CHECK_INT((int)grants.count, 0);
 
     device_grants_init(&grants);
-    CHECK_INT(device_grants_add(&grants, "app.one", "/a/One.pak", "v1.0.0", "led.control", 10), 1);
-    CHECK_INT(device_grants_add(&grants, "app.two", "/b/Two.pak", "", "input.rumble", 20), 1);
+    CHECK_INT(add_test_grant(&grants, "app.one", "/a/One.pak", "v1.0.0", "led.control", 10), 1);
+    CHECK_INT(add_test_grant(&grants, "app.two", "/b/Two.pak", "", "input.rumble", 20), 1);
     CHECK_INT((int)grants.count, 2);
     CHECK_INT(device_grants_has(&grants, "app.one", "/a/One.pak", "v1.0.0", "led.control"), 1);
     CHECK_INT(device_grants_has(&grants, "app.one", "/a/One.pak", "v1.0.1", "led.control"), 0);
@@ -761,15 +834,25 @@ static void test_grants_storage(void)
     CHECK_STR(loaded.grants[0].capability, "led.control");
     CHECK_INT((int)loaded.grants[0].granted_at, 10);
     CHECK_STR(loaded.grants[1].version, "");
+    CHECK_STR(loaded.grants[0].content, TEST_CONTENT_HASH);
+    CHECK_STR(loaded.grants[0].metadata, TEST_METADATA_HASH);
+    CHECK(device_grants_find(&loaded, "app.one", "/a/One.pak", "v1.0.0", "led.control")
+          != NULL);
+    CHECK(device_grants_find(&loaded, "app.one", "/a/One.pak", "v1.0.1", "led.control")
+          == NULL);
+    CHECK_INT(device_grants_hash_valid(TEST_CONTENT_HASH), 1);
+    CHECK_INT(device_grants_hash_valid("Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+              0);
+    CHECK_INT(device_grants_hash_valid("short"), 0);
 
     /* Same installation + capability replaces the version. */
-    CHECK_INT(device_grants_add(&loaded, "app.one", "/a/One.pak", "v2.0.0", "led.control", 30), 1);
+    CHECK_INT(add_test_grant(&loaded, "app.one", "/a/One.pak", "v2.0.0", "led.control", 30), 1);
     CHECK_INT((int)loaded.count, 2);
     CHECK_INT(device_grants_has(&loaded, "app.one", "/a/One.pak", "v2.0.0", "led.control"), 1);
     CHECK_INT(device_grants_has(&loaded, "app.one", "/a/One.pak", "v1.0.0", "led.control"), 0);
 
     /* Different path is a separate installation. */
-    CHECK_INT(device_grants_add(&loaded, "app.one", "/c/One.pak", "v1.0.0", "led.control", 40), 1);
+    CHECK_INT(add_test_grant(&loaded, "app.one", "/c/One.pak", "v1.0.0", "led.control", 40), 1);
     CHECK_INT((int)loaded.count, 3);
     CHECK_INT(device_grants_revoke(&loaded, "app.one", "/a/One.pak", "wrong", "led.control"), 0);
     CHECK_INT((int)device_grants_revoke(&loaded, "app.one", "/a/One.pak", "v2.0.0",
@@ -780,11 +863,17 @@ static void test_grants_storage(void)
     CHECK_INT((int)loaded.count, 1);
 
     /* Invalid records are refused before they reach the file. */
-    CHECK_INT(device_grants_add(&loaded, "", "/a/One.pak", "v1", "led.control", 1), 0);
-    CHECK_INT(device_grants_add(&loaded, "../evil", "/a/One.pak", "v1", "led.control", 1), 0);
-    CHECK_INT(device_grants_add(&loaded, "app.one", "relative", "v1", "led.control", 1), 0);
-    CHECK_INT(device_grants_add(&loaded, "app.one", "/a/One.pak", "v1", "bad cap", 1), 0);
-    CHECK_INT(device_grants_add(&loaded, "app.one", "/a/One.pak", "v1", "", 1), 0);
+    CHECK_INT(add_test_grant(&loaded, "", "/a/One.pak", "v1", "led.control", 1), 0);
+    CHECK_INT(add_test_grant(&loaded, "../evil", "/a/One.pak", "v1", "led.control", 1), 0);
+    CHECK_INT(add_test_grant(&loaded, "app.one", "relative", "v1", "led.control", 1), 0);
+    CHECK_INT(add_test_grant(&loaded, "app.one", "/a/One.pak", "v1", "bad cap", 1), 0);
+    CHECK_INT(add_test_grant(&loaded, "app.one", "/a/One.pak", "v1", "", 1), 0);
+    CHECK_INT(device_grants_add(&loaded, "app.one", "/a/One.pak", "v1", "led.control",
+                                "not-hex", TEST_METADATA_HASH, 1),
+              0);
+    CHECK_INT(device_grants_add(&loaded, "app.one", "/a/One.pak", "v1", "led.control",
+                                TEST_CONTENT_HASH, "not-hex", 1),
+              0);
     CHECK_INT(device_grants_save("/does/not/exist/grants.json", &loaded), 0);
     {
         char detail[DEVICE_GATE_DETAIL_MAX];
@@ -798,7 +887,7 @@ static void test_grants_storage(void)
         static const char* invalid[] = {
             "",
             "{}",
-            "{\"version\":2,\"grants\":[]}",
+            "{\"version\":3,\"grants\":[]}",
             "{\"version\":1}",
             "{\"version\":1,\"grants\":{}}",
             "{\"version\":1,\"grants\":[{}]}",
@@ -807,6 +896,11 @@ static void test_grants_storage(void)
             "{\"version\":1,\"grants\":[{\"app\":\"a\",\"pak\":\"/a\","
             "\"version\":\"v1\",\"capability\":\"bad cap\"}]}",
             "{\"version\":1,\"grants\":[]}trailing",
+            "{\"version\":2,\"grants\":[{\"app\":\"a\",\"pak\":\"/a\","
+            "\"version\":\"v1\",\"capability\":\"led.control\"}]}",
+            "{\"version\":2,\"grants\":[{\"app\":\"a\",\"pak\":\"/a\","
+            "\"version\":\"v1\",\"capability\":\"led.control\","
+            "\"content\":\"short\",\"metadata\":\"" TEST_METADATA_HASH "\"}]}",
         };
         size_t i;
 
@@ -818,27 +912,31 @@ static void test_grants_storage(void)
         }
     }
 
-    CHECK(write_grants_text("{\"version\":1,\"grants\":[],\"future\":{\"a\":[1,2]}}"));
+    CHECK(write_grants_text("{\"version\":2,\"grants\":[],\"future\":{\"a\":[1,2]}}"));
     CHECK_INT(device_grants_load(grants_path, &loaded), DEVICE_GRANTS_STATUS_OK);
     CHECK_INT((int)loaded.count, 0);
 
-    CHECK(write_grants_text("{\"version\":1,\"grants\":[{\"app\":\"a\",\"pak\":\"/a\","
+    CHECK(write_grants_text("{\"version\":2,\"grants\":[{\"app\":\"a\",\"pak\":\"/a\","
                             "\"version\":\"v1\",\"capability\":\"led.control\","
+                            "\"content\":\"" TEST_CONTENT_HASH "\","
+                            "\"metadata\":\"" TEST_METADATA_HASH "\","
                             "\"future\":true}]}"));
     CHECK_INT(device_grants_load(grants_path, &loaded), DEVICE_GRANTS_STATUS_OK);
     CHECK_INT((int)loaded.count, 1);
 
     /* Too many records is invalid, not truncated. */
     {
-        char json[DEVICE_GRANT_MAX * 120 + 200];
+        char json[DEVICE_GRANT_MAX * 320 + 512];
         size_t used = 0;
         int i;
-        used += (size_t)snprintf(json + used, sizeof json - used, "{\"version\":1,\"grants\":[");
+        used += (size_t)snprintf(json + used, sizeof json - used, "{\"version\":2,\"grants\":[");
         for (i = 0; i < DEVICE_GRANT_MAX + 1; i++)
         {
             used += (size_t)snprintf(json + used, sizeof json - used,
                                      "%s{\"app\":\"app%d\",\"pak\":\"/p/%d.pak\","
-                                     "\"version\":\"v1\",\"capability\":\"led.control\"}",
+                                     "\"version\":\"v1\",\"capability\":\"led.control\","
+                                     "\"content\":\"" TEST_CONTENT_HASH "\","
+                                     "\"metadata\":\"" TEST_METADATA_HASH "\"}",
                                      i == 0 ? "" : ",", i, i);
         }
         snprintf(json + used, sizeof json - used, "]}");
@@ -852,6 +950,204 @@ static void test_grants_storage(void)
 
     CHECK_INT(device_grants_reset(grants_path), 1);
     CHECK_INT(device_grants_load(grants_path, &loaded), DEVICE_GRANTS_STATUS_OK);
+}
+
+static void check_sha256(const char* input, const char* expected)
+{
+    Sha256Lite context;
+    unsigned char digest[SHA256_LITE_DIGEST_SIZE];
+    char hex[SHA256_LITE_HEX_SIZE];
+
+    sha256_lite_init(&context);
+    sha256_lite_update(&context, input, strlen(input));
+    sha256_lite_final(&context, digest);
+    sha256_lite_hex(digest, hex);
+    CHECK_STR(hex, expected);
+}
+
+static void test_identity_gate_failures(void)
+{
+    char pak[700];
+    char link[800];
+    DeviceCallRequest request;
+    DeviceCallResult result;
+    DeviceStatusResult status;
+    DeviceGrants grants;
+    char detail[DEVICE_GATE_DETAIL_MAX];
+
+    reset_fake();
+    (void)device_grants_reset(grants_path);
+    CHECK(create_pak("IdentityGate.pak",
+                     "{\"id\":\"identity.gate\",\"version\":\"v1.0.0\","
+                     "\"device\":{\"capabilities\":[\"display.brightness\"]}}"));
+    pak_dir(NULL, "IdentityGate.pak", pak, sizeof pak);
+    CHECK(path_join(link, sizeof link, pak, "unsupported.link"));
+    CHECK_INT(symlink("launch.sh", link), 0);
+
+    device_call_request_init(&request);
+    copy_text(request.pak, sizeof request.pak, pak);
+    copy_text(request.capability, sizeof request.capability, "display.brightness");
+    CHECK_INT(device_gate_grant(&request, grants_path, detail, sizeof detail),
+              DEVICE_GATE_IDENTITY_UNAVAILABLE);
+    CHECK(strstr(detail, "symlink") != NULL);
+
+    CHECK_INT(device_gate_status(NULL, pak, grants_path, &backend, &status), DEVICE_GATE_OK);
+    CHECK_INT(status.identity_status, DEVICE_IDENTITY_UNSUPPORTED);
+    CHECK(strstr(status.identity_detail, "symlink") != NULL);
+    {
+        const DeviceCapabilityStatus* entry = status_find(&status, "display.brightness");
+        CHECK(entry != NULL);
+        CHECK_INT(entry != NULL ? entry->authorized : -1, 0);
+    }
+
+    /* A manually planted grant cannot bypass an unsupported identity. */
+    device_grants_init(&grants);
+    CHECK_INT(add_test_grant(&grants, "identity.gate", pak, "v1.0.0",
+                             "display.brightness", 1),
+              1);
+    CHECK_INT(device_grants_save(grants_path, &grants), 1);
+    CHECK_INT(call_cap(pak, NULL, "display.brightness", NULL, NULL, &result),
+              DEVICE_GATE_IDENTITY_UNAVAILABLE);
+    CHECK(strstr(result.detail, "symlink") != NULL);
+}
+
+static void test_sha256(void)
+{
+    check_sha256("",
+                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    check_sha256("abc",
+                 "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    check_sha256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+                 "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+}
+
+static void test_identity_scope(void)
+{
+    char pak[700];
+    char path[1024];
+    char nested[1024];
+    char link[1024];
+    char fifo[1024];
+    DeviceIdentity identity;
+    DeviceIdentity metadata;
+
+    create_pak("Identity.pak",
+               "{\"id\":\"identity.app\",\"version\":\"v1.0.0\","
+               "\"device\":{\"capabilities\":[\"display.brightness\"]}}");
+    pak_dir(NULL, "Identity.pak", pak, sizeof pak);
+
+    CHECK(path_join(path, sizeof path, pak, "app.bin"));
+    CHECK_INT(write_text(path, "binary one\n"), 1);
+    CHECK(path_join(nested, sizeof nested, pak, "assets"));
+    CHECK_INT(mkdir(nested, 0755), 0);
+    CHECK(path_join(path, sizeof path, nested, "data.bin"));
+    CHECK_INT(write_text(path, "data one\n"), 1);
+    CHECK(path_join(path, sizeof path, pak, "settings.log"));
+    CHECK_INT(write_text(path, "log one\n"), 1);
+    CHECK(path_join(path, sizeof path, pak, "default.cfg"));
+    CHECK_INT(write_text(path, "option=one\n"), 1);
+    CHECK(path_join(nested, sizeof nested, pak, "saves"));
+    CHECK_INT(mkdir(nested, 0755), 0);
+    CHECK(path_join(path, sizeof path, nested, "state.bin"));
+    CHECK_INT(write_text(path, "save one\n"), 1);
+
+    CHECK_INT(device_identity_scan(pak, 1, &identity), DEVICE_IDENTITY_OK);
+    CHECK_INT(identity.file_count, 4);
+    CHECK_INT((int)strlen(identity.content), 64);
+    CHECK_INT((int)strlen(identity.metadata), 64);
+    CHECK_INT(device_identity_scan(pak, 0, &metadata), DEVICE_IDENTITY_OK);
+    CHECK_STR(metadata.metadata, identity.metadata);
+    CHECK_STR(metadata.content, "");
+
+    /* Excluded writable state changes do not affect identity. */
+    CHECK(path_join(path, sizeof path, pak, "settings.log"));
+    CHECK_INT(write_text(path, "log two\n"), 1);
+    CHECK(path_join(path, sizeof path, pak, "default.cfg"));
+    CHECK_INT(write_text(path, "option=two\n"), 1);
+    CHECK(path_join(path, sizeof path, nested, "state.bin"));
+    CHECK_INT(write_text(path, "save two\n"), 1);
+    {
+        DeviceIdentity after;
+        CHECK_INT(device_identity_scan(pak, 1, &after), DEVICE_IDENTITY_OK);
+        CHECK_STR(after.content, identity.content);
+        CHECK_STR(after.metadata, identity.metadata);
+    }
+
+    /* Included content changes are visible. */
+    CHECK(path_join(path, sizeof path, pak, "app.bin"));
+    CHECK_INT(write_text(path, "binary two\n"), 1);
+    {
+        DeviceIdentity after;
+        CHECK_INT(device_identity_scan(pak, 1, &after), DEVICE_IDENTITY_OK);
+        CHECK(strcmp(after.content, identity.content) != 0);
+    }
+
+    /* Symlinks and special files fail closed instead of being followed. */
+    CHECK(path_join(link, sizeof link, pak, "link.bin"));
+    CHECK_INT(symlink("app.bin", link), 0);
+    CHECK_INT(device_identity_scan(pak, 1, &metadata), DEVICE_IDENTITY_UNSUPPORTED);
+    CHECK(strstr(metadata.detail, "symlink") != NULL);
+    (void)remove(link);
+    CHECK(path_join(fifo, sizeof fifo, pak, "pipe.bin"));
+    CHECK_INT(mkfifo(fifo, 0600), 0);
+    CHECK_INT(device_identity_scan(pak, 1, &metadata), DEVICE_IDENTITY_UNSUPPORTED);
+    CHECK(strstr(metadata.detail, "special file") != NULL);
+    (void)remove(fifo);
+
+    /* Bounded scans reject too many files, too many bytes, and deep trees. */
+    create_pak("Many.pak", "{\"id\":\"many.app\",\"version\":\"v1.0.0\"}");
+    pak_dir(NULL, "Many.pak", pak, sizeof pak);
+    {
+        int i;
+        for (i = 0; i < DEVICE_IDENTITY_MAX_FILES - 1; i++)
+        {
+            CHECK(path_join(path, sizeof path, pak, "file.bin"));
+            {
+                char name[64];
+                snprintf(name, sizeof name, "f%03d.bin", i);
+                CHECK(path_join(path, sizeof path, pak, name));
+            }
+            CHECK_INT(write_text(path, "x"), 1);
+        }
+    }
+    CHECK_INT(device_identity_scan(pak, 0, &metadata), DEVICE_IDENTITY_TOO_LARGE);
+
+    create_pak("Huge.pak", "{\"id\":\"huge.app\",\"version\":\"v1.0.0\"}");
+    pak_dir(NULL, "Huge.pak", pak, sizeof pak);
+    CHECK(path_join(path, sizeof path, pak, "huge.bin"));
+    {
+        int descriptor = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        CHECK(descriptor >= 0);
+        if (descriptor >= 0)
+        {
+            CHECK_INT(ftruncate(descriptor, (off_t)DEVICE_IDENTITY_MAX_BYTES + 1), 0);
+            close(descriptor);
+        }
+    }
+    CHECK_INT(device_identity_scan(pak, 0, &metadata), DEVICE_IDENTITY_TOO_LARGE);
+
+    create_pak("Deep.pak", "{\"id\":\"deep.app\",\"version\":\"v1.0.0\"}");
+    pak_dir(NULL, "Deep.pak", nested, sizeof nested);
+    {
+        int i;
+        for (i = 0; i < DEVICE_IDENTITY_MAX_DEPTH + 1; i++)
+        {
+            char child[1024];
+            char name[32];
+            snprintf(name, sizeof name, "level%d", i);
+            CHECK(path_join(child, sizeof child, nested, name));
+            CHECK_INT(mkdir(child, 0755), 0);
+            snprintf(nested, sizeof nested, "%s", child);
+        }
+        CHECK(path_join(path, sizeof path, nested, "deep.bin"));
+        CHECK_INT(write_text(path, "deep"), 1);
+    }
+    CHECK_INT(device_identity_scan(pak, 0, &metadata), DEVICE_IDENTITY_TOO_LARGE);
+
+    /* Paths that are unreadable or not directories fail closed. */
+    CHECK_INT(device_identity_scan(grants_path, 0, &metadata), DEVICE_IDENTITY_UNREADABLE);
+    CHECK(path_join(path, sizeof path, temp_path, "missing.pak"));
+    CHECK_INT(device_identity_scan(path, 0, &metadata), DEVICE_IDENTITY_UNREADABLE);
 }
 
 static void test_protocol(void)
@@ -965,6 +1261,7 @@ static void test_protocol(void)
     CHECK(strstr(response, "\"service\":\"devserv\"") != NULL);
     CHECK(strstr(response, "\"manifest\":\"ok\"") != NULL);
     CHECK(strstr(response, "\"grants\":\"ok\"") != NULL);
+    CHECK(strstr(response, "\"identity\":\"ok\"") != NULL);
     CHECK(strstr(response, "\"name\":\"battery.read\"") != NULL);
 
     CHECK_INT(device_protocol_write_error_response("bad_request", "x", response, sizeof response),
@@ -995,6 +1292,9 @@ int main(void)
     test_unknown_capability();
     test_bad_requests();
     test_grants_storage();
+    test_identity_gate_failures();
+    test_sha256();
+    test_identity_scope();
     test_protocol();
 
     {
