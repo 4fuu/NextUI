@@ -1,0 +1,39 @@
+# A3 final zh values - 32 entries, delivered 2026-11-15.
+# Source: workspace/all/common/i18n.c in thread T-01a1dff8-f4eb-73ca-8e1a-4a4cd923cd8a,
+# based on origin/main 3e41a1f (A3 only; A1/A2 deliberately excluded).
+# One simplified-Chinese value per line; comments start with #. The font build
+# collects every character from these lines, so this file is the single source
+# of truth for fixed-UI coverage. A3 said no Level-2/rare/traditional chars and
+# no non-ASCII digits or units are used.
+最近游玩
+最近
+收藏
+工具
+游戏
+无预览
+暂无最近记录
+空文件夹
+光盘 %i
+返回
+打开
+继续
+移除
+休眠
+信息
+外观
+界面自定义
+显示
+系统
+FN 开关
+FN 开关设置
+按键分配
+自定义按键功能
+游戏内
+MinArch 的游戏内设置
+网络
+蓝牙
+关于
+确定
+语言
+界面显示语言。返回桌面后生效。
+简体中文
