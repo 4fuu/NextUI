@@ -3,7 +3,7 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh clean
 
 test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led
 
@@ -35,7 +35,10 @@ test-led:
 	../workspace/all/common/tests/run_led_backend_test.sh
 
 # Needs the desktop SDL/msettings build dependencies.
-test-led-profile:
+test-led-refresh:
+	../workspace/all/common/tests/run_led_refresh_test.sh
+
+test-led-profile: test-led-refresh
 	../workspace/all/common/tests/run_led_profile_test.sh
 
 clean:

@@ -650,6 +650,11 @@ void LEDS_updateLeds(bool indicator_only);
 // The app profile never writes lightsDefault; LedControl remains the only
 // writer of the user's defaults. Acquire/restore re-read the current settings
 // file, so a release restores the user's current default, not a stale one.
+// Re-read the user's LED settings from disk and rebuild the derived profiles.
+// LedControl can change the file while devserv is alive; acquire/restore call
+// this so "user default" means the current file, not the service-start view.
+void LEDS_loadDefaults(void);
+
 bool LEDS_pushAppProfile(void);
 bool LEDS_popAppProfile(void);
 bool LEDS_appProfileActive(void);

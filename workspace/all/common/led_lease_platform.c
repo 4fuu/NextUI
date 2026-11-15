@@ -9,8 +9,10 @@
 
 /* Brick Pro (and the other TrimUI models) expose the LED controller here.
  * Reading the directory is a presence check only; the actual writes remain in
- * platform.c's PLAT_setLed* functions. */
+ * platform.c's PLAT_setLed* functions. Host regression tests override the path. */
+#ifndef LED_PLATFORM_PRESENCE
 #define LED_PLATFORM_PRESENCE "/sys/class/led_anim/max_scale"
+#endif
 
 static int platform_initialized = 0;
 
@@ -84,6 +86,12 @@ static int platform_snapshot_default(void* context, LedZoneState* zones, int cou
 
     (void)context;
     if (zones == NULL || count < 0) return 0;
+
+    /* LedControl may have changed the settings file since service start. Take
+     * the acquire snapshot from the current file, not the startup copy; the
+     * later LEDS_pushAppProfile() reload then sees the same version. */
+    LEDS_loadDefaults();
+
     for (i = 0; i < count; i++)
     {
         const LightSettings* light = LEDS_getDefaultLight(i);

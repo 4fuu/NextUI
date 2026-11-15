@@ -5159,7 +5159,7 @@ static void LEDS_buildProfiles()
 // LedControl can change the file while devserv is alive; taking a fresh
 // snapshot at acquire/restore keeps "user default" meaning the current file
 // instead of whatever was on disk when the service started.
-static void LEDS_loadDefaults()
+void LEDS_loadDefaults(void)
 {
 	PLAT_initLeds(lightsDefault);
 	LEDS_buildProfiles();
