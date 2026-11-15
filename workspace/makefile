@@ -16,6 +16,7 @@ endif
 
 all:
 ifeq ($(PLATFORM), desktop)
+	cd ./$(PLATFORM)/libmsettings && make
 	cd ./$(PLATFORM) && make early # eg. other libs
 	cd ./all/nextui/ && make
 	cd ./all/minarch/ && make

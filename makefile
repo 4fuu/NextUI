@@ -77,6 +77,11 @@ endif
 	make build-core -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true CORE=$(CORE)
 
 system:
+ifeq ($(PLATFORM), desktop)
+	# A host header can already be installed while the local .so is missing, so
+	# the per-binary header prerequisites alone do not guarantee this file exists.
+	make -f $(TOOLCHAIN_FILE) libmsettings PLATFORM=$(PLATFORM) COMPILE_CORES=
+endif
 	make -f ./workspace/$(PLATFORM)/platform/makefile.copy PLATFORM=$(PLATFORM)
 	
 	# populate system
