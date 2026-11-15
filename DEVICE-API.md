@@ -21,6 +21,14 @@ snapshots/restore (C3), app exit (C4), or hardware backends. The production
 backend is `none`, so every hardware capability reports `unavailable` until a
 later task plugs in the existing NextUI device paths.
 
+## Session lifecycle
+
+C3 adds one launch-scoped device session around an application, with
+dirty-only snapshot/restore and stale-stop protection. Its contract, backend
+matrix, C2 LED session-end hook and partial-restore rules are defined in
+[SESSION-API.md](SESSION-API.md). Sessions do not change C1 grants: a session
+stop neither authorizes nor revokes a capability.
+
 ## Manifest: request capabilities in pak.json
 
 `pak.json` is the only manifest (plan X1). Device requests live in the optional
