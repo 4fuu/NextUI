@@ -11,6 +11,7 @@
 #include "api.h"
 #include "utils.h"
 #include "config.h"
+#include "app_capabilities.h"
 #include "i18n.h"
 #include <sys/resource.h>
 #include <pthread.h>
@@ -136,6 +137,7 @@ typedef struct Entry {
 	char* name;
 	char* unique;
 	char* icon; // optional pak.json icon path; NULL for legacy paks and non-pak entries
+	unsigned capabilities; // PAK_CAPABILITY_* declared by pak.json; 0 for legacy paks
 	int type;
 	int alpha; // index in parent Directory's alphas Array, which points to the index of an Entry in its entries Array :sweat_smile:
 } Entry;
@@ -148,6 +150,7 @@ static Entry* Entry_new(char* path, int type) {
 	self->name = strdup(display_name);
 	self->unique = NULL;
 	self->icon = NULL;
+	self->capabilities = 0;
 	self->type = type;
 	self->alpha = 0;
 
@@ -157,6 +160,7 @@ static Entry* Entry_new(char* path, int type) {
 	if (type==ENTRY_PAK) {
 		PakManifest manifest;
 		if (pak_manifest_load(path, &manifest)==PAK_MANIFEST_OK) {
+			self->capabilities = manifest.capabilities;
 			if (manifest.name[0]) {
 				free(self->name);
 				self->name = strdup(manifest.name);
@@ -500,6 +504,8 @@ static Array *quickActions; // EntryArray
 static int quit = 0;
 static int can_resume = 0;
 static int should_resume = 0; // set to 1 on BTN_RESUME but only if can_resume==1
+static int pak_can_resume = 0; // B4: selected pak has declared saves + a valid B3 state
+static int should_resume_pak = 0; // set to 1 on BTN_RESUME but only if pak_can_resume==1
 static int has_preview = 0;
 static int simple_mode = 0;
 static int switcher_selected = 0;
@@ -1279,6 +1285,29 @@ static void readyResume(Entry* entry) {
 	readyResumePath(entry->path, entry->type);
 }
 
+// B4: pak resume is deliberately separate from the legacy ROM save slots.
+// A pak is resumable only when pak.json declares the exact "saves" capability
+// and B3 validates every payload file; a declaration alone is never enough.
+static void readyPakResume(Entry* entry) {
+	pak_can_resume = 0;
+	if (!entry || entry->type!=ENTRY_PAK) return;
+	if (!(entry->capabilities & PAK_CAPABILITY_SAVES)) return;
+
+	PakManifest manifest;
+	if (pak_manifest_load(entry->path, &manifest)!=PAK_MANIFEST_OK) return;
+
+	AppCapabilityInfo info;
+	app_capabilities_inspect(SHARED_USERDATA_PATH "/.minui/apps", entry->path,
+	                         &manifest, &info);
+	pak_can_resume = (app_capabilities_actions(&info, APP_CAPABILITIES_DESKTOP, NULL)
+	                  & APP_CAPABILITIES_ACTION_RESUME)!=0;
+}
+
+static void readyEntryResume(Entry* entry) {
+	readyResume(entry);
+	readyPakResume(entry);
+}
+
 static void saveLast(char* path);
 static void loadLast(void);
 
@@ -1320,7 +1349,7 @@ static int autoResume(void) {
 	return 1;
 }
 
-static void openPak(char* path) {
+static void openPakMode(char* path, AppLaunchMode mode) {
 	addRecent(path, NULL); // apps share the recents list with ROMs
 	saveLast(path);
 
@@ -1329,12 +1358,23 @@ static void openPak(char* path) {
 	PakManifest manifest;
 	char cmd[APP_STATE_CMD_MAX];
 	pak_manifest_load(path, &manifest);
-	if (!app_state_build_launch(SHARED_USERDATA_PATH "/.minui/apps", path, &manifest,
-	                            APP_LAUNCH_NORMAL, cmd, sizeof cmd)) {
+
+	int built = app_state_build_launch(SHARED_USERDATA_PATH "/.minui/apps", path,
+	                                   &manifest, mode, cmd, sizeof cmd);
+	if (!built && mode==APP_LAUNCH_RESUME) {
+		// The state may have changed between the menu check and the launch.
+		// Falling back to a normal launch is safer than blocking the app.
+		built = app_state_build_launch(SHARED_USERDATA_PATH "/.minui/apps", path,
+		                               &manifest, APP_LAUNCH_NORMAL, cmd, sizeof cmd);
+	}
+	if (!built) {
 		// NOTE: escapeSingleQuotes() modifies the passed string
 		snprintf(cmd, sizeof cmd, "'%s/launch.sh'", escapeSingleQuotes(path));
 	}
 	queueNext(cmd);
+}
+static void openPak(char* path) {
+	openPakMode(path, APP_LAUNCH_NORMAL);
 }
 
 // Launcher half of the FN action boundary: only a validated Tools/<PLATFORM>
@@ -1677,7 +1717,10 @@ static void Entry_open(Entry* self) {
 	}
 	else if (self->type==ENTRY_PAK) {
 		startgame = 1;
-		openPak(self->path);
+		int resume = should_resume_pak;
+		should_resume_pak = 0;
+		if (resume) openPakMode(self->path, APP_LAUNCH_RESUME);
+		else openPak(self->path);
 	}
 	else if (self->type==ENTRY_DIR) {
 		openDirectory(self->path, 1);
@@ -1762,7 +1805,7 @@ static void loadLast(void) { // call after loading root directory
 
 	if (top->selected >= 0 && top->selected < top->entries->count) {
 		Entry *selected_entry = top->entries->items[top->selected];
-		readyResume(selected_entry);
+		readyEntryResume(selected_entry);
 	}
 }
 
@@ -2508,7 +2551,7 @@ int main (int argc, char *argv[]) {
 					restore_end = 0;
 				}
 				Entry_open(selected);
-				if (top->entries->count > 0) readyResume(top->entries->items[top->selected]);
+				if (top->entries->count > 0) readyEntryResume(top->entries->items[top->selected]);
 				dirty = 1;
 			}
 			else if (PAD_justPressed(BTN_RIGHT)) {
@@ -2586,7 +2629,9 @@ int main (int argc, char *argv[]) {
 				putFile(GAME_SWITCHER_PERSIST_PATH, "unused");
 				startgame = 1;
 				Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
-				should_resume = can_resume;
+				readyEntryResume(selectedEntry);
+				should_resume = (selectedEntry->type!=ENTRY_PAK && can_resume);
+				should_resume_pak = (selectedEntry->type==ENTRY_PAK && pak_can_resume);
 				Entry_open(selectedEntry);
 				dirty = 1;
 				Entry_free(selectedEntry);
@@ -2732,10 +2777,14 @@ int main (int argc, char *argv[]) {
 			Entry* entry = top->entries->items[top->selected];
 
 			if (dirty && total>0)
-				readyResume(entry);
+				readyEntryResume(entry);
 
-			if (total>0 && can_resume && PAD_justReleased(BTN_RESUME)) {
-				should_resume = 1;
+			if (total>0
+			    && ((entry->type==ENTRY_PAK && pak_can_resume)
+			        || (entry->type!=ENTRY_PAK && can_resume))
+			    && PAD_justReleased(BTN_RESUME)) {
+				if (entry->type==ENTRY_PAK) should_resume_pak = 1;
+				else should_resume = 1;
 				Entry_open(entry);
 
 				dirty = 1;
@@ -2748,7 +2797,7 @@ int main (int argc, char *argv[]) {
 				}
 				dirty = 1;
 
-				if (total>0) readyResume(top->entries->items[top->selected]);
+				if (total>0) readyEntryResume(top->entries->items[top->selected]);
 			}
 			else if (PAD_justPressed(BTN_B) && stack->count>1) {
 				closeDirectory();
@@ -2756,7 +2805,7 @@ int main (int argc, char *argv[]) {
 				total = top->entries->count;
 				dirty = 1;
 
-				if (total>0) readyResume(top->entries->items[top->selected]);
+				if (total>0) readyEntryResume(top->entries->items[top->selected]);
 			}
 		}
 
@@ -2959,7 +3008,7 @@ int main (int argc, char *argv[]) {
 				// For all recents with resumable state (i.e. has savegame), show game switcher carousel
 				if(recents->count > 0) {
 					Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
-					readyResume(selectedEntry);
+					readyEntryResume(selectedEntry);
 					// title pill
 					{
 						int max_width = screen->w - SCALE1(PADDING * 2) - ow;
@@ -2994,7 +3043,7 @@ int main (int argc, char *argv[]) {
 
 					GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"),  NULL }, 0, screen, 0);
 
-					if(can_resume) GFX_blitButtonGroup((char*[]){ "Y", (char*)TR("REMOVE"), "A",(char*)TR("RESUME"), NULL }, 1, screen, 1);
+					if(can_resume || pak_can_resume) GFX_blitButtonGroup((char*[]){ "Y", (char*)TR("REMOVE"), "A",(char*)TR("RESUME"), NULL }, 1, screen, 1);
 					else GFX_blitButtonGroup((char*[]){ "A",(char*)TR("OPEN"), NULL }, 1, screen, 1);
 
 					if(has_preview) {
@@ -3172,7 +3221,7 @@ int main (int argc, char *argv[]) {
 
 				// buttons
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
-				else if (can_resume) GFX_blitButtonGroup((char*[]){ "X",(char*)TR("RESUME"),  NULL }, 0, screen, 0);
+				else if (can_resume || pak_can_resume) GFX_blitButtonGroup((char*[]){ "X",(char*)TR("RESUME"),  NULL }, 0, screen, 0);
 				else GFX_blitButtonGroup((char*[]){
 					BTN_SLEEP==BTN_POWER?"POWER":"MENU",
 					BTN_SLEEP==BTN_POWER||simple_mode?(char*)TR("SLEEP"):(char*)TR("INFO"),
