@@ -1260,9 +1260,14 @@ static int launchPakFnAction(void* user, const char* rel) {
 		saveLast(entry->path);
 	}
 
-	char cmd[256];
-	// NOTE: escapeSingleQuotes() modifies pak_path in place
-	snprintf(cmd, sizeof(cmd), "'%s/launch.sh'", escapeSingleQuotes(pak_path));
+	char cmd[APP_STATE_CMD_MAX];
+	PakManifest manifest;
+	pak_manifest_load(pak_path, &manifest);
+	if (!app_state_build_launch(SHARED_USERDATA_PATH "/.minui/apps", pak_path, &manifest,
+	                            APP_LAUNCH_NORMAL, cmd, sizeof cmd)) {
+		// NOTE: escapeSingleQuotes() modifies pak_path in place
+		snprintf(cmd, sizeof cmd, "'%s/launch.sh'", escapeSingleQuotes(pak_path));
+	}
 	queueNext(cmd);
 	return 1;
 }
