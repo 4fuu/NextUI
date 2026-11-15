@@ -65,8 +65,6 @@ void CFG_defaults(NextUISettings *cfg)
 
         .muteLeds = CFG_DEFAULT_MUTELEDS,
 
-        .fnAction = {CFG_DEFAULT_FN_ACTION, CFG_DEFAULT_FN_ACTION, CFG_DEFAULT_FN_ACTION},
-
         .screenTimeoutSecs = CFG_DEFAULT_SCREENTIMEOUTSECS,
         .suspendTimeoutSecs = CFG_DEFAULT_SUSPENDTIMEOUTSECS,
         .powerOffProtection = CFG_DEFAULT_POWEROFFPROTECTION,
@@ -107,6 +105,14 @@ void CFG_defaults(NextUISettings *cfg)
     };
 
     *cfg = defaults;
+
+    // Keep the defaults in one place so the stored value and the legacy-empty
+    // fallback can never disagree.
+    for (int i = 0; i < FN_BUTTON_COUNT; i++) {
+        const char* action = fnActionDefault(i);
+        strncpy(cfg->fnAction[i], action, sizeof(cfg->fnAction[i]) - 1);
+        cfg->fnAction[i][sizeof(cfg->fnAction[i]) - 1] = '\0';
+    }
 }
 
 static inline uint32_t parseHexColor(const char *hexColor) {
@@ -941,6 +947,11 @@ const char* CFG_getFnAction(int index)
     if (index < 0 || index >= FN_BUTTON_COUNT)
         return "";
     return settings.fnAction[index];
+}
+
+const char* CFG_getEffectiveFnAction(int index)
+{
+    return fnActionEffective(index, CFG_getFnAction(index));
 }
 
 void CFG_setFnAction(int index, const char* action)

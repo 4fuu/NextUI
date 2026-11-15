@@ -1230,19 +1230,11 @@ static void openPak(char* path) {
 	queueNext(cmd);
 }
 
-// Run the action bound to a user-assignable button (0 == FN1, 1 == FN2).
-// Returns 1 if something was launched.
-static int runFnAction(int index) {
-	const char* action = CFG_getFnAction(index);
-	if (!action || !action[0]) return 0; // unassigned
-
-	// only "launch a Tools pak" exists so far; ignore kinds we don't know so a card
-	// configured on a newer build just does nothing here instead of misfiring
-	size_t prefix_len = strlen(FN_ACTION_PAK_PREFIX);
-	if (strncmp(action, FN_ACTION_PAK_PREFIX, prefix_len)!=0) return 0;
-
-	const char* rel = action + prefix_len;
-	if (!rel[0]) return 0;
+// Launcher half of the FN action boundary: only a validated Tools/<PLATFORM>
+// path reaches this handler. fnActionDispatch() owns parsing and scope checks.
+static int launchPakFnAction(void* user, const char* rel) {
+	(void)user;
+	if (!rel || !rel[0]) return 0;
 
 	char pak_path[256];
 	snprintf(pak_path, sizeof(pak_path), "%s/Tools/%s/%s", SDCARD_PATH, PLATFORM, rel);
@@ -1263,6 +1255,25 @@ static int runFnAction(int index) {
 	snprintf(cmd, sizeof(cmd), "'%s/launch.sh'", escapeSingleQuotes(pak_path));
 	queueNext(cmd);
 	return 1;
+}
+
+// Run the action bound to a user-assignable button (0 == FN1, 1 == FN2,
+// 2 == FN3/HOME). Returns 1 if something was launched.
+//
+// The launcher owns only `pak:` actions. `home` and `overlay` are valid
+// application-runtime bindings, but there is no foreground app here (and the
+// app-side handlers are not wired yet), so fnActionDispatch() reports them
+// unsupported and this is a deliberate no-op.
+static int runFnAction(int index) {
+	FnActionHandlers handlers = {
+		.user = NULL,
+		.launch_pak = launchPakFnAction,
+		.exit_to_home = NULL,
+		.open_overlay = NULL,
+	};
+	return fnActionDispatch(CFG_getEffectiveFnAction(index),
+							FN_ACTION_SCOPE_DESKTOP, &handlers)
+		   == FN_ACTION_DISPATCH_HANDLED;
 }
 static void openRom(char* path, char* last) {
 	LOG_info("openRom(%s,%s)\n", path, last);

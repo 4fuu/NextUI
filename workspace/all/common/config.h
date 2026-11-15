@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "fn_action.h"
+
 // portability, deprecated
 extern uint32_t THEME_COLOR1_255;
 extern uint32_t THEME_COLOR2_255;
@@ -86,10 +88,9 @@ enum {
 // not per-device: which of them a given device actually exposes is a UI question.
 #define FN_BUTTON_COUNT 3
 
-// Prefix for the "launch a Tools pak" action, followed by a path relative to
-// Tools/<PLATFORM> (e.g. "pak:Bootlogo.pak"). The platform dir is resolved at launch
-// time rather than stored, so settings stay portable when a card moves between devices.
-#define FN_ACTION_PAK_PREFIX "pak:"
+// FN action kinds (pak:/home/overlay/none) are defined in fn_action.h. The
+// platform dir for "pak:" is resolved at launch time rather than stored, so
+// settings stay portable when a card moves between devices.
 
 // Input hint styles
 enum {
@@ -145,7 +146,8 @@ typedef struct
 	bool muteLeds;
 
 	// User-assignable buttons (see BTN_FN1/BTN_FN2/BTN_FN3 in platform.h).
-	// Action strings, "" == unassigned. See CFG_getFnAction().
+	// Action strings; legacy "" falls back to the per-slot default and
+	// "none" is an explicit unassignment. See CFG_getEffectiveFnAction().
 	char fnAction[FN_BUTTON_COUNT][256];
 
 	// Power
@@ -237,7 +239,7 @@ typedef struct
 #define CFG_DEFAULT_STATEFORMAT STATE_FORMAT_SAV
 #define CFG_DEFAULT_EXTRACTEDFILENAME false
 #define CFG_DEFAULT_MUTELEDS false
-#define CFG_DEFAULT_FN_ACTION "" // unassigned
+#define CFG_DEFAULT_FN_ACTION "" // unset: use the per-slot default in fnActionDefault()
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
@@ -386,14 +388,16 @@ void CFG_setUseExtractedFileName(bool);
 // Enable/disable mute also shutting off LEDs.
 bool CFG_getMuteLEDs(void);
 void CFG_setMuteLEDs(bool);
-// The action bound to a user-assignable button, where `index` is 0 (FN1), 1 (FN2) or
-// 2 (FN3, the "HOME" button).
-// The value is a "<kind>:<arg>" action string so more kinds can be added later without
-// migrating existing settings; "" means unassigned. The only kind today is
-// FN_ACTION_PAK_PREFIX. Callers must ignore kinds they don't recognise, so a card
-// configured on a newer build degrades to "does nothing" on an older one.
+// The raw action stored for a user-assignable button, where `index` is 0 (FN1),
+// 1 (FN2) or 2 (FN3, the "HOME" button). Legacy cards may contain "" here; use
+// CFG_getEffectiveFnAction() when deciding what the button should do.
 // Returns "" for an out of range index.
 const char* CFG_getFnAction(int index);
+// As above, but falls back to the per-slot built-in default when the stored
+// value is empty: FN1 unassigned, FN2 "home", FN3 "overlay". An explicit "none"
+// is preserved. Callers still route the result through fnActionDispatch() so
+// actions that do not apply to the current scope are no-ops.
+const char* CFG_getEffectiveFnAction(int index);
 void CFG_setFnAction(int index, const char* action);
 // Set game art width percentage.
 double CFG_getGameArtWidth(void);
