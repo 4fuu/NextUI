@@ -645,6 +645,19 @@ static void test_version_record(void)
     CHECK_INT(pak_manifest_note_scan(directory, versions), PAK_MANIFEST_OK);
     CHECK_INT(read_text(record, text, sizeof text), 1);
     CHECK_STR(text, "old\n");
+
+    /* A record directory that cannot be a directory must fail closed without
+     * changing the manifest scan result. */
+    {
+        char blocked[700];
+        char blocked_record[800];
+        path_join(blocked, sizeof blocked, temp.path, "blocked-version-dir");
+        CHECK(write_text(blocked, "not a directory\n"));
+        pak_path("Safe.pak", directory, sizeof directory);
+        CHECK_INT(pak_manifest_note_scan(directory, blocked), PAK_MANIFEST_OK);
+        path_join(blocked_record, sizeof blocked_record, blocked, "safe.id.version");
+        CHECK_INT(file_exists(blocked_record), 0);
+    }
 }
 
 static void test_min_system_is_pure(void)
