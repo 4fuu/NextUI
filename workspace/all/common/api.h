@@ -310,6 +310,12 @@ enum {
 };
 
 SDL_Surface* GFX_init(int mode);
+/* Initialize GFX's drawing resources against a display owned by the caller.
+ * Does not create a window, renderer, video surface or GL context and must not
+ * be mixed with GFX_init()/GFX_flip(). Returns the logical screen surface used
+ * for palette mapping, or NULL when fonts/assets are unavailable. */
+SDL_Surface* GFX_initAttached(int width, int height);
+void GFX_quitAttached(void);
 #define GFX_resize PLAT_resizeVideo				// (int w, int h, int pitch);
 #define GFX_setSharpness PLAT_setSharpness // (int sharpness)
 #define GFX_setEffectColor PLAT_setEffectColor // (int color)

@@ -407,40 +407,39 @@ int GFX_updateColors(void)
 	return 0;
 }
 
-SDL_Surface *GFX_init(int mode)
+static void GFX_closeFonts(void)
 {
-	// Platform init may use the active output to select panel rotation.
-	hdmi_active = GetHDMI();
+	if (font.large) TTF_CloseFont(font.large);
+	if (font.medium) TTF_CloseFont(font.medium);
+	if (font.small) TTF_CloseFont(font.small);
+	if (font.tiny) TTF_CloseFont(font.tiny);
+	if (font.micro) TTF_CloseFont(font.micro);
+	font.large = NULL;
+	font.medium = NULL;
+	font.small = NULL;
+	font.tiny = NULL;
+	font.micro = NULL;
+}
 
-	// Platform-specific init
-	// This might affect FIXED_SCALE, so do it first
-	PLAT_initPlatform();
-	// Switch output before SDL creates its video surface and reads the geometry.
-	SetHDMI(hdmi_active);
+static void GFX_releaseResources(void)
+{
+	GFX_closeFonts();
 
-	// The refresh rate can depend on the detected panel and active output.
-	current_fps = SCREEN_FPS;
+	if (gfx.assets) SDL_FreeSurface(gfx.assets);
+	if (gfx.inputs) SDL_FreeSurface(gfx.inputs);
+	gfx.assets = NULL;
+	gfx.inputs = NULL;
 
-	gfx.screen = PLAT_initVideo();
-	gfx.vsync = VSYNC_STRICT;
-	gfx.mode = mode;
+	CFG_quit();
+	GFX_freeAAScaler();
+}
 
-	// TODO: all this doesn't really belong here...
-	// tried adding to PWR_init() but that was no good (not sure why)
-	
-	CFG_init(GFX_loadSystemFont, GFX_updateColors);
-
-	// by default, we will clear with whatever background color the user prefers
-	// if MODE_MENU /e.g. minarch, clear with default black)
-	if(mode == MODE_MAIN)
-		GFX_setClearColor(mapUint(CFG_getColor(COLOR_BACKGROUND)));
-
-	// We always have to symlink, does not depend on NTP being enabled
-	PLAT_initTimezones();
-	PLAT_setCurrentTimezone(PLAT_getCurrentTimezone());
-
-	PLAT_initLid();
-	LEDS_initLeds();
+/* Loads the palette-mapped colors, the shared asset atlas and the input
+ * prompts. The caller must have created gfx.screen first because the colors
+ * are mapped through its pixel format. */
+static int GFX_loadResources(void)
+{
+	int ok = 0;
 
 	RGB_WHITE = SDL_MapRGB(gfx.screen->format, TRIAD_WHITE);
 	RGB_BLACK = SDL_MapRGB(gfx.screen->format, TRIAD_BLACK);
@@ -521,6 +520,11 @@ SDL_Surface *GFX_init(int mode)
 	if (!exists(asset_path))
 		LOG_info("missing assets, you're about to segfault dummy!\n");
 	gfx.assets = IMG_Load(asset_path);
+	if (!gfx.assets)
+	{
+		LOG_error("GFX: failed to load %s: %s\n", asset_path, IMG_GetError());
+		ok = -1;
+	}
 
 	input_rects[INPUT_BUTTON_A] = (SDL_Rect){SCALE4(0, 0, BUTTON_SIZE, BUTTON_SIZE)};
 	input_rects[INPUT_BUTTON_B] = (SDL_Rect){SCALE4(20, 0, BUTTON_SIZE, BUTTON_SIZE)};
@@ -569,26 +573,96 @@ SDL_Surface *GFX_init(int mode)
 	if (!exists(input_path))
 		LOG_info("missing inputs, you're about to segfault dummy!\n");
 	gfx.inputs = IMG_Load(input_path);
+	if (!gfx.inputs)
+	{
+		LOG_error("GFX: failed to load %s: %s\n", input_path, IMG_GetError());
+		ok = -1;
+	}
+
+	return ok;
+}
+
+SDL_Surface *GFX_init(int mode)
+{
+	// Platform init may use the active output to select panel rotation.
+	hdmi_active = GetHDMI();
+
+	// Platform-specific init
+	// This might affect FIXED_SCALE, so do it first
+	PLAT_initPlatform();
+	// Switch output before SDL creates its video surface and reads the geometry.
+	SetHDMI(hdmi_active);
+
+	// The refresh rate can depend on the detected panel and active output.
+	current_fps = SCREEN_FPS;
+
+	gfx.screen = PLAT_initVideo();
+	gfx.vsync = VSYNC_STRICT;
+	gfx.mode = mode;
+
+	// TODO: all this doesn't really belong here...
+	// tried adding to PWR_init() but that was no good (not sure why)
+
+	CFG_init(GFX_loadSystemFont, GFX_updateColors);
+
+	// by default, we will clear with whatever background color the user prefers
+	// if MODE_MENU /e.g. minarch, clear with default black)
+	if(mode == MODE_MAIN)
+		GFX_setClearColor(mapUint(CFG_getColor(COLOR_BACKGROUND)));
+
+	// We always have to symlink, does not depend on NTP being enabled
+	PLAT_initTimezones();
+	PLAT_setCurrentTimezone(PLAT_getCurrentTimezone());
+
+	PLAT_initLid();
+	LEDS_initLeds();
+
+	GFX_loadResources();
 
 	PLAT_clearAll();
 
 	return gfx.screen;
 }
+
+/* Initializes the same drawing resources as GFX_init() (fonts, palette,
+ * asset atlas, input prompts) without creating a window, renderer, video
+ * surface or GL context. A host that already owns the display calls this and
+ * presents itself; GFX_flip()/PLAT_* video functions must not be used until
+ * GFX_quitAttached(). Returns NULL when resources are unavailable. */
+SDL_Surface *GFX_initAttached(int width, int height)
+{
+	if (gfx.screen || width <= 0 || height <= 0) return NULL;
+
+	gfx.vsync = VSYNC_STRICT;
+	gfx.mode = MODE_MAIN;
+	gfx.screen = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
+	if (!gfx.screen) return NULL;
+
+	CFG_init(GFX_loadSystemFont, GFX_updateColors);
+
+	if (!font.large || !font.medium || !font.small || GFX_loadResources() != 0)
+	{
+		GFX_releaseResources();
+		SDL_FreeSurface(gfx.screen);
+		gfx.screen = NULL;
+		return NULL;
+	}
+
+	return gfx.screen;
+}
+
+void GFX_quitAttached(void)
+{
+	if (!gfx.screen) return;
+
+	GFX_releaseResources();
+	SDL_FreeSurface(gfx.screen);
+	gfx.screen = NULL;
+}
+
 void GFX_quit(void)
 {
-
-	TTF_CloseFont(font.large);
-	TTF_CloseFont(font.medium);
-	TTF_CloseFont(font.small);
-	TTF_CloseFont(font.tiny);
-	TTF_CloseFont(font.micro);
-
-	SDL_FreeSurface(gfx.assets);
-	SDL_FreeSurface(gfx.inputs);
-
-	CFG_quit();
-
-	GFX_freeAAScaler();
+	GFX_releaseResources();
 
 	PLAT_quitVideo();
 }
