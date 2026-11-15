@@ -1,0 +1,23 @@
+# show2 message strings - every string show2.elf can display.
+# The embedded font (embedded_font_rounded.h) covers each character below plus
+# the Latin base font's full ASCII set. When the final localized boot strings
+# land, update this file and re-run generate_embedded_font.py; nothing else
+# needs to change. Anything not covered here (for example a non-ASCII .pakz
+# file name) renders as tofu, exactly as it did before CJK support.
+
+# English (current, shipped):
+Installing...
+Extracting <pakz>
+Installing <pakz>
+Updating NextUI
+Installing NextUI
+Done
+
+# Provisional Simplified Chinese (font coverage and render proof only; wiring
+# localized startup text into boot.sh is a separate task):
+正在安装...
+正在解压 <pakz>
+正在安装 <pakz>
+正在更新 NextUI
+正在安装 NextUI
+完成
