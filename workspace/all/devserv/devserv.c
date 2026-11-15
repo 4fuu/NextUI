@@ -261,7 +261,8 @@ static int parse_session_id(const char* text, unsigned long long* out)
 
 /* Session identity is descriptive, not an authorization decision. Reuse the
  * same canonical path and manifest-id rules the gate uses so a session and a
- * grant describe the same installation. */
+ * grant describe the same installation. An identity that does not fit the
+ * session fields is rejected, exactly like the gate, instead of truncated. */
 static int session_identity(const char* claimed_app, const char* pak, char* app_out,
                             size_t app_size, char* pak_out, size_t pak_size)
 {
@@ -278,13 +279,18 @@ static int session_identity(const char* claimed_app, const char* pak, char* app_
         const char* canonical = pak;
 
         if (realpath(pak, resolved) != NULL) canonical = resolved;
+        if (strlen(canonical) >= pak_size) return -1;
         snprintf(pak_out, pak_size, "%s", canonical);
 
         if (pak_manifest_load(pak_out, &manifest) == PAK_MANIFEST_OK && manifest.id[0] != '\0')
+        {
+            if (strlen(manifest.id) >= app_size) return -1;
             snprintf(app_out, app_size, "%s", manifest.id);
+        }
         else
         {
             base = strrchr(pak_out, '/');
+            if (base != NULL && strlen(base + 1) >= app_size) return -1;
             snprintf(app_out, app_size, "%s", base != NULL ? base + 1 : pak_out);
         }
     }
@@ -437,6 +443,7 @@ static void handle_connection(int descriptor, const char* grants_path,
             unsigned long long expected = 0;
             DeviceSessionResult result;
             int was_active = device_session_is_active(session);
+            int cleaned;
             const char* error = NULL;
             const char* detail = NULL;
 
@@ -462,7 +469,10 @@ static void handle_connection(int descriptor, const char* grants_path,
                 error = "bad_request";
                 detail = "invalid session";
             }
-            if (!device_protocol_write_session_response(session, result, was_active, error, detail,
+            /* cleaned reports that this stop actually tore a session down; a
+             * stale stop leaves the newer session running and cleaned nothing. */
+            cleaned = was_active && result != DEVICE_SESSION_STALE;
+            if (!device_protocol_write_session_response(session, result, cleaned, error, detail,
                                                         response, sizeof response))
                 snprintf(response, sizeof response,
                          "{\"ok\":false,\"error\":\"backend_error\","
