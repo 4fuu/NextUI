@@ -57,14 +57,23 @@ cd $(dirname "$0")
 
 parse_hook_cmd() {
 	HOOK_CMD="$1"
-	HOOK_EMU_PATH=$(echo "$HOOK_CMD" | sed "s/^'\\([^']*\\)'.*/\\1/")
-	_remainder=$(echo "$HOOK_CMD" | sed "s/^'[^']*'//")
-	if echo "$_remainder" | grep -q "'"; then
+	# State-capable paks prefix the command with NEXTUI_APP_*='...' assignments.
+	# Parse through the shell and skip those assignments so HOOK_EMU_PATH and
+	# HOOK_TYPE still describe the actual launch command.
+	eval "set -- $HOOK_CMD"
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			[A-Za-z_][A-Za-z0-9_]*=*) shift ;;
+			*) break ;;
+		esac
+	done
+	HOOK_EMU_PATH="${1:-}"
+	HOOK_ROM_PATH=""
+	if [ $# -gt 1 ]; then
 		HOOK_TYPE="rom"
-		HOOK_ROM_PATH=$(echo "$_remainder" | sed "s/.*'\\([^']*\\)'.*/\\1/")
+		HOOK_ROM_PATH="$2"
 	else
 		HOOK_TYPE="pak"
-		HOOK_ROM_PATH=""
 	fi
 	[ -f /tmp/last.txt ] && HOOK_LAST=$(cat /tmp/last.txt) || HOOK_LAST=""
 	export HOOK_CMD HOOK_EMU_PATH HOOK_TYPE HOOK_ROM_PATH HOOK_LAST

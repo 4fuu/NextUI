@@ -17,6 +17,7 @@
 #include <assert.h>
 #include <limits.h>
 #include "pak_manifest.h"
+#include "app_state.h"
 
 ///////////////////////////////////////
 
@@ -1224,15 +1225,18 @@ static int autoResume(void) {
 }
 
 static void openPak(char* path) {
-	// NOTE: escapeSingleQuotes() modifies the passed string
-	// so we need to save the path before we call that
-	// if (prefixMatch(ROMS_PATH, path)) {
-	// 	addRecent(path);
-	// }
 	saveLast(path);
 
-	char cmd[256];
-	sprintf(cmd, "'%s/launch.sh'", escapeSingleQuotes(path));
+	// State-capable apps receive NEXTUI_APP_* below. Legacy paks keep the exact
+	// old launch command, and a state setup failure must never block launching.
+	PakManifest manifest;
+	char cmd[APP_STATE_CMD_MAX];
+	pak_manifest_load(path, &manifest);
+	if (!app_state_build_launch(SHARED_USERDATA_PATH "/.minui/apps", path, &manifest,
+	                            APP_LAUNCH_NORMAL, cmd, sizeof cmd)) {
+		// NOTE: escapeSingleQuotes() modifies the passed string
+		snprintf(cmd, sizeof cmd, "'%s/launch.sh'", escapeSingleQuotes(path));
+	}
 	queueNext(cmd);
 }
 
