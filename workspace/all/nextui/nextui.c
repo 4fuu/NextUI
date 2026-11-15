@@ -506,6 +506,9 @@ static int can_resume = 0;
 static int should_resume = 0; // set to 1 on BTN_RESUME but only if can_resume==1
 static int pak_can_resume = 0; // B4: selected pak has declared saves + a valid B3 state
 static int should_resume_pak = 0; // set to 1 on BTN_RESUME but only if pak_can_resume==1
+static char pak_resume_cache_path[256]; // last inspected pak; avoids duplicate hashes on redraw/open
+static int pak_resume_cache_result = 0;
+static int pak_resume_cache_valid = 0;
 static int has_preview = 0;
 static int simple_mode = 0;
 static int switcher_selected = 0;
@@ -1288,11 +1291,27 @@ static void readyResume(Entry* entry) {
 // B4: pak resume is deliberately separate from the legacy ROM save slots.
 // A pak is resumable only when pak.json declares the exact "saves" capability
 // and B3 validates every payload file; a declaration alone is never enough.
+//
+// The launcher never writes state itself, and an app save returns through a
+// fresh launcher process, so caching the last inspected pak cannot hide a new
+// save. This avoids re-hashing the same payload when the switcher redraws or
+// the A-button path inspects the entry already shown on screen.
 static void readyPakResume(Entry* entry) {
 	pak_can_resume = 0;
-	if (!entry || entry->type!=ENTRY_PAK) return;
-	if (!(entry->capabilities & PAK_CAPABILITY_SAVES)) return;
+	if (!entry || entry->type!=ENTRY_PAK) {
+		pak_resume_cache_valid = 0;
+		return;
+	}
+	if (!(entry->capabilities & PAK_CAPABILITY_SAVES)) {
+		pak_resume_cache_valid = 0;
+		return;
+	}
+	if (pak_resume_cache_valid && exactMatch(pak_resume_cache_path, entry->path)) {
+		pak_can_resume = pak_resume_cache_result;
+		return;
+	}
 
+	pak_resume_cache_valid = 0;
 	PakManifest manifest;
 	if (pak_manifest_load(entry->path, &manifest)!=PAK_MANIFEST_OK) return;
 
@@ -1301,6 +1320,11 @@ static void readyPakResume(Entry* entry) {
 	                         &manifest, &info);
 	pak_can_resume = (app_capabilities_actions(&info, APP_CAPABILITIES_DESKTOP, NULL)
 	                  & APP_CAPABILITIES_ACTION_RESUME)!=0;
+
+	strncpy(pak_resume_cache_path, entry->path, sizeof(pak_resume_cache_path)-1);
+	pak_resume_cache_path[sizeof(pak_resume_cache_path)-1] = '\0';
+	pak_resume_cache_result = pak_can_resume;
+	pak_resume_cache_valid = 1;
 }
 
 static void readyEntryResume(Entry* entry) {
