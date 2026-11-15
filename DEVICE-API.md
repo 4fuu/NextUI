@@ -1,4 +1,4 @@
-# Device API (C1: service and permission core)
+# Device API (C1: service and permission core; C2: LED app lease)
 
 This document defines the app-facing device control contract implemented by
 `devserv` and `nextdev`. It is a cooperative permission gate for applications
@@ -57,7 +57,7 @@ later task plugs in the existing NextUI device paths.
 | `display.colortemp` | yes | |
 | `audio.volume` | yes | |
 | `audio.sink` | yes | speaker/Bluetooth/USB routing |
-| `led.control` | yes | C2 adds the app-profile lease |
+| `led.control` | yes | app-profile lease, see the C2 section |
 | `net.wifi` | yes | |
 | `net.bluetooth` | yes | |
 | `power.sleep` | yes | session semantics are C3 |
@@ -313,16 +313,87 @@ refuses unknown, undeclared, and read-only capabilities. It fails with
 `device_backend.h` defines the only place hardware work belongs. An
 implementation calls the existing NextUI paths (`PWR_*`, `LEDS_*`, `VIB_*`,
 `PLAT_*`) and reports `available() == 0` whenever the platform or hardware is
-missing. `device_backend_none()` is the C1 production backend: it reports
-`unavailable` for every capability. This avoids faking success for the desktop
-platform's no-op implementations and avoids duplicating hardware control.
+missing. `device_backend_none()` remains the fail-closed default for
+capabilities that have no implementation. C2's production `devserv` uses
+`device_backend_leds()`: `led.control` goes through the existing LED path and
+every other capability still reports `unavailable`. This avoids faking success
+for the desktop platform's no-op implementations and avoids duplicating
+hardware control.
+
+## LED app lease (C2)
+
+`led.control` is backed by `LIGHT_PROFILE_APP`, a copy of `lightsDefault` on the
+same override stack used by sleep and ambient. `lightsDefault` remains owned by
+LedControl and is never written by an app lease. Acquire and restore re-read the
+current LedControl file, so a change made while `devserv` is running is honored
+instead of restoring a stale service-start snapshot.
+
+Actions:
+
+| Action | Args | Meaning |
+| --- | --- | --- |
+| `acquire` | optional patch or `{"zones":[...]}` | Take the lease; the first layer snapshots the user default. Nested acquires only increase the depth. |
+| `set` | one patch or `{"zones":[...]}` | Update the active lease. Fails with `no active led lease` when none is held. |
+| `get` | optional `{"zone":N}` | Return the lease summary, or one zone's state. |
+| `release` | none | Drop one layer. The final layer restores the user default. Repeating it is idempotent (`released:false`). |
+| `restore` | none | Explicit cleanup: remove every app layer and restore the user default. Used by session teardown and crash cleanup. |
+
+Patch fields (all optional except `zone`):
+
+```json
+{"zone":1,"color":"#FF0000","color2":"#000000","effect":4,
+ "speed":1000,"brightness":80,"inbrightness":100,"cycles":-1,"trigger":0}
+```
+
+- `brightness` is 0-100; **0 is the existing off convention**. There is no
+  second enabled flag.
+- `color`/`color2` accept `#RRGGBB` or an integer 0-0xFFFFFF.
+- Zone indices are checked against `LEDS_getCount()`. Empty compile-time slots
+  are rejected; they are never written, because a zeroed slot extinguishes all
+  LEDs on the trimui platform.
+- Brick Pro `f1`/`f2` share `max_scale_f1f2`. Setting brightness on either one
+  mirrors the other; the response reports the peer in `shared`. Colors, effects,
+  speed and cycles remain per-zone. Do not promise independent f1/f2 brightness.
+- Charging, critical battery, mute and sleep keep their existing priority. An
+  app profile can be stored while one of those is visible; it is applied when
+  the higher-priority profile clears.
+
+Ownership and cleanup:
+
+- The app owns its explicit `release`. C3 owns session teardown and must call
+  `release` (or `restore`) when the app exits normally.
+- C3 can call `device_backend_leds_session_end()` inside `devserv` on every app
+  exit. That drops any app lease and restores the user default without stopping
+  the service.
+- `devserv` restores the user default at process exit (`atexit`). It does not
+  watch an app PID, so an app crash or `SIGKILL` is **not** automatically
+  released in C2. C3 must provide that supervision and call the hook above;
+  this limitation is deliberate and not reported as guaranteed cleanup.
+- If the final restore write fails, the lease still drops its claim and returns
+  `backend_error`; callers can retry `restore`. The lease never stays active
+  forever because a device write failed.
+
+Availability and verification:
+
+- `available` requires `/sys/class/led_anim` and at least one populated zone.
+  The desktop preview therefore reports `unavailable`, and so do all non-LED
+  capabilities.
+- The real ops call `LEDS_*` / `PLAT_*`; C2 adds no sysfs path of its own.
+- The existing `PLAT_setLed*` functions return `void` and ignore a failed
+  `fopen`, so C2 can detect a missing controller and logical failures but not
+  every sysfs write error. Per-zone write failure handling is tested with fake
+  ops; real-device verification is still required.
+- Responses are bounded by `DEVICE_GATE_VALUE_MAX` (512 bytes); an oversized
+  response becomes `backend_error` instead of truncation.
 
 ## Not in C1
 
 - Settings authorization UI and translations.
-- LED app-profile lease (`LIGHT_PROFILE_APP`) — C2.
 - Session start/stop, device snapshots, launch.sh hooks — C3.
 - Foreign-app exit/force-quit — C4.
-- Real hardware backends for display/audio/LED/network/rumble/power/time.
+- Real hardware backends for display/audio/network/rumble/power/time.
 - Service supervision/autostart; launch.sh will start `devserv` in C3. Until
   then it can be started manually or by a package.
+
+C2 adds the LED app lease and the `nextui-leds` backend. Automatic release on
+app crash remains C3; see the limitation above.

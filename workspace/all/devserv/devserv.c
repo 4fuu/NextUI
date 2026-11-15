@@ -1,4 +1,5 @@
 #include "device_backend.h"
+#include "device_backend_leds_platform.h"
 #include "device_gate.h"
 #include "device_protocol.h"
 
@@ -34,7 +35,8 @@ static void usage(FILE* stream)
             "Serves newline-delimited JSON device requests on a Unix socket.\n"
             "The socket defaults to $NEXTUI_DEVSERV_SOCKET or %s.\n"
             "Grants must be configured explicitly; there is no implicit /tmp store.\n"
-            "Backend: none in C1; every hardware capability reports unavailable.\n",
+            "Backend: led.control through the existing NextUI LED path; every other\n"
+            "hardware capability reports unavailable.\n",
             DEFAULT_SOCKET_PATH);
 }
 
@@ -318,7 +320,7 @@ int main(int argc, char* argv[])
 {
     char socket_path[DEVICE_GRANT_PATH_MAX];
     char grants_path[DEVICE_GRANT_PATH_MAX];
-    const DeviceBackend* backend = device_backend_none();
+    const DeviceBackend* backend;
     const char* environment;
     struct sigaction action;
     int listener;
@@ -374,6 +376,15 @@ int main(int argc, char* argv[])
                 "         Persistent grants are never stored in /tmp implicitly.\n");
         return 2;
     }
+
+#ifdef NEXTUI_DEVSERV_BACKEND_NONE
+    /* Host gate tests build this file without the LED stack. Production uses
+     * the LED backend below; this keeps the C1 none-backend test meaningful. */
+    backend = device_backend_none();
+#else
+    backend = device_backend_leds();
+    (void)atexit(device_backend_leds_shutdown);
+#endif
 
     umask(0077);
     signal(SIGPIPE, SIG_IGN);

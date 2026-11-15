@@ -74,11 +74,13 @@ LightSettings lightsLowBattery[MAX_LIGHTS];
 LightSettings lightsCriticalBattery[MAX_LIGHTS];
 LightSettings lightsSleep[MAX_LIGHTS];
 LightSettings lightsAmbient[MAX_LIGHTS];
+LightSettings lightsApp[MAX_LIGHTS];
 LightSettings (*lights)[MAX_LIGHTS] = NULL;
 
 #define PROFILE_OVERRIDE_SIZE 4
 int profile_override_top = -1;
 enum LightProfile profile_override[PROFILE_OVERRIDE_SIZE];
+static int app_profile_depth = 0;
 
 ///////////////////////////////
 
@@ -5023,6 +5025,10 @@ void LEDS_setProfile(int profile)
 			new_lights = lightsAmbient;
 			indicator = false;
 			break;
+		case LIGHT_PROFILE_APP:
+			new_lights = lightsApp;
+			indicator = false;
+			break;
 		default:
 			return;
 	}
@@ -5107,16 +5113,11 @@ void LEDS_updateLeds(bool indicator_only)
 	}
 }
 
-void LEDS_initLeds()
+// Rebuild the derived profiles from lightsDefault. LEDS_loadDefaults() must
+// have filled lightsDefault first; this does not touch the override stack or
+// the active app profile.
+static void LEDS_buildProfiles()
 {
-	PLAT_initLeds(lightsDefault);
-
-	if(!lightsDefault)
-	{
-		LOG_error("LEDS_initLeds called but lightsDefault is NULL\n");
-		return;
-	}
-
 	int lightsize = sizeof(lightsDefault) / sizeof(LightSettings);
 	for (int i = 0; i < lightsize; i++)
 	{
@@ -5141,7 +5142,7 @@ void LEDS_initLeds()
 		lightsCharging[i] = lightsDefault[i];
 		lightsCharging[i].effect = 2; // breathe
 		lightsCharging[i].color1 = 0x00FF00;
-		lightsCharging[i].cycles = -1; // infinite	
+		lightsCharging[i].cycles = -1; // infinite
 
 		// LIGHT_PROFILE_SLEEP
 		lightsSleep[i] = lightsDefault[i];
@@ -5152,9 +5153,33 @@ void LEDS_initLeds()
 		// just to have sensible defaults, will be updated by GFX_setAmbientColor
 		lightsAmbient[i] = lightsDefault[i];
 	}
+}
+
+// Re-read the user's LED settings from disk and rebuild the derived profiles.
+// LedControl can change the file while devserv is alive; taking a fresh
+// snapshot at acquire/restore keeps "user default" meaning the current file
+// instead of whatever was on disk when the service started.
+static void LEDS_loadDefaults()
+{
+	PLAT_initLeds(lightsDefault);
+	LEDS_buildProfiles();
+}
+
+void LEDS_initLeds()
+{
+	LEDS_loadDefaults();
+
+	int lightsize = sizeof(lightsDefault) / sizeof(LightSettings);
+	for (int i = 0; i < lightsize; i++)
+	{
+		// LIGHT_PROFILE_APP
+		// a lease starts from the user's configured defaults
+		lightsApp[i] = lightsDefault[i];
+	}
 
 	// this might be called more than once (for reasons), so reset to consistent state
 	profile_override_top = -1;
+	app_profile_depth = 0;
 
 	lights_initialized = 1;
 
@@ -5189,6 +5214,103 @@ bool LEDS_popProfileOverride(int profile)
 	LEDS_applyRules();
 
 	return true;
+}
+
+bool LEDS_pushAppProfile(void)
+{
+	if(!lights_initialized)
+		return false;
+
+	// A nested push keeps the current app state. Only the first layer takes a
+	// fresh snapshot of the user's defaults.
+	if(app_profile_depth == 0)
+	{
+		LEDS_loadDefaults();
+		for(int i = 0; i < MAX_LIGHTS; i++)
+			lightsApp[i] = lightsDefault[i];
+	}
+
+	if(!LEDS_pushProfileOverride(LIGHT_PROFILE_APP))
+		return false;
+
+	app_profile_depth++;
+	return true;
+}
+
+bool LEDS_popAppProfile(void)
+{
+	if(!lights_initialized || app_profile_depth <= 0)
+		return false;
+
+	if(!LEDS_popProfileOverride(LIGHT_PROFILE_APP))
+		return false;
+
+	app_profile_depth--;
+	return true;
+}
+
+bool LEDS_appProfileActive(void)
+{
+	return lights_initialized && app_profile_depth > 0;
+}
+
+bool LEDS_updateAppProfile(void)
+{
+	if(!lights_initialized || app_profile_depth <= 0)
+		return false;
+
+	// While a higher-priority profile (charging, critical battery, mute, sleep)
+	// owns the hardware, keep the app state but do not overwrite it. The rules
+	// will select LIGHT_PROFILE_APP again when that profile clears.
+	if(lights == (LightSettings (*)[MAX_LIGHTS])lightsApp)
+		LEDS_updateLeds(false);
+
+	return true;
+}
+
+int LEDS_restoreDefault(void)
+{
+	if(!lights_initialized)
+		return 0;
+
+	int removed = 0;
+	int write = 0;
+
+	// Remove every app layer, wherever it sits. This is the explicit cleanup
+	// path for an app that exited without balancing its pushes, and it must not
+	// disturb an unrelated sleep/ambient override above or below it.
+	for(int i = 0; i <= profile_override_top; i++)
+	{
+		if(profile_override[i] == LIGHT_PROFILE_APP)
+			removed++;
+		else
+			profile_override[write++] = profile_override[i];
+	}
+	profile_override_top = write - 1;
+	app_profile_depth = 0;
+
+	// "User default" means the current file, not the snapshot from service
+	// start: LedControl may have changed it while devserv was running.
+	LEDS_loadDefaults();
+	for(int i = 0; i < MAX_LIGHTS; i++)
+		lightsApp[i] = lightsDefault[i];
+	LEDS_applyRules();
+
+	return removed;
+}
+
+LightSettings *LEDS_getAppLight(int index)
+{
+	if(!lights_initialized || index < 0 || index >= LEDS_getCount())
+		return NULL;
+	return &lightsApp[index];
+}
+
+const LightSettings *LEDS_getDefaultLight(int index)
+{
+	if(!lights_initialized || index < 0 || index >= LEDS_getCount())
+		return NULL;
+	return &lightsDefault[index];
 }
 
 // returns top of stack, or default if stack is empty

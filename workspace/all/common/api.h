@@ -600,6 +600,7 @@ enum LightProfile {
 	LIGHT_PROFILE_CHARGING = 4, // derived from default
 	LIGHT_PROFILE_SLEEP = 5, // sleep mode
 	LIGHT_PROFILE_AMBIENT = 6, // ambient mode
+	LIGHT_PROFILE_APP = 7, // temporary app lease, see LEDS_pushAppProfile()
 	LIGHT_PROFILE_COUNT
 };
 
@@ -636,6 +637,35 @@ void LEDS_setProfile(int profile); // enum LightProfile
 // reapplies the current led config. This should only be necessary
 // if youre directly modifying the LightSettings structure.
 void LEDS_updateLeds(bool indicator_only);
+
+// Application LED lease.
+//
+// The app profile is a copy of lightsDefault taken when the first lease is
+// acquired. LEDS_pushAppProfile() pushes LIGHT_PROFILE_APP on the same override
+// stack used by sleep/ambient, so battery/charging/mute rules keep their
+// existing priority. Nested pushes are allowed; each pop removes one layer.
+// LEDS_restoreDefault() is the explicit cleanup path: it removes every app
+// profile layer (even when another override is on top) and reapplies the rules.
+//
+// The app profile never writes lightsDefault; LedControl remains the only
+// writer of the user's defaults. Acquire/restore re-read the current settings
+// file, so a release restores the user's current default, not a stale one.
+bool LEDS_pushAppProfile(void);
+bool LEDS_popAppProfile(void);
+bool LEDS_appProfileActive(void);
+// Writes lightsApp if LIGHT_PROFILE_APP is currently the visible profile. The
+// profile can be stored but not visible while charging/critical/mute wins; in
+// that case this returns true without touching the hardware, and the rules
+// apply it when the higher-priority profile clears.
+bool LEDS_updateAppProfile(void);
+// Removes all app-profile entries from the override stack and reapplies the
+// rules. Returns the number of app entries removed. Safe when no lease is held.
+int LEDS_restoreDefault(void);
+// Bounds-checked accessors for the real zone count (LEDS_getCount()). These
+// return NULL for indices past the populated slots; walking a zeroed MAX_LIGHTS
+// slot would write brightness 0 to the global LED controller.
+LightSettings *LEDS_getAppLight(int index);
+const LightSettings *LEDS_getDefaultLight(int index);
 
 enum {
 	CPU_SPEED_AUTO = 0,

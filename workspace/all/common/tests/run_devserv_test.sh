@@ -2,8 +2,9 @@
 # Host-only end-to-end test for devserv + nextdev. Compiles both binaries from
 # source into a temporary directory and drives a real Unix socket. Grants are
 # created through device_gate_grant (the settings-layer API), so the test also
-# exercises pak content fingerprints. The C1 production backend is "none", so a
-# granted hardware call must report unavailable rather than success.
+# exercises pak content fingerprints. This build forces the C1 "none" backend,
+# so a granted hardware call must report unavailable rather than success.
+# Production devserv uses the C2 LED backend instead.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -25,7 +26,8 @@ trap cleanup EXIT
 compiler="${CC:-cc}"
 common="$ROOT/workspace/all/common"
 
-"$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 -I"$common" \
+"$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 \
+    -DNEXTUI_DEVSERV_BACKEND_NONE -I"$common" \
     "$ROOT/workspace/all/devserv/devserv.c" \
     "$common/device_backend.c" \
     "$common/device_caps.c" \
