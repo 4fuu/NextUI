@@ -72,7 +72,9 @@ therefore bounded by the next launch as well as by the generation id below.
   the directory basename). A claimed `--app` that disagrees with the manifest
   is rejected with `bad_request`.
 - Every start gets a 64-bit generation id, formatted as 16 hex digits. The id
-  is not a security token; it separates a late stop from a newer session.
+  is not a secret and is not an authorization token; it is only a generation
+  guard. The guarantee is stale-stop isolation, not confidentiality or access
+  control.
 - `session-stop` with a non-zero id acts only on the matching active or last
   session. A mismatch returns `session_stale` and performs no read, write or
   LED release. This prevents a late stop from tearing down a newer session or
@@ -116,6 +118,13 @@ Rules:
   not prove that real sysfs writes succeeded; device LED behavior remains
   unverified. `led.state:"released"` means C2's lease teardown returned
   success, not that the hardware write was observed.
+
+The production capability backend in this delivery serves only `led.control`
+through C2. The brightness/colortemp/volume/audio-sink entries above describe
+the session snapshot/restore adapter's use of msettings; the corresponding
+`display.*`/`audio.*` capability calls are still `unavailable` in production
+and must not be described as production-reachable paths. The writable fake
+backend in the adversarial E2E is test-only and does not change that.
 
 ## Dirty-only restore
 
@@ -181,9 +190,12 @@ The C1 socket contract is extended with three operations. Existing
 ```
 
 `session-start` does not require a grant. It is lifecycle state, not a
-capability. Session operations never authorize a `call`. They are a cooperative
-lifecycle channel for local processes, not a security boundary (apps already run
-as root and can write sysfs directly).
+capability. Session operations do not go through C1 grant/identity
+authorization and never authorize a `call`. They are a cooperative lifecycle
+channel for local processes, not a security boundary (apps already run as root
+and can write sysfs directly). The concrete isolation guarantee is narrower:
+a stale or unknown generation id cannot stop a newer session or release its
+LED lease.
 
 Response fields:
 
@@ -254,9 +266,18 @@ app launch.
 - `run_devserv_test.sh`: real Unix-socket E2E — start/status/duplicate/stale/
   stop/repeat, raw socket requests, no grant required for sessions, no fake
   field success.
-- Full `make -C tests test` passed (session, device gate 1229, C1 socket E2E,
-  C2 lease/backend/profile/refresh, app state/capabilities, manifest, i18n,
-  text layout).
+- `run_session_e2e_test.sh`: 12-group adversarial E2E with a writable fake
+  session/backend. Covers granted set -> dirty mark -> stop restore, read-only
+  and unauthorized calls, field-failure finality, LED retry (single and
+  persistent), stale-stop isolation, launcher death, service `SIGKILL`,
+  accurate `cleaned`, and overlong identity rejection. The same test was run
+  against pre-fix C3 `31beee7`: the normal run failed on `cleaned:true` for a
+  stale stop, and a run with that assertion bypassed to reach the later group
+  failed because a 200-character pak basename was accepted. It passes on the
+  fixed batch5 `175e50d`.
+- Full `make -C tests test` passed (session, adversarial session E2E, device
+  gate 1229, C1 socket E2E, C2 lease/backend/profile/refresh, app
+  state/capabilities, manifest, i18n, text layout).
 - `make setup && make common PLATFORM=desktop` passed; the production devserv
   linked the weak C2 hook and reported `led.state:"released"` on stop, while
   every desktop field reports `"desktop msettings is a stub"`.
