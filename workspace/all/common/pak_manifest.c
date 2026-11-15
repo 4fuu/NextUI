@@ -494,6 +494,133 @@ static int parse_capabilities(JsonCursor* c, PakManifest* manifest)
     }
 }
 
+static int add_device_capability(PakManifest* manifest, const char* name)
+{
+    int i;
+
+    if (name == NULL || name[0] == '\0') return 1;
+
+    for (i = 0; i < manifest->device_capability_count; i++)
+    {
+        if (strcmp(manifest->device_capabilities[i], name) == 0) return 1;
+    }
+    if (manifest->device_capability_count >= PAK_MANIFEST_DEVICE_CAP_MAX) return 1;
+
+    strcpy(manifest->device_capabilities[manifest->device_capability_count], name);
+    manifest->device_capability_count++;
+    return 1;
+}
+
+static int parse_device_capabilities(JsonCursor* c, PakManifest* manifest)
+{
+    if (c->p >= c->end || *c->p != '[') return 0;
+    c->p++;
+
+    json_skip_ws(c);
+    if (c->p < c->end && *c->p == ']')
+    {
+        c->p++;
+        return 1;
+    }
+
+    for (;;)
+    {
+        if (c->p >= c->end) return 0;
+
+        if (*c->p == '"')
+        {
+            char name[PAK_MANIFEST_DEVICE_CAP_NAME_MAX];
+            size_t length = 0;
+            if (!json_parse_string(c, name, sizeof name, &length)) return 0;
+            if (length < sizeof name) (void)add_device_capability(manifest, name);
+        }
+        else
+        {
+            /* A non-string request is ignored, not fatal: it can never grant. */
+            if (!json_skip_value(c, 2)) return 0;
+        }
+
+        json_skip_ws(c);
+        if (c->p >= c->end) return 0;
+        if (*c->p == ']')
+        {
+            c->p++;
+            return 1;
+        }
+        if (*c->p != ',') return 0;
+        c->p++;
+        json_skip_ws(c);
+    }
+}
+
+/*
+ * Parse the optional device object. Only "capabilities" is consumed here;
+ * other keys (LED profile requests, restore preferences, ...) belong to later
+ * tasks and are validated but skipped.
+ */
+static int parse_device_section(JsonCursor* c, PakManifest* manifest)
+{
+    int seen_capabilities = 0;
+
+    if (c->p >= c->end || *c->p != '{') return 0;
+    c->p++;
+    manifest->device_declared = 1;
+
+    json_skip_ws(c);
+    if (c->p < c->end && *c->p == '}')
+    {
+        c->p++;
+        return 1;
+    }
+
+    for (;;)
+    {
+        char key[JSON_KEY_MAX];
+        size_t key_length = 0;
+
+        if (!json_parse_string(c, key, sizeof key, &key_length)) return 0;
+        json_skip_ws(c);
+        if (c->p >= c->end || *c->p != ':') return 0;
+        c->p++;
+        json_skip_ws(c);
+
+        if (key_length < sizeof key && strcmp(key, "capabilities") == 0)
+        {
+            if (!seen_capabilities)
+            {
+                seen_capabilities = 1;
+                if (c->p < c->end && *c->p == '[')
+                {
+                    if (!parse_device_capabilities(c, manifest)) return 0;
+                }
+                else if (!json_skip_value(c, 2))
+                {
+                    return 0;
+                }
+            }
+            else if (!json_skip_value(c, 2))
+            {
+                return 0;
+            }
+        }
+        else if (!json_skip_value(c, 2))
+        {
+            return 0;
+        }
+
+        json_skip_ws(c);
+        if (c->p >= c->end) return 0;
+        if (*c->p == '}')
+        {
+            c->p++;
+            return 1;
+        }
+        if (*c->p != ',') return 0;
+        c->p++;
+        json_skip_ws(c);
+    }
+}
+
 /* Parse a wanted string field, or validate and skip a wrong-typed value. */
 static int parse_string_value(JsonCursor* c, char* out, size_t out_size, size_t* out_len)
 {
@@ -518,6 +645,7 @@ enum
     SEEN_MIN_SYSTEM = 1u << 5,
     SEEN_APOSTROPHE = 1u << 6,
     SEEN_CAPABILITIES = 1u << 7,
+    SEEN_DEVICE = 1u << 8,
 };
 
 static int parse_manifest(const char* json, size_t length, PakManifest* manifest)
@@ -648,6 +776,22 @@ static int parse_manifest(const char* json, size_t length, PakManifest* manifest
                 }
                 else if (!json_skip_value(&c, 1)) return 0;
             }
+            else if (known && strcmp(key, "device") == 0)
+            {
+                if (!(seen & SEEN_DEVICE))
+                {
+                    seen |= SEEN_DEVICE;
+                    if (c.p < c.end && *c.p == '{')
+                    {
+                        if (!parse_device_section(&c, manifest)) return 0;
+                    }
+                    else if (!json_skip_value(&c, 1))
+                    {
+                        return 0;
+                    }
+                }
+                else if (!json_skip_value(&c, 1)) return 0;
+            }
             else if (!json_skip_value(&c, 1))
             {
                 return 0;
@@ -674,7 +818,7 @@ static int parse_manifest(const char* json, size_t length, PakManifest* manifest
 /* Paths and version record                                                   */
 /* ------------------------------------------------------------------------- */
 
-static int is_safe_identifier(const char* id)
+int pak_manifest_is_safe_id(const char* id)
 {
     const unsigned char* p;
 
@@ -772,7 +916,7 @@ static int record_installed_version(const char* version_dir, const char* id, con
     int ok;
 
     if (version_dir == NULL || version_dir[0] == '\0') return 0;
-    if (!is_safe_identifier(id) || version == NULL || version[0] == '\0') return 0;
+    if (!pak_manifest_is_safe_id(id) || version == NULL || version[0] == '\0') return 0;
     if (!ensure_dir(version_dir)) return 0;
 
     written = snprintf(path, sizeof path, "%s/%s.version", version_dir, id);
@@ -887,10 +1031,10 @@ PakManifestStatus pak_manifest_load(const char* pak_dir, PakManifest* manifest)
 
     manifest->status = PAK_MANIFEST_OK;
 
-    if (!is_safe_identifier(manifest->id))
+    if (!pak_manifest_is_safe_id(manifest->id))
     {
         char base[PAK_MANIFEST_ID_MAX];
-        if (path_basename(pak_dir, base, sizeof base) && is_safe_identifier(base))
+        if (path_basename(pak_dir, base, sizeof base) && pak_manifest_is_safe_id(base))
             strcpy(manifest->id, base);
         else
             manifest->id[0] = '\0';
@@ -914,6 +1058,20 @@ int pak_manifest_has_capability(const PakManifest* manifest, PakCapability capab
 {
     if (manifest == NULL || manifest->status != PAK_MANIFEST_OK) return 0;
     return (manifest->capabilities & (unsigned)capability) != 0;
+}
+
+int pak_manifest_requests_device_capability(const PakManifest* manifest, const char* capability)
+{
+    int i;
+
+    if (manifest == NULL || manifest->status != PAK_MANIFEST_OK) return 0;
+    if (capability == NULL || capability[0] == '\0') return 0;
+
+    for (i = 0; i < manifest->device_capability_count; i++)
+    {
+        if (strcmp(manifest->device_capabilities[i], capability) == 0) return 1;
+    }
+    return 0;
 }
 
 int pak_manifest_meets_min_system(const PakManifest* manifest, const char* system_version)

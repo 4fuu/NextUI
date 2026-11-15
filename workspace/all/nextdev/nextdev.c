@@ -1,0 +1,267 @@
+#include "device_protocol.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <time.h>
+#include <unistd.h>
+
+#define DEFAULT_SOCKET_PATH "/tmp/nextui-devserv.sock"
+#define CONNECT_ATTEMPTS 40
+#define CONNECT_DELAY_MS 50
+
+static void usage(FILE* stream)
+{
+    fprintf(stream,
+            "usage: nextdev [--socket PATH] [--pak DIR] [--app ID] <command> [arguments]\n"
+            "\n"
+            "commands:\n"
+            "  ping                         check that devserv is reachable\n"
+            "  status                       report declared/granted/available capabilities\n"
+            "  call <cap> [action] [args]   request a capability (args is a JSON value)\n"
+            "\n"
+            "options:\n"
+            "  --socket PATH   devserv socket (default $NEXTUI_DEVSERV_SOCKET or %s)\n"
+            "  --pak DIR       pak directory (default $NEXTUI_PAK_PATH)\n"
+            "  --app ID        expected app id; devserv rejects a mismatch\n"
+            "\n"
+            "Prints the raw JSON response. Exit codes: 0 allowed/served, 1 denied or\n"
+            "unavailable, 2 usage error, 3 communication error.\n",
+            DEFAULT_SOCKET_PATH);
+}
+
+static void sleep_milliseconds(long milliseconds)
+{
+    struct timespec request;
+    request.tv_sec = milliseconds / 1000;
+    request.tv_nsec = (milliseconds % 1000) * 1000000L;
+    (void)nanosleep(&request, NULL);
+}
+
+static int connect_to(const char* path)
+{
+    struct sockaddr_un address;
+    int attempt;
+
+    if (strlen(path) >= sizeof address.sun_path)
+    {
+        fprintf(stderr, "nextdev: socket path is too long: %s\n", path);
+        return -1;
+    }
+
+    memset(&address, 0, sizeof address);
+    address.sun_family = AF_UNIX;
+    memcpy(address.sun_path, path, strlen(path) + 1);
+
+    for (attempt = 0; attempt < CONNECT_ATTEMPTS; attempt++)
+    {
+        int descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
+        int saved;
+
+        if (descriptor < 0)
+        {
+            fprintf(stderr, "nextdev: socket: %s\n", strerror(errno));
+            return -1;
+        }
+        if (connect(descriptor, (struct sockaddr*)&address, sizeof address) == 0)
+            return descriptor;
+
+        saved = errno;
+        close(descriptor);
+        if (saved != ENOENT && saved != ECONNREFUSED && saved != ENOTSOCK) break;
+        sleep_milliseconds(CONNECT_DELAY_MS);
+    }
+
+    fprintf(stderr, "nextdev: cannot connect to %s\n", path);
+    return -1;
+}
+
+static int write_all(int descriptor, const char* data, size_t length)
+{
+    size_t written = 0;
+
+    while (written < length)
+    {
+        ssize_t count = write(descriptor, data + written, length - written);
+        if (count < 0)
+        {
+            if (errno == EINTR) continue;
+            return 0;
+        }
+        written += (size_t)count;
+    }
+    return 1;
+}
+
+static int read_response(int descriptor, char* out, size_t out_size)
+{
+    size_t total = 0;
+
+    while (total + 1 < out_size)
+    {
+        ssize_t count = read(descriptor, out + total, out_size - 1 - total);
+
+        if (count == 0) break;
+        if (count < 0)
+        {
+            if (errno == EINTR) continue;
+            return 0;
+        }
+        total += (size_t)count;
+        if (memchr(out + total - (size_t)count, '\n', (size_t)count) != NULL) break;
+    }
+
+    out[total] = '\0';
+    while (total > 0 && (out[total - 1] == '\n' || out[total - 1] == '\r')) out[--total] = '\0';
+    return total > 0;
+}
+
+int main(int argc, char* argv[])
+{
+    char socket_path[DEVICE_GRANT_PATH_MAX];
+    const char* pak = NULL;
+    const char* app = NULL;
+    const char* command;
+    const char* capability = NULL;
+    const char* action = NULL;
+    const char* args = NULL;
+    const char* op;
+    char request[DEVICE_PROTOCOL_LINE_MAX];
+    char response[DEVICE_PROTOCOL_LINE_MAX];
+    int descriptor;
+    int argument = 1;
+    int socket_overridden = 0;
+    int ok;
+
+    snprintf(socket_path, sizeof socket_path, "%s", DEFAULT_SOCKET_PATH);
+
+    while (argument < argc && argv[argument][0] == '-')
+    {
+        if (strcmp(argv[argument], "--socket") == 0 && argument + 1 < argc)
+        {
+            if (argv[argument + 1][0] == '\0'
+                || strlen(argv[argument + 1]) >= sizeof socket_path)
+            {
+                fprintf(stderr, "nextdev: invalid socket path\n");
+                return 2;
+            }
+            snprintf(socket_path, sizeof socket_path, "%s", argv[argument + 1]);
+            socket_overridden = 1;
+            argument += 2;
+        }
+        else if (strcmp(argv[argument], "--pak") == 0 && argument + 1 < argc)
+        {
+            pak = argv[argument + 1];
+            argument += 2;
+        }
+        else if (strcmp(argv[argument], "--app") == 0 && argument + 1 < argc)
+        {
+            app = argv[argument + 1];
+            argument += 2;
+        }
+        else if (strcmp(argv[argument], "--help") == 0 || strcmp(argv[argument], "-h") == 0)
+        {
+            usage(stdout);
+            return 0;
+        }
+        else
+        {
+            fprintf(stderr, "nextdev: unknown option: %s\n", argv[argument]);
+            usage(stderr);
+            return 2;
+        }
+    }
+
+    {
+        const char* environment = getenv("NEXTUI_DEVSERV_SOCKET");
+        if (!socket_overridden && environment != NULL && environment[0] != '\0')
+            snprintf(socket_path, sizeof socket_path, "%s", environment);
+    }
+    if (pak == NULL || pak[0] == '\0') pak = getenv("NEXTUI_PAK_PATH");
+    if (app == NULL || app[0] == '\0') app = getenv("NEXTUI_APP_ID");
+
+    if (argument >= argc)
+    {
+        usage(stderr);
+        return 2;
+    }
+    command = argv[argument++];
+
+    if (strcmp(command, "ping") == 0)
+    {
+        op = "ping";
+        if (argument != argc)
+        {
+            usage(stderr);
+            return 2;
+        }
+    }
+    else if (strcmp(command, "status") == 0)
+    {
+        op = "status";
+        if (argument != argc || pak == NULL || pak[0] == '\0')
+        {
+            fprintf(stderr, "nextdev: status needs --pak DIR\n");
+            return 2;
+        }
+    }
+    else if (strcmp(command, "call") == 0)
+    {
+        op = "call";
+        if (argument >= argc || pak == NULL || pak[0] == '\0')
+        {
+            fprintf(stderr, "nextdev: call needs --pak DIR and a capability\n");
+            return 2;
+        }
+        capability = argv[argument++];
+        if (argument < argc) action = argv[argument++];
+        if (argument < argc) args = argv[argument++];
+        if (argument != argc)
+        {
+            fprintf(stderr, "nextdev: too many arguments\n");
+            return 2;
+        }
+    }
+    else
+    {
+        fprintf(stderr, "nextdev: unknown command: %s\n", command);
+        usage(stderr);
+        return 2;
+    }
+
+    if (!device_protocol_build_request(op, app, pak, capability, action, args, request,
+                                       sizeof request))
+    {
+        fprintf(stderr, "nextdev: request is too long\n");
+        return 2;
+    }
+
+    descriptor = connect_to(socket_path);
+    if (descriptor < 0) return 3;
+
+    if (!write_all(descriptor, request, strlen(request)) || !write_all(descriptor, "\n", 1))
+    {
+        fprintf(stderr, "nextdev: could not send request\n");
+        close(descriptor);
+        return 3;
+    }
+    (void)shutdown(descriptor, SHUT_WR);
+
+    if (!read_response(descriptor, response, sizeof response))
+    {
+        fprintf(stderr, "nextdev: no response from devserv\n");
+        close(descriptor);
+        return 3;
+    }
+    close(descriptor);
+
+    printf("%s\n", response);
+    ok = device_protocol_response_ok(response);
+    if (ok == 1) return 0;
+    if (ok == 0) return 1;
+    fprintf(stderr, "nextdev: malformed response\n");
+    return 3;
+}

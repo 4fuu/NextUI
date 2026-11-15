@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * pak.json is the single application manifest (plan X1). This module only
  * consumes metadata: it does not launch apps, render icons, or enforce
@@ -17,6 +21,8 @@
 #define PAK_MANIFEST_NAME_MAX 256
 #define PAK_MANIFEST_VERSION_MAX 32
 #define PAK_MANIFEST_PATH_MAX 512
+#define PAK_MANIFEST_DEVICE_CAP_MAX 16
+#define PAK_MANIFEST_DEVICE_CAP_NAME_MAX 48
 
 typedef enum
 {
@@ -43,6 +49,18 @@ typedef struct
     char apostrophe[PAK_MANIFEST_VERSION_MAX]; /* build-time framework metadata, never a system tag */
     unsigned capabilities;                     /* PAK_CAPABILITY_* mask; 0 unless declared */
     int capabilities_declared;                 /* 1 when the array was present (even if empty) */
+
+    /*
+     * Device capability requests live in the optional "device" object. They
+     * are requests, not grants: the launcher never shows them as permissions
+     * and the device service validates them again against its grant store.
+     * Up to PAK_MANIFEST_DEVICE_CAP_MAX names are kept; names that do not fit
+     * the table are ignored (and therefore can never be granted).
+     */
+    char device_capabilities[PAK_MANIFEST_DEVICE_CAP_MAX][PAK_MANIFEST_DEVICE_CAP_NAME_MAX];
+    int device_capability_count;
+    int device_declared;                       /* 1 when a "device" object was present */
+
     int version_valid;
     int min_system_valid;
 } PakManifest;
@@ -78,5 +96,22 @@ int pak_manifest_has_capability(const PakManifest* manifest, PakCapability capab
  * requirement returns 0. This function never reads version.txt.
  */
 int pak_manifest_meets_min_system(const PakManifest* manifest, const char* system_version);
+
+/*
+ * Exact lookup in the declared device capability list. Returns 0 for an absent
+ * manifest, an invalid manifest, an unknown name, or no declaration.
+ */
+int pak_manifest_requests_device_capability(const PakManifest* manifest, const char* capability);
+
+/*
+ * Safe identifier check used by manifest ids, version-record names, and device
+ * grant subjects. Rejects empty strings, path separators, control characters,
+ * and any string containing "..".
+ */
+int pak_manifest_is_safe_id(const char* id);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

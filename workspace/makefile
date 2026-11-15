@@ -30,6 +30,8 @@ ifeq ($(PLATFORM), desktop)
 	cd ./all/minput/ && make
 	cd ./all/nextval/ && make
 	cd ./all/nextstate/ && make
+	cd ./all/devserv/ && make
+	cd ./all/nextdev/ && make
 	cd ./all/settings/ && make
 else 
 ifeq ($(PLATFORM), tg5040)
@@ -56,6 +58,8 @@ endif
 	cd ./all/syncsettings/ && make
 	cd ./all/nextval/ && make
 	cd ./all/nextstate/ && make
+	cd ./all/devserv/ && make
+	cd ./all/nextdev/ && make
 	cd ./all/settings/ && make
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
 	cd ./all/ledcontrol/ && make
@@ -115,6 +119,8 @@ endif
 	cd ./all/minput/ && make clean
 	cd ./all/nextval/ && make clean
 	cd ./all/nextstate/ && make clean
+	cd ./all/devserv/ && make clean
+	cd ./all/nextdev/ && make clean
 	cd ./all/settings/ && make clean
 	cd ./all/audiomon/ && make clean
 	cd ./$(PLATFORM) && make clean

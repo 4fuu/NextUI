@@ -156,6 +156,8 @@ static void expect_empty(const PakManifest* manifest)
     CHECK_STR(manifest->apostrophe, "");
     CHECK_INT(manifest->capabilities, 0);
     CHECK_INT(manifest->capabilities_declared, 0);
+    CHECK_INT(manifest->device_capability_count, 0);
+    CHECK_INT(manifest->device_declared, 0);
     CHECK_INT(manifest->version_valid, 0);
     CHECK_INT(manifest->min_system_valid, 0);
 }
@@ -193,6 +195,13 @@ static void test_valid_manifest(void)
               PAK_CAPABILITY_SAVES | PAK_CAPABILITY_OVERLAY);
     CHECK_INT(manifest.version_valid, 1);
     CHECK_INT(manifest.min_system_valid, 1);
+    CHECK_INT(manifest.device_declared, 1);
+    CHECK_INT(manifest.device_capability_count, 1);
+    CHECK_STR(manifest.device_capabilities[0], "led.control");
+    CHECK_INT(pak_manifest_requests_device_capability(&manifest, "led.control"), 1);
+    CHECK_INT(pak_manifest_requests_device_capability(&manifest, "display.brightness"), 0);
+    CHECK_INT(pak_manifest_requests_device_capability(&manifest, ""), 0);
+    CHECK_INT(pak_manifest_requests_device_capability(NULL, "led.control"), 0);
 
     CHECK_INT(pak_manifest_has_capability(&manifest, PAK_CAPABILITY_SAVES), 1);
     CHECK_INT(pak_manifest_has_capability(&manifest, PAK_CAPABILITY_OVERLAY), 1);
@@ -295,6 +304,105 @@ static void test_device_section_is_not_desktop_capabilities(void)
               PAK_MANIFEST_OK);
     CHECK_INT(manifest.capabilities, PAK_CAPABILITY_SAVES);
     CHECK_INT(pak_manifest_has_capability(&manifest, PAK_CAPABILITY_OVERLAY), 0);
+}
+
+static void test_device_capability_requests(void)
+{
+    PakManifest manifest;
+    char json[200];
+    size_t i;
+
+    CHECK_INT(load_pak("DeviceDeclared.pak",
+                       "{\"id\":\"device.declared\",\"device\":{\"capabilities\":"
+                       "[\"display.brightness\",\"led.control\"]}}",
+                       &manifest),
+              PAK_MANIFEST_OK);
+    CHECK_INT(manifest.device_declared, 1);
+    CHECK_INT(manifest.device_capability_count, 2);
+    CHECK_STR(manifest.device_capabilities[0], "display.brightness");
+    CHECK_STR(manifest.device_capabilities[1], "led.control");
+    CHECK_INT(pak_manifest_requests_device_capability(&manifest, "display.brightness"), 1);
+    CHECK_INT(pak_manifest_requests_device_capability(&manifest, "audio.volume"), 0);
+
+    /* Duplicates collapse; non-strings are ignored; escapes are decoded. */
+    CHECK_INT(load_pak("DeviceRequestMixed.pak",
+                       "{\"device\":{\"capabilities\":[\"led.control\",7,null,{},"
+                       "\"led.control\",\"led\\u002econtrol\",\"display.get\"]}}",
+                       &manifest),
+              PAK_MANIFEST_OK);
+    CHECK_INT(manifest.device_capability_count, 2);
+    CHECK_STR(manifest.device_capabilities[0], "led.control");
+    CHECK_STR(manifest.device_capabilities[1], "display.get");
+
+    /* Empty array is an explicit (still empty) request. */
+    CHECK_INT(load_pak("DeviceEmpty.pak", "{\"device\":{\"capabilities\":[]}}", &manifest),
+              PAK_MANIFEST_OK);
+    CHECK_INT(manifest.device_declared, 1);
+    CHECK_INT(manifest.device_capability_count, 0);
+
+    /* Missing or non-array capabilities never imply a request. */
+    CHECK_INT(load_pak("DeviceNoCaps.pak", "{\"device\":{}}", &manifest), PAK_MANIFEST_OK);
+    CHECK_INT(manifest.device_declared, 1);
+    CHECK_INT(manifest.device_capability_count, 0);
+    CHECK_INT(load_pak("DeviceStringCaps.pak", "{\"device\":{\"capabilities\":\"led.control\"}}",
+                       &manifest),
+              PAK_MANIFEST_OK);
+    CHECK_INT(manifest.device_declared, 1);
+    CHECK_INT(manifest.device_capability_count, 0);
+
+    /* A wrong-typed device section is ignored, not treated as a request. */
+    CHECK_INT(load_pak("DeviceArray.pak", "{\"device\":[\"led.control\"]}", &manifest),
+              PAK_MANIFEST_OK);
+    CHECK_INT(manifest.device_declared, 0);
+    CHECK_INT(manifest.device_capability_count, 0);
+    CHECK_INT(load_pak("DeviceNull.pak", "{\"device\":null}", &manifest), PAK_MANIFEST_OK);
+    CHECK_INT(manifest.device_declared, 0);
+
+    /* Unknown keys inside device are validated and skipped. */
+    CHECK_INT(load_pak("DeviceExtra.pak",
+                       "{\"device\":{\"led_profile\":true,"
+                       "\"restore\":{\"brightness\":false},"
+                       "\"capabilities\":[\"time.set\"]}}",
+                       &manifest),
+              PAK_MANIFEST_OK);
+    CHECK_INT(manifest.device_declared, 1);
+    CHECK_INT(manifest.device_capability_count, 1);
+    CHECK_STR(manifest.device_capabilities[0], "time.set");
+
+    /* Overlong names are dropped rather than truncated into a different name. */
+    memset(json, 'a', 100);
+    json[100] = '\0';
+    {
+        char long_json[512];
+        snprintf(long_json, sizeof long_json, "{\"device\":{\"capabilities\":[\"%s\"]}}", json);
+        CHECK_INT(load_pak("DeviceLong.pak", long_json, &manifest), PAK_MANIFEST_OK);
+        CHECK_INT(manifest.device_capability_count, 0);
+    }
+
+    /* The table is bounded; extras are ignored and can never be granted. */
+    {
+        char many[1024];
+        size_t used = 0;
+        used += (size_t)snprintf(many + used, sizeof many - used,
+                                 "{\"device\":{\"capabilities\":[");
+        for (i = 0; i < PAK_MANIFEST_DEVICE_CAP_MAX + 4; i++)
+        {
+            used += (size_t)snprintf(many + used, sizeof many - used, "%s\"cap.%zu\"",
+                                     i == 0 ? "" : ",", i);
+        }
+        snprintf(many + used, sizeof many - used, "]}}");
+        CHECK_INT(load_pak("DeviceMany.pak", many, &manifest), PAK_MANIFEST_OK);
+        CHECK_INT(manifest.device_capability_count, PAK_MANIFEST_DEVICE_CAP_MAX);
+        CHECK_INT(pak_manifest_requests_device_capability(&manifest, "cap.0"), 1);
+        CHECK_INT(pak_manifest_requests_device_capability(&manifest,
+                                                          "cap.19"), 0);
+    }
+
+    /* A malformed device object still invalidates the whole manifest. */
+    CHECK_INT(load_pak("DeviceBroken.pak", "{\"device\":{\"capabilities\":[}]}", &manifest),
+              PAK_MANIFEST_INVALID);
+    CHECK_INT(load_pak("DeviceBroken2.pak", "{\"device\":{\"capabilities\":[]}", &manifest),
+              PAK_MANIFEST_INVALID);
 }
 
 static void test_malformed_json(void)
@@ -750,6 +858,7 @@ int main(void)
     test_legacy_pak();
     test_capabilities_are_opt_in();
     test_device_section_is_not_desktop_capabilities();
+    test_device_capability_requests();
     test_malformed_json();
     test_malformed_fields();
     test_version_record();
