@@ -1,12 +1,17 @@
-# Host-only Apostrophe + B5 composition harness. Not part of the shippable
-# desktop build: it links the MIT Apostrophe headers from a separate checkout
-# and the PolyForm B5 module from this repository, without copying either one
-# into the other.
+# Apostrophe + B5 composition harness. Not part of the shippable build: it links
+# the MIT Apostrophe headers from a separate checkout and the PolyForm B5 module
+# from this repository, without copying either one into the other. Desktop is
+# the default reviewed path; another PLATFORM selects that platform's makefile
+# environment and platform.c for a target link.
 
 PLATFORM ?= desktop
 
-ifneq ($(PLATFORM),desktop)
-$(error apostropheoverlaydemo is host-only; build with PLATFORM=desktop)
+ifeq ($(PLATFORM),desktop)
+PLATFORM_ENV := ../platform/makefile.env
+PLATFORM_DIR := ../platform
+else
+PLATFORM_ENV := ../../$(PLATFORM)/platform/makefile.env
+PLATFORM_DIR := ../../$(PLATFORM)/platform
 endif
 
 PREFIX ?= /usr
@@ -15,12 +20,11 @@ CROSS_COMPILE ?= /usr/bin/
 UNAME_S := $(shell uname -s)
 APOSTROPHE_DIR ?= /tmp/apostrophe-src
 
-include ../platform/makefile.env
+include $(PLATFORM_ENV)
 
 SDL ?= SDL2
 
 COMMON = ../../all/common
-PLATFORM_DIR = ../platform
 INCDIR = -I. -I$(COMMON) -I$(PLATFORM_DIR) -I$(APOSTROPHE_DIR)/include
 SOURCE = apostropheoverlaydemo.c $(COMMON)/apostrophe_overlay_host.c \
 	$(COMMON)/ui_overlay.c $(COMMON)/scaler.c $(COMMON)/utils.c \
@@ -33,7 +37,9 @@ TEST_SOURCE = tests/apostrophe_overlay_host_test.c \
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS += -lmsettings -Wl,-rpath,$(PREFIX_LOCAL)/lib
+# api.c calls libsamplerate; LTO may discard the dead reference, but a non-LTO
+# target link needs it explicitly (src_strerror).
+LDFLAGS += -lmsettings -lsamplerate -Wl,-rpath,$(PREFIX_LOCAL)/lib
 
 PRODUCT = build/$(PLATFORM)/apostropheoverlaydemo.elf
 TEST_PRODUCT = build/$(PLATFORM)/apostrophe_overlay_host_test.elf
