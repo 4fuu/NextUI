@@ -82,6 +82,102 @@ static const I18nEntry zhTable[] = {
     // Settings: light row (FN switch page LED behavior).
     {"FN switch disables LED", "FN 开关关闭 LED"},
     {"Switch will also disable LEDs", "该开关同时关闭 LED。"},
+
+    // Settings: System page labels and hints.
+    // Hints are single-line on purpose: the font subset has no U+000A glyph, so a
+    // zh value cannot carry the English "\n", and GFX_blitText draws each line at
+    // its natural width without wrapping. Keep every hint under ~1000 px at
+    // FONT_TINY on the 1024 px desktop reference (the narrowest target).
+    {"Screen timeout", "屏幕超时"},
+    {"Period of inactivity before screen turns off (0-600s)", "无操作多久后关闭屏幕（0-600秒）"},
+    {"Suspend timeout", "休眠超时"},
+    {"Time before device goes to sleep after screen is off (5-600s)", "屏幕关闭后多久进入休眠（5-600秒）"},
+    {"Haptic feedback", "振动反馈"},
+    {"Enable or disable haptic feedback on certain actions in the OS", "启用或禁用系统中特定操作的振动反馈"},
+    {"Default view", "默认视图"},
+    {"The initial view to show on boot", "开机时显示的初始界面"},
+    {"Show 24h time format", "24小时制"},
+    {"Show clock in the 24hrs time format", "以24小时制显示时钟"},
+    {"Show clock", "显示时钟"},
+    {"Show clock in the status pill", "在状态栏中显示时钟"},
+    {"Set time and date automatically", "自动设置时间和日期"},
+    {"Automatically adjust system time\nwith NTP (requires internet access)", "通过网络时间协议（NTP）自动调整系统时间（需要联网）"},
+    {"Time zone", "时区"},
+    {"Your time zone", "您所在的时区"},
+    {"Save format", "存档格式"},
+    {"The save format to use.\nMinUI: Game.gba.sav, Retroarch: Game.srm, Generic: Game.sav", "MinUI：Game.gba.sav，Retroarch：Game.srm，通用：Game.sav"},
+    {"Save state format", "即时存档格式"},
+    {"The save state format to use. MinUI: Game.st0, \nRetroarch-ish: Game.state.0, Retroarch: Game.state0", "MinUI：st0，类 Retroarch：state.0，Retroarch：state0"},
+    {"Use extracted file name", "使用解压文件名"},
+    {"Use the extracted file name instead of the archive name.\nOnly applies to cores that do not handle archives natively", "使用解压文件名而非压缩包名。仅对不支持压缩包的内核生效。"},
+    {"Safe poweroff", "安全关机"},
+    {"Bypasses the stock shutdown procedure to avoid the \"limbo bug\".\nInstructs the PMIC directly to soft disconnect the battery.", "绕过原厂关机流程以避免“limbo bug”，直接指示 PMIC 软断开电池。"},
+    {"Keep awake over USB", "USB 连接时保持唤醒"},
+    {"Prevent screen-off and sleep while connected to a\ncomputer as a USB device (not just charging).", "作为 USB 设备连接电脑时（不仅是充电）防止息屏和休眠。"},
+    {"Fan Speed", "风扇转速"},
+    // Halfwidth parens here: the key ends in "%)", and the i18n test requires the
+    // zh value to carry the same printf signature, so the ")" must stay ASCII.
+    {"Select the fan speed percentage (Quiet/Normal/Performance or 0-100%)", "选择风扇转速百分比(安静/标准/性能或 0-100%)"},
+
+    // Settings: System page value labels (shared with the FN switch volume rows
+    // where noted; the shared on_off labels stay English on purpose).
+    {"Muted", "静音"},
+    {"Content List", "内容列表"},
+    {"Game Switcher", "游戏切换器"},
+    {"Quick Menu", "快捷菜单"},
+    {"MinUI (default)", "MinUI（默认）"},
+    {"Retroarch (compressed)", "Retroarch（压缩）"},
+    {"Retroarch (uncompressed)", "Retroarch（未压缩）"},
+    {"Retroarch-ish (compressed)", "类 Retroarch（压缩）"},
+    {"Retroarch-ish (uncompressed)", "类 Retroarch（未压缩）"},
+    {"Generic", "通用"},
+    {"Performance", "性能"},
+    {"Normal", "标准"},
+    {"Quiet", "安静"},
+    {"Never", "从不"},
+    {"5s", "5秒"},
+    {"10s", "10秒"},
+    {"15s", "15秒"},
+    {"30s", "30秒"},
+    {"45s", "45秒"},
+    {"60s", "1分钟"},
+    {"90s", "90秒"},
+    {"2m", "2分钟"},
+    {"4m", "4分钟"},
+    {"6m", "6分钟"},
+    {"10m", "10分钟"},
+
+    // Settings: FN switch page labels and hints (the "when toggled" hints reuse
+    // the Display page keys above).
+    {"Brightness when toggled", "切换时亮度"},
+    {"Color temperature when toggled", "切换时色温"},
+    {"Contrast when toggled", "切换时对比度"},
+    {"Saturation when toggled", "切换时饱和度"},
+    {"Exposure when toggled", "切换时曝光"},
+    {"Turbo fire A", "连发 A"},
+    {"Enable turbo fire A", "启用 A 连发"},
+    {"Turbo fire B", "连发 B"},
+    {"Enable turbo fire B", "启用 B 连发"},
+    {"Turbo fire X", "连发 X"},
+    {"Enable turbo fire X", "启用 X 连发"},
+    {"Turbo fire Y", "连发 Y"},
+    {"Enable turbo fire Y", "启用 Y 连发"},
+    {"Turbo fire L1", "连发 L1"},
+    {"Enable turbo fire L1", "启用 L1 连发"},
+    {"Turbo fire L2", "连发 L2"},
+    {"Enable turbo fire L2", "启用 L2 连发"},
+    {"Turbo fire R1", "连发 R1"},
+    {"Enable turbo fire R1", "启用 R1 连发"},
+    {"Turbo fire R2", "连发 R2"},
+    {"Enable turbo fire R2", "启用 R2 连发"},
+    {"Dpad mode when toggled", "切换时十字键模式"},
+    {"Dpad: default. Joystick: Dpad exclusively acts as analog stick.\nBoth: Dpad and Joystick inputs at the same time.", "十字键：默认；摇杆：仅作模拟摇杆；两者：可同时输入。"},
+
+    // Settings: FN switch page value labels.
+    {"Unchanged", "不更改"},
+    {"Dpad", "十字键"},
+    {"Joystick", "摇杆"},
+    {"Both", "两者"},
 };
 
 #define ZH_TABLE_COUNT ((int)(sizeof(zhTable) / sizeof(zhTable[0])))

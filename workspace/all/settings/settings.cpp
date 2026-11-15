@@ -138,6 +138,18 @@ static const std::vector<std::string> screen_timeout_labels = {"Never", "5s", "1
 static const std::vector<std::any>    sleep_timeout_secs = {5U, 10U, 15U, 30U, 45U, 60U, 90U, 120U, 240U, 360U, 600U};
 static const std::vector<std::string> sleep_timeout_labels = {"5s", "10s", "15s", "30s", "45s", "60s", "90s", "2m", "4m", "6m", "10m"};
 
+// The timeout label vectors above are shared statics, so they cannot call TR()
+// themselves (static initialization runs before the language is loaded).
+// Translate a copy at menu build time instead; English falls through unchanged.
+static std::vector<std::string> translateLabels(const std::vector<std::string>& labels)
+{
+    std::vector<std::string> translated;
+    translated.reserve(labels.size());
+    for (const std::string& label : labels)
+        translated.push_back(TR(label.c_str()));
+    return translated;
+}
+
 static const std::vector<std::string> on_off = {"Off", "On"};
 
 static const std::vector<std::string> scaling_strings = {"Fullscreen", "Fit", "Fill"};
@@ -652,59 +664,59 @@ int main(int argc, char *argv[])
         std::vector<AbstractMenuItem*> systemItems = {
             new MenuItem{ListItemType::Generic, TR("Volume"), TR("Speaker volume"),
             {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20},
-            {"Muted", "5%","10%","15%","20%","25%","30%","35%","40%","45%","50%","55%","60%","65%","70%","75%","80%","85%","90%","95%","100%"},
+            {TR("Muted"), "5%","10%","15%","20%","25%","30%","35%","40%","45%","50%","55%","60%","65%","70%","75%","80%","85%","90%","95%","100%"},
             []() -> std::any{ return GetVolume(); }, [](const std::any &value)
             { SetVolume(std::any_cast<int>(value)); },
             []() { SetVolume(SETTINGS_DEFAULT_VOLUME);}},
-            new MenuItem{ListItemType::Generic, "Screen timeout", "Period of inactivity before screen turns off (0-600s)", screen_timeout_secs, screen_timeout_labels, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Screen timeout"), TR("Period of inactivity before screen turns off (0-600s)"), screen_timeout_secs, translateLabels(screen_timeout_labels), []() -> std::any
             { return CFG_getScreenTimeoutSecs(); }, [](const std::any &value)
             { CFG_setScreenTimeoutSecs(std::any_cast<uint32_t>(value)); },
             []() { CFG_setScreenTimeoutSecs(CFG_DEFAULT_SCREENTIMEOUTSECS);}},
-            new MenuItem{ListItemType::Generic, "Suspend timeout", "Time before device goes to sleep after screen is off (5-600s)", sleep_timeout_secs, sleep_timeout_labels, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Suspend timeout"), TR("Time before device goes to sleep after screen is off (5-600s)"), sleep_timeout_secs, translateLabels(sleep_timeout_labels), []() -> std::any
             { return CFG_getSuspendTimeoutSecs(); }, [](const std::any &value)
             { CFG_setSuspendTimeoutSecs(std::any_cast<uint32_t>(value)); },
             []() { CFG_setSuspendTimeoutSecs(CFG_DEFAULT_SUSPENDTIMEOUTSECS);}},
-            new MenuItem{ListItemType::Generic, "Haptic feedback", "Enable or disable haptic feedback on certain actions in the OS", {false, true}, on_off, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Haptic feedback"), TR("Enable or disable haptic feedback on certain actions in the OS"), {false, true}, on_off, []() -> std::any
             { return CFG_getHaptics(); }, [](const std::any &value)
             { CFG_setHaptics(std::any_cast<bool>(value)); },
             []() { CFG_setHaptics(CFG_DEFAULT_HAPTICS);}},
-            new MenuItem{ListItemType::Generic, "Default view", "The initial view to show on boot",
+            new MenuItem{ListItemType::Generic, TR("Default view"), TR("The initial view to show on boot"),
             {(int)SCREEN_GAMELIST, (int)SCREEN_GAMESWITCHER, (int)SCREEN_QUICKMENU},
-            {"Content List","Game Switcher","Quick Menu"},
+            {TR("Content List"),TR("Game Switcher"),TR("Quick Menu")},
             []() -> std::any { return CFG_getDefaultView(); },
             [](const std::any &value){ CFG_setDefaultView(std::any_cast<int>(value)); },
             []() { CFG_setDefaultView(CFG_DEFAULT_VIEW);}},
-            new MenuItem{ListItemType::Generic, "Show 24h time format", "Show clock in the 24hrs time format", {false, true}, on_off, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Show 24h time format"), TR("Show clock in the 24hrs time format"), {false, true}, on_off, []() -> std::any
             { return CFG_getClock24H(); },
             [](const std::any &value)
             { CFG_setClock24H(std::any_cast<bool>(value)); },
             []() { CFG_setClock24H(CFG_DEFAULT_CLOCK24H);}},
-            new MenuItem{ListItemType::Generic, "Show clock", "Show clock in the status pill", {false, true}, on_off, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Show clock"), TR("Show clock in the status pill"), {false, true}, on_off, []() -> std::any
             { return CFG_getShowClock(); },
             [](const std::any &value)
             { CFG_setShowClock(std::any_cast<bool>(value)); },
             []() { CFG_setShowClock(CFG_DEFAULT_SHOWCLOCK);}},
-            new MenuItem{ListItemType::Generic, "Set time and date automatically", "Automatically adjust system time\nwith NTP (requires internet access)", {false, true}, on_off, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Set time and date automatically"), TR("Automatically adjust system time\nwith NTP (requires internet access)"), {false, true}, on_off, []() -> std::any
             { return TIME_getNetworkTimeSync(); }, [](const std::any &value)
             { TIME_setNetworkTimeSync(std::any_cast<bool>(value)); },
             []() { TIME_setNetworkTimeSync(false);}}, // default from stock
-            new MenuItem{ListItemType::Generic, "Time zone", "Your time zone", tz_values, tz_labels, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Time zone"), TR("Your time zone"), tz_values, tz_labels, []() -> std::any
             { return std::string(TIME_getCurrentTimezone()); }, [](const std::any &value)
             { TIME_setCurrentTimezone(std::any_cast<std::string>(value).c_str()); },
             []() { TIME_setCurrentTimezone("Asia/Shanghai");}}, // default from Stock
-            new MenuItem{ListItemType::Generic, "Save format", "The save format to use.\nMinUI: Game.gba.sav, Retroarch: Game.srm, Generic: Game.sav",
+            new MenuItem{ListItemType::Generic, TR("Save format"), TR("The save format to use.\nMinUI: Game.gba.sav, Retroarch: Game.srm, Generic: Game.sav"),
             {(int)SAVE_FORMAT_SAV, (int)SAVE_FORMAT_SRM, (int)SAVE_FORMAT_SRM_UNCOMPRESSED, (int)SAVE_FORMAT_GEN},
-            {"MinUI (default)", "Retroarch (compressed)", "Retroarch (uncompressed)", "Generic"}, []() -> std::any
+            {TR("MinUI (default)"), TR("Retroarch (compressed)"), TR("Retroarch (uncompressed)"), TR("Generic")}, []() -> std::any
             { return CFG_getSaveFormat(); }, [](const std::any &value)
             { CFG_setSaveFormat(std::any_cast<int>(value)); },
             []() { CFG_setSaveFormat(CFG_DEFAULT_SAVEFORMAT);}},
-            new MenuItem{ListItemType::Generic, "Save state format", "The save state format to use. MinUI: Game.st0, \nRetroarch-ish: Game.state.0, Retroarch: Game.state0",
+            new MenuItem{ListItemType::Generic, TR("Save state format"), TR("The save state format to use. MinUI: Game.st0, \nRetroarch-ish: Game.state.0, Retroarch: Game.state0"),
             {(int)STATE_FORMAT_SAV, (int)STATE_FORMAT_SRM_EXTRADOT, (int)STATE_FORMAT_SRM_UNCOMRESSED_EXTRADOT, (int)STATE_FORMAT_SRM, (int)STATE_FORMAT_SRM_UNCOMRESSED},
-            {"MinUI (default)", "Retroarch-ish (compressed)", "Retroarch-ish (uncompressed)", "Retroarch (compressed)", "Retroarch (uncompressed)"}, []() -> std::any
+            {TR("MinUI (default)"), TR("Retroarch-ish (compressed)"), TR("Retroarch-ish (uncompressed)"), TR("Retroarch (compressed)"), TR("Retroarch (uncompressed)")}, []() -> std::any
             { return CFG_getStateFormat(); }, [](const std::any &value)
             { CFG_setStateFormat(std::any_cast<int>(value)); },
             []() { CFG_setStateFormat(CFG_DEFAULT_STATEFORMAT);}},
-            new MenuItem{ListItemType::Generic, "Use extracted file name", "Use the extracted file name instead of the archive name.\nOnly applies to cores that do not handle archives natively", {false, true}, on_off,
+            new MenuItem{ListItemType::Generic, TR("Use extracted file name"), TR("Use the extracted file name instead of the archive name.\nOnly applies to cores that do not handle archives natively"), {false, true}, on_off,
             []() -> std::any{ return CFG_getUseExtractedFileName(); },
             [](const std::any &value){ CFG_setUseExtractedFileName(std::any_cast<bool>(value)); },
             []() { CFG_setUseExtractedFileName(CFG_DEFAULT_EXTRACTEDFILENAME);}}
@@ -713,7 +725,7 @@ int main(int argc, char *argv[])
         if(deviceInfo.getPlatform() == DeviceInfo::tg5040)
         {
             systemItems.push_back(
-                new MenuItem{ListItemType::Generic, "Safe poweroff", "Bypasses the stock shutdown procedure to avoid the \"limbo bug\".\nInstructs the PMIC directly to soft disconnect the battery.", {false, true}, on_off,
+                new MenuItem{ListItemType::Generic, TR("Safe poweroff"), TR("Bypasses the stock shutdown procedure to avoid the \"limbo bug\".\nInstructs the PMIC directly to soft disconnect the battery."), {false, true}, on_off,
                 []() -> std::any { return CFG_getPowerOffProtection(); },
                 [](const std::any &value) { CFG_setPowerOffProtection(std::any_cast<bool>(value)); },
                 []() { CFG_setPowerOffProtection(CFG_DEFAULT_POWEROFFPROTECTION); }}
@@ -723,7 +735,7 @@ int main(int argc, char *argv[])
         if(deviceInfo.getPlatform() == DeviceInfo::tg5040 || deviceInfo.getPlatform() == DeviceInfo::h700)
         {
             systemItems.push_back(
-                new MenuItem{ListItemType::Generic, "Keep awake over USB", "Prevent screen-off and sleep while connected to a\ncomputer as a USB device (not just charging).", {false, true}, on_off,
+                new MenuItem{ListItemType::Generic, TR("Keep awake over USB"), TR("Prevent screen-off and sleep while connected to a\ncomputer as a USB device (not just charging)."), {false, true}, on_off,
                 []() -> std::any { return CFG_getKeepAwakeWhenUSB(); },
                 [](const std::any &value) { CFG_setKeepAwakeWhenUSB(std::any_cast<bool>(value)); },
                 []() { CFG_setKeepAwakeWhenUSB(CFG_DEFAULT_KEEPAWAKEWHENUSB); }}
@@ -733,8 +745,8 @@ int main(int argc, char *argv[])
         if(deviceInfo.hasActiveCooling())
         {
             systemItems.push_back(
-                new MenuItem{ListItemType::Generic, "Fan Speed", "Select the fan speed percentage (Quiet/Normal/Performance or 0-100%)",
-                {-3,-2,-1,0,10,20,30,40,50,60,70,80,90,100}, {"Performance","Normal","Quiet","0%","10%","20%","30%","40%","50%","60%","70%","80%","90%","100%"},
+                new MenuItem{ListItemType::Generic, TR("Fan Speed"), TR("Select the fan speed percentage (Quiet/Normal/Performance or 0-100%)"),
+                {-3,-2,-1,0,10,20,30,40,50,60,70,80,90,100}, {TR("Performance"),TR("Normal"),TR("Quiet"),"0%","10%","20%","30%","40%","50%","60%","70%","80%","90%","100%"},
                 []() -> std::any { return GetFanSpeed(); },
                 [](const std::any &value){ SetFanSpeed(std::any_cast<int>(value)); },
                 []() { SetFanSpeed(SETTINGS_DEFAULT_FAN_SPEED); }}
@@ -742,15 +754,15 @@ int main(int argc, char *argv[])
         }
 
         systemItems.push_back(
-            new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu});
+            new MenuItem{ListItemType::Button, TR("Reset to defaults"), TR("Resets all options in this menu to their default values."), ResetCurrentMenu});
 
-        auto systemMenu = new MenuList(MenuItemType::Fixed, "System", systemItems);
+        auto systemMenu = new MenuList(MenuItemType::Fixed, TR("System"), systemItems);
 
         std::vector<AbstractMenuItem*> muteItems =
         {
             new MenuItem{ListItemType::Generic, TR("Volume when toggled"), TR("Speaker volume (0-20)"),
             {(int)SETTINGS_DEFAULT_MUTE_NO_CHANGE, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20},
-            {"Unchanged", "Muted", "5%","10%","15%","20%","25%","30%","35%","40%","45%","50%","55%","60%","65%","70%","75%","80%","85%","90%","95%","100%"},
+            {TR("Unchanged"), TR("Muted"), "5%","10%","15%","20%","25%","30%","35%","40%","45%","50%","55%","60%","65%","70%","75%","80%","85%","90%","95%","100%"},
             []() -> std::any { return GetMutedVolume(); },
             [](const std::any &value) { SetMutedVolume(std::any_cast<int>(value)); },
             []() { SetMutedVolume(0); }},
@@ -758,9 +770,9 @@ int main(int argc, char *argv[])
             []() -> std::any { return CFG_getMuteLEDs(); },
             [](const std::any &value) { CFG_setMuteLEDs(std::any_cast<bool>(value)); },
             []() { CFG_setMuteLEDs(CFG_DEFAULT_MUTELEDS); }},
-            new MenuItem{ListItemType::Generic, "Brightness when toggled", "Display brightness (0 to 10)",
+            new MenuItem{ListItemType::Generic, TR("Brightness when toggled"), TR("Display brightness (0 to 10)"),
             {(int)SETTINGS_DEFAULT_MUTE_NO_CHANGE, 0,1,2,3,4,5,6,7,8,9,10},
-            {"Unchanged","0","1","2","3","4","5","6","7","8","9","10"},
+            {TR("Unchanged"),"0","1","2","3","4","5","6","7","8","9","10"},
             []() -> std::any { return GetMutedBrightness(); }, [](const std::any &value)
             { SetMutedBrightness(std::any_cast<int>(value)); },
             []() { SetMutedBrightness(SETTINGS_DEFAULT_MUTE_NO_CHANGE);}},
@@ -770,9 +782,9 @@ int main(int argc, char *argv[])
         {
             if(deviceInfo.hasColorTemperature()) {
                 muteItems.push_back(
-                    new MenuItem{ListItemType::Generic, "Color temperature when toggled", "Color temperature (0 to 40)",
+                    new MenuItem{ListItemType::Generic, TR("Color temperature when toggled"), TR("Color temperature (0 to 40)"),
                     {(int)SETTINGS_DEFAULT_MUTE_NO_CHANGE, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40},
-                    {"Unchanged","0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40"},
+                    {TR("Unchanged"),"0","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40"},
                     []() -> std::any{ return GetMutedColortemp(); }, [](const std::any &value)
                     { SetMutedColortemp(std::any_cast<int>(value)); },
                     []() { SetMutedColortemp(SETTINGS_DEFAULT_MUTE_NO_CHANGE);}}
@@ -780,15 +792,15 @@ int main(int argc, char *argv[])
             }
             if(deviceInfo.hasContrastSaturation()) {
                 muteItems.insert(muteItems.end(), {
-                    new MenuItem{ListItemType::Generic, "Contrast when toggled", "Contrast enhancement (-4 to 5)",
+                    new MenuItem{ListItemType::Generic, TR("Contrast when toggled"), TR("Contrast enhancement (-4 to 5)"),
                     {(int)SETTINGS_DEFAULT_MUTE_NO_CHANGE, -4,-3,-2,-1,0,1,2,3,4,5},
-                    {"Unchanged","-4","-3","-2","-1","0","1","2","3","4","5"},
+                    {TR("Unchanged"),"-4","-3","-2","-1","0","1","2","3","4","5"},
                     []() -> std::any  { return GetMutedContrast(); }, [](const std::any &value)
                     { SetMutedContrast(std::any_cast<int>(value)); },
                     []() { SetMutedContrast(SETTINGS_DEFAULT_MUTE_NO_CHANGE);}},
-                    new MenuItem{ListItemType::Generic, "Saturation when toggled", "Saturation enhancement (-5 to 5)",
+                    new MenuItem{ListItemType::Generic, TR("Saturation when toggled"), TR("Saturation enhancement (-5 to 5)"),
                     {(int)SETTINGS_DEFAULT_MUTE_NO_CHANGE, -5,-4,-3,-2,-1,0,1,2,3,4,5},
-                    {"Unchanged","-5","-4","-3","-2","-1","0","1","2","3","4","5"},
+                    {TR("Unchanged"),"-5","-4","-3","-2","-1","0","1","2","3","4","5"},
                     []() -> std::any{ return GetMutedSaturation(); }, [](const std::any &value)
                     { SetMutedSaturation(std::any_cast<int>(value)); },
                     []() { SetMutedSaturation(SETTINGS_DEFAULT_MUTE_NO_CHANGE);}}}
@@ -796,9 +808,9 @@ int main(int argc, char *argv[])
             }
             if(deviceInfo.hasExposure()) {
                 muteItems.push_back(
-                    new MenuItem{ListItemType::Generic, "Exposure when toggled", "Exposure enhancement (-4 to 5)",
+                    new MenuItem{ListItemType::Generic, TR("Exposure when toggled"), TR("Exposure enhancement (-4 to 5)"),
                     {(int)SETTINGS_DEFAULT_MUTE_NO_CHANGE, -4,-3,-2,-1,0,1,2,3,4,5},
-                    {"Unchanged","-4","-3","-2","-1","0","1","2","3","4","5"},
+                    {TR("Unchanged"),"-4","-3","-2","-1","0","1","2","3","4","5"},
                     []() -> std::any  { return GetMutedExposure(); }, [](const std::any &value)
                     { SetMutedExposure(std::any_cast<int>(value)); },
                     []() { SetMutedExposure(SETTINGS_DEFAULT_MUTE_NO_CHANGE);}}
@@ -806,35 +818,35 @@ int main(int argc, char *argv[])
             }
 
             muteItems.insert(muteItems.end(), {
-                new MenuItem{ListItemType::Generic, "Turbo fire A", "Enable turbo fire A", {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire A"), TR("Enable turbo fire A"), {0, 1}, on_off, []() -> std::any
                 { return GetMuteTurboA(); },
                 [](const std::any &value) { SetMuteTurboA(std::any_cast<int>(value));},
                 []() { SetMuteTurboA(0);}},
-                new MenuItem{ListItemType::Generic, "Turbo fire B", "Enable turbo fire B", {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire B"), TR("Enable turbo fire B"), {0, 1}, on_off, []() -> std::any
                 { return GetMuteTurboB(); },
                 [](const std::any &value) { SetMuteTurboB(std::any_cast<int>(value));},
                 []() { SetMuteTurboB(0);}},
-                new MenuItem{ListItemType::Generic, "Turbo fire X", "Enable turbo fire X", {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire X"), TR("Enable turbo fire X"), {0, 1}, on_off, []() -> std::any
                 { return GetMuteTurboX(); },
                 [](const std::any &value) { SetMuteTurboX(std::any_cast<int>(value));},
                 []() { SetMuteTurboX(0);}},
-                new MenuItem{ListItemType::Generic, "Turbo fire Y", "Enable turbo fire Y", {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire Y"), TR("Enable turbo fire Y"), {0, 1}, on_off, []() -> std::any
                 { return GetMuteTurboY(); },
                 [](const std::any &value) { SetMuteTurboY(std::any_cast<int>(value));},
                 []() { SetMuteTurboY(0);}},
-                new MenuItem{ListItemType::Generic, "Turbo fire L1", "Enable turbo fire L1", {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire L1"), TR("Enable turbo fire L1"), {0, 1}, on_off, []() -> std::any
                 { return GetMuteTurboL1(); },
                 [](const std::any &value) { SetMuteTurboL1(std::any_cast<int>(value));},
                 []() { SetMuteTurboL1(0);}},
-                new MenuItem{ListItemType::Generic, "Turbo fire L2", "Enable turbo fire L2", {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire L2"), TR("Enable turbo fire L2"), {0, 1}, on_off, []() -> std::any
                 { return GetMuteTurboL2(); },
                 [](const std::any &value) { SetMuteTurboL2(std::any_cast<int>(value));},
                 []() { SetMuteTurboL2(0);}},
-                new MenuItem{ListItemType::Generic, "Turbo fire R1", "Enable turbo fire R1", {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire R1"), TR("Enable turbo fire R1"), {0, 1}, on_off, []() -> std::any
                 { return GetMuteTurboR1(); },
                 [](const std::any &value) { SetMuteTurboR1(std::any_cast<int>(value));},
                 []() { SetMuteTurboR1(0);}},
-                new MenuItem{ListItemType::Generic, "Turbo fire R2", "Enable turbo fire R2", {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire R2"), TR("Enable turbo fire R2"), {0, 1}, on_off, []() -> std::any
                 { return GetMuteTurboR2(); },
                 [](const std::any &value) { SetMuteTurboR2(std::any_cast<int>(value));},
                 []() { SetMuteTurboR2(0);}}
@@ -843,7 +855,7 @@ int main(int argc, char *argv[])
 
         if(deviceInfo.hasMuteToggle() && !deviceInfo.hasAnalogSticks()){
             muteItems.push_back(
-                new MenuItem{ListItemType::Generic, "Dpad mode when toggled", "Dpad: default. Joystick: Dpad exclusively acts as analog stick.\nBoth: Dpad and Joystick inputs at the same time.", {0, 1, 2}, {"Dpad", "Joystick", "Both"}, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Dpad mode when toggled"), TR("Dpad: default. Joystick: Dpad exclusively acts as analog stick.\nBoth: Dpad and Joystick inputs at the same time."), {0, 1, 2}, {TR("Dpad"), TR("Joystick"), TR("Both")}, []() -> std::any
                 {
                     if(!GetMuteDisablesDpad() && !GetMuteEmulatesJoystick()) return 0;
                     if(GetMuteDisablesDpad() && GetMuteEmulatesJoystick()) return 1;
@@ -861,7 +873,7 @@ int main(int argc, char *argv[])
                     SetMuteEmulatesJoystick(0);
                 }});
         }
-        muteItems.push_back(new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu});
+        muteItems.push_back(new MenuItem{ListItemType::Button, TR("Reset to defaults"), TR("Resets all options in this menu to their default values."), ResetCurrentMenu});
 
         auto notificationsMenu = new MenuList(MenuItemType::Fixed, "Notifications",
         {
