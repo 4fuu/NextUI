@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Amp orb setup for NextUI (https://github.com/4fuu/NextUI, fork of LoveRetro/NextUI).
+#
+# Device builds (PLATFORM=tg5040|tg5050|h700) compile inside Docker images from
+# ghcr.io/loveretro/*-toolchain, and Docker is not available inside an orb. What is
+# available is the native "desktop" platform build, which compiles every NextUI
+# binary against the host SDL2 stack. Orb setup therefore installs the desktop
+# build dependencies so agents can verify changes with:
+#
+#   make setup && make common PLATFORM=desktop
+set -euo pipefail
+
+cd "$(dirname "$BASH_SOURCE")/.."
+
+step() { printf '\n[setup %s] %s\n' "$(date +%H:%M:%S)" "$*"; }
+
+# Runtime + desktop build dependencies (see .github/workflows/dev.yaml and
+# workspace/desktop/platform/makefile.env).
+PACKAGES=(
+  build-essential pkg-config cmake git
+  zip unzip zipmerge
+  libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev libgl-dev
+  libsamplerate0-dev libzip-dev zlib1g-dev libbz2-dev liblzma-dev libzstd-dev liblz4-dev
+  libssl-dev libsqlite3-dev
+)
+
+step "checking system packages"
+missing=()
+for pkg in "${PACKAGES[@]}"; do
+  if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+    missing+=("$pkg")
+  fi
+done
+
+if ((${#missing[@]})); then
+  step "installing ${#missing[@]} missing packages: ${missing[*]}"
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+else
+  step "all system packages already installed"
+fi
+
+step "verifying desktop toolchain"
+for lib in sdl2 SDL2_image SDL2_ttf libzip; do
+  pkg-config --exists "$lib" || { echo "missing pkg-config entry: $lib" >&2; exit 1; }
+done
+for bin in gcc make cmake zip zipmerge; do
+  command -v "$bin" >/dev/null || { echo "missing tool: $bin" >&2; exit 1; }
+done
+
+# Agents work in a fresh orb without this conversation's knowledge of how the
+# build is wired; leave the short version where they will read it.
+guidance="$HOME/.config/amp/AGENTS.md"
+marker="# NextUI orb build notes"
+if ! grep -Fqx "$marker" "$guidance" 2>/dev/null; then
+  mkdir -p "$(dirname "$guidance")"
+  cat >> "$guidance" <<'EOF'
+
+# NextUI orb build notes
+- Build the portable target to verify compilation: `make setup && make common PLATFORM=desktop`.
+- Device targets (tg5040, tg5050, h700) build inside Docker images from ghcr.io/loveretro/*-toolchain. Docker is unavailable in orbs, so device builds only run in CI or on a host with Docker.
+- The desktop build clones libretro-common, rcheevos and libchdr on first use and installs local libs under /var/tmp/nextui; both are expected and gitignored.
+EOF
+fi
+
+step "done"
