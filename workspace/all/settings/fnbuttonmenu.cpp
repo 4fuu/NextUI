@@ -115,7 +115,7 @@ public:
         for (size_t i = 0; i < values.size() && i < labels.size(); i++)
             if (std::any_cast<std::string>(values[i]) == current)
                 return labels[i];
-        return "None";
+        return TR("None");
     }
 
     InputReactionHint handleInput(int &dirty) override
