@@ -45,7 +45,7 @@ SOURCE = $(TARGET).c \
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS += -lmsettings -lsamplerate
+LDFLAGS += -lmsettings -lsamplerate -lrt
 
 ifeq ($(PLATFORM), desktop)
 CFLAGS += -DNEXTUI_SESSION_DESKTOP=1 -DNEXTUI_SESSION_NO_MUTE=1

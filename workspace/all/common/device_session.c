@@ -26,6 +26,7 @@ static const char* const RESULT_NAMES[] = {
     "stale",
     "partial",
     "bad_argument",
+    "app_handled",
 };
 
 static const char* const LED_STATE_NAMES[] = {
@@ -43,8 +44,17 @@ const char* device_session_field_name(DeviceSessionField field)
 
 const char* device_session_result_name(DeviceSessionResult result)
 {
-    if (result < DEVICE_SESSION_OK || result > DEVICE_SESSION_BAD_ARGUMENT) return "unknown";
+    if (result < DEVICE_SESSION_OK || result > DEVICE_SESSION_APP_HANDLED) return "unknown";
     return RESULT_NAMES[result];
+}
+
+unsigned long long device_session_monotonic_ms(void)
+{
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0;
+    return (unsigned long long)now.tv_sec * 1000ULL
+           + (unsigned long long)now.tv_nsec / 1000000ULL;
 }
 
 const char* device_session_led_state_name(DeviceSessionLedState state)
@@ -168,6 +178,7 @@ DeviceSessionResult device_session_begin(DeviceSession* session, const DeviceSes
     if (session->id == 0) session->id = 1;
     session->started_at = (long)time(NULL);
     if (session->started_at < 0) session->started_at = 0;
+    session->started_mono_ms = device_session_monotonic_ms();
     set_text(session->app, sizeof session->app, app);
     set_text(session->pak, sizeof session->pak, pak);
     session->last_result = DEVICE_SESSION_OK;
@@ -375,4 +386,75 @@ void device_session_note_capability(DeviceSession* session, const char* capabili
             || strcmp(verb, "release") == 0 || strcmp(verb, "restore") == 0)
             session->led_used = 1;
     }
+}
+
+void device_session_note_overlay_host(DeviceSession* session, int overlay_host)
+{
+    if (session == NULL) return;
+    session->overlay_host = overlay_host ? 1 : 0;
+}
+
+DeviceSessionResult device_session_request_exit(DeviceSession* session,
+                                                unsigned long long expected_id,
+                                                const char* action,
+                                                unsigned long long event_ms,
+                                                unsigned long long grace_ms)
+{
+    unsigned long long now;
+
+    if (session == NULL || action == NULL || action[0] == '\0')
+        return DEVICE_SESSION_BAD_ARGUMENT;
+    if (strcmp(action, "home") != 0 && strcmp(action, "overlay") != 0)
+        return DEVICE_SESSION_BAD_ARGUMENT;
+    if (!session->active) return DEVICE_SESSION_NOT_ACTIVE;
+    if (expected_id != 0 && expected_id != session->id) return DEVICE_SESSION_STALE;
+
+    now = device_session_monotonic_ms();
+    if (event_ms == 0) event_ms = now;
+
+    /* A delayed press from the previous session must not affect this one. */
+    if (event_ms < session->started_mono_ms)
+    {
+        set_text(session->exit_detail, sizeof session->exit_detail,
+                 "event predates the active session");
+        return DEVICE_SESSION_STALE;
+    }
+
+    if (session->exit_requested)
+    {
+        set_text(session->exit_detail, sizeof session->exit_detail,
+                 "exit already requested");
+        return DEVICE_SESSION_OK;
+    }
+
+    session->exit_requested = 1;
+    session->exit_completed = 0;
+    session->exit_forced = 0;
+    set_text(session->exit_action, sizeof session->exit_action, action);
+    session->exit_requested_at_ms = event_ms;
+    session->exit_deadline_ms = now + (grace_ms != 0 ? grace_ms : 1500ULL);
+    set_text(session->exit_result, sizeof session->exit_result, "");
+    set_text(session->exit_detail, sizeof session->exit_detail,
+             "exit requested; waiting for the launch parent");
+    return DEVICE_SESSION_OK;
+}
+
+DeviceSessionResult device_session_note_exit_outcome(DeviceSession* session,
+                                                     unsigned long long expected_id,
+                                                     int forced, const char* detail)
+{
+    if (session == NULL) return DEVICE_SESSION_BAD_ARGUMENT;
+    if (!session->active) return DEVICE_SESSION_NOT_ACTIVE;
+    if (expected_id != 0 && expected_id != session->id) return DEVICE_SESSION_STALE;
+    if (!session->exit_requested) return DEVICE_SESSION_BAD_ARGUMENT;
+
+    session->exit_completed = 1;
+    session->exit_forced = forced ? 1 : 0;
+    set_text(session->exit_result, sizeof session->exit_result,
+             forced ? "forced" : "normal");
+    set_text(session->exit_detail, sizeof session->exit_detail,
+             detail != NULL && detail[0] != '\0'
+                 ? detail
+                 : (forced ? "grace expired; child killed" : "child exited normally"));
+    return DEVICE_SESSION_OK;
 }

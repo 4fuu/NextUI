@@ -240,6 +240,10 @@ expect_not_contains() {
     fi
 }
 
+session_id_of() {
+    printf '%s' "$1" | sed -n 's/.*"session_id":"\([0-9a-f]*\)".*/\1/p'
+}
+
 run_nextdev() {
     set +e
     OUTPUT="$("$NEXTDEV" --socket "$SOCKET" "$@" 2>&1)"
@@ -525,6 +529,81 @@ expect_contains "$OUTPUT" '"error":"bad_request"'
 
 OUTPUT="$("$RAW" "$SOCKET" 'this is not json')"
 expect_contains "$OUTPUT" '"error":"bad_request"'
+
+# --- C4 app-action: session-scoped exit requests, no PID in the protocol ---
+OVERLAY="$WORK_DIR/Overlay.pak"
+mkdir -p "$OVERLAY"
+printf '#!/bin/sh\nexit 0\n' > "$OVERLAY/launch.sh"
+cat > "$OVERLAY/pak.json" <<'JSON'
+{"id":"overlay.app","version":"v1.0.0","capabilities":["overlay"]}
+JSON
+OVERLAY="$(cd "$OVERLAY" && pwd -P)"
+
+# An adapted app owns HOME: devserv reports handled_by_app and records no exit.
+run_nextdev --pak "$OVERLAY" session-start
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: overlay session-start: $OUTPUT" >&2; exit 1; }
+OVERLAY_ID="$(session_id_of "$OUTPUT")"
+[[ -n "$OVERLAY_ID" ]] || { echo "FAIL: overlay session id missing" >&2; exit 1; }
+run_nextdev --pak "$OVERLAY" app-action overlay
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: overlay app-action: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"handled_by_app":true'
+expect_contains "$OUTPUT" '"exit_requested":false'
+run_nextdev --pak "$OVERLAY" session-status
+expect_contains "$OUTPUT" '"overlay_host":true'
+expect_contains "$OUTPUT" '"exit_requested":false'
+
+# FN2 is a real exit request; a repeated request is idempotent.
+run_nextdev --pak "$OVERLAY" app-action home
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: home app-action: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"exit_requested":true'
+expect_contains "$OUTPUT" '"action":"home"'
+run_nextdev --pak "$OVERLAY" app-action home
+expect_contains "$OUTPUT" '"exit_requested":true'
+
+# The launch parent reports normal completion, scoped to the same id.
+run_nextdev --session-id "$OVERLAY_ID" app-exit-result
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: app-exit-result: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"completed":true'
+expect_contains "$OUTPUT" '"forced":false'
+expect_contains "$OUTPUT" '"result":"normal"'
+run_nextdev --session-id "$OVERLAY_ID" session-stop
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: overlay session-stop: $OUTPUT" >&2; exit 1; }
+
+# A delayed HOME from the previous session is stale and cannot tear down the
+# next one. This is the "late exit splits a new session" guard.
+run_nextdev --pak "$OVERLAY" session-start
+NEW_ID="$(session_id_of "$OUTPUT")"
+run_nextdev --pak "$OVERLAY" --session-id "$OVERLAY_ID" app-action home
+[[ "$STATUS" -eq 1 ]] || { echo "FAIL: stale id was accepted: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"error":"session_stale"'
+run_nextdev --pak "$OVERLAY" session-status
+expect_contains "$OUTPUT" '"exit_requested":false'
+run_nextdev --pak "$OVERLAY" --at-ms 1 app-action home
+[[ "$STATUS" -eq 1 ]] || { echo "FAIL: old at_ms was accepted: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"error":"session_stale"'
+run_nextdev --pak "$OVERLAY" session-status
+expect_contains "$OUTPUT" '"exit_requested":false'
+run_nextdev --session-id "$NEW_ID" session-stop
+
+# Unadapted apps get no overlay; their HOME is the plan's return-to-desktop
+# fallback and is recorded as a home exit.
+run_nextdev --pak "$LEGACY" session-start
+LEGACY_ID="$(session_id_of "$OUTPUT")"
+run_nextdev --pak "$LEGACY" app-action overlay
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: legacy overlay action: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"handled_by_app":false'
+expect_contains "$OUTPUT" '"exit_requested":true'
+expect_contains "$OUTPUT" '"action":"overlay"'
+run_nextdev --session-id "$LEGACY_ID" --forced app-exit-result
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: forced result: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"forced":true'
+expect_contains "$OUTPUT" '"result":"forced"'
+run_nextdev --session-id "$LEGACY_ID" session-stop
+
+# No active session: the request is refused, not silently attributed.
+run_nextdev app-action home
+[[ "$STATUS" -eq 1 ]] || { echo "FAIL: inactive app-action accepted" >&2; exit 1; }
+expect_contains "$OUTPUT" '"error":"not_active"'
 
 kill -TERM "$PID"
 wait "$PID" 2>/dev/null || true

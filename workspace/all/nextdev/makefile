@@ -28,12 +28,14 @@ SOURCE = $(TARGET).c \
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -std=gnu99
+# device_session_monotonic_ms uses CLOCK_MONOTONIC; older glibc needs librt.
+LDFLAGS += -lrt
 
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 
 all:
 	mkdir -p build/$(PLATFORM)
-	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS)
+	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 
 clean:
 	rm -f $(PRODUCT)
