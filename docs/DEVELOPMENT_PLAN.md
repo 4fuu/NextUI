@@ -915,7 +915,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 #### F4 — Pak Store single-sourcing
 - Owner: unassigned; blocked on owner repository authorization.
-- Status: not started; the store pak still comes from a third-party source.
+- Status: not started; no store pak is downloaded or preinstalled by the build
+  anymore (the third-party Pak Store download and its launcher quick entry were
+  removed), so this now only applies if a store is bundled again in the future.
 - Depends on: owner authorization to fork/create the store and index
   repositories; U4 feed format.
 - Delivery/verification: store pak built from this owner's account, index
