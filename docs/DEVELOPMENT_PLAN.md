@@ -118,7 +118,12 @@ Rules:
   tests green as well. PR #33 (branch `ci/update-package-content`, "Add the
   tg5040 update package content check to Feature checks") is open at head
   `c2377db077f4fbf6dacd17c1320ad6e5f54c7c79`, OPEN and MERGEABLE per gh; it is
-  the test-only package-content CI job that was only proposed before. Merged
+  the test-only package-content CI job that was only proposed before. CI at
+  this head is not green: Feature checks failed on both the push and the
+  pull_request run per gh while Development/Desktop succeeded; per the merge
+  owner the failure is the invalid version placeholder `v0.0.0-ci` (exit 64),
+  and the packaging thread is changing it to `v0.0.0` while keeping the tool
+  exec bit and the res assertions. Merged
   since the last check: PR #27 (U8 transactional update package build, final
   head `c6b5e6f`) merged into main as
   `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh)
@@ -954,26 +959,35 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   packaged-tool-path contract) plus headless render ok; `test-update-package`
   (PR #27) 124/124; `test-settings` and `test-i18n` pass; the desktop
   `settings.elf` builds; PR #32 CI green on the head per gh.
-- Device reality (flagged to the merge owner by the source): the UI's only
-  tool path is `.tmp_update/<platform>/nextupd.elf`, which matches
-  `package-update.sh`'s required and 0755 path, but no build step currently
-  copies the device `nextupd.elf` into that boot payload, so on a real device
-  the install UI would show "System update tool is not available." until
-  packaging ships it. A passing host build does not mean the device package
-  has the tool.
-- Not delivered: the packaging step that copies the device `nextupd.elf` into
-  `build/BOOT/.tmp_update/<platform>/` (the merge owner's PR #27 area; the
-  decision is pending, and the copy step is a tracked follow-up); the real
-  feed and the production trusted key are owner-provisioned; the zh
-  translations for all new page strings are an append-only follow-up on a
-  fresh branch after PR #32 merges, aligning the `i18n.c` keys with PR #30 and
-  I4; real-device boot is out of scope. No
+- Device tool path (corrected 2026-11-16 12:11 against the source's earlier
+  "no copy step" claim, which the merge owner refuted with the real CI
+  artifact): the UI's only tool path is `.tmp_update/<platform>/nextupd.elf`,
+  and the copy step does exist. The merge owner inspected the actual CI run
+  43862049457 artifact at `d25543b` (`NextUI-20261116-0-base.zip`,
+  14223682314 bytes): the inner `MinUI.zip` carries
+  `.tmp_update/tg5040/nextupd.elf` at 203512 bytes, `tg5050` at 201192 bytes,
+  and `h700` at 203512 bytes, all mode 0755, plus `.system/res/font3.ttf` at
+  1298720 bytes. The copies are
+  `workspace/tg5040/platform/makefile.copy` line 9,
+  `workspace/tg5050/platform/makefile.copy` line 9, and
+  `workspace/h700/platform/makefile.copy` line 18, each
+  `cp ./workspace/all/nextupd/build/$@/nextupd.elf ./build/BOOT/common/$@/`,
+  executed by `make <platform>/system` (also confirmed in the tree). The
+  source's misjudgment came from running only `setup` plus `special` instead
+  of the full platform system target. No new copy fix is needed and the claim
+  is not carried as an open follow-up. This is artifact-content evidence, not
+  device-run acceptance: PR #32's default tool path matches the real package,
+  which still says nothing about running on hardware.
+- Not delivered: the real feed and the production trusted key are
+  owner-provisioned; the zh translations for all new page strings stay with
+  the U9 source as an append-only follow-up on a fresh branch after PR #32
+  merges, aligning the `i18n.c` keys with PR #30 (this responsibility is not
+  transferred to I4); real-device boot is out of scope. No
   device, real root, reboot, publish, or production key.
 - Depends on: U4 feed (in main), U1 transaction (in main), U7 boot payload sync
   (in main), and the I9 settings fixes (in main).
 - Next: the merge owner reviews and merges PR #32; after the merge the source
-  opens the zh branch, and the packaging copy step for the device `nextupd.elf`
-  stays a tracked follow-up pending the merge owner's call.
+  opens the zh branch for the new page's strings.
 
 ### P3 — Full UI translation remainder
 
