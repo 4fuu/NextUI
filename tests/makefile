@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-display-audio test-led-profile test-led-refresh test-session test-session-e2e test-updater clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-display-audio test-led-profile test-led-refresh test-session test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render clean
 
-test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-display-audio test-session test-updater
+test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -54,6 +54,22 @@ test-session-e2e:
 
 test-updater:
 	../workspace/all/nextupd/tests/run_tests.sh
+
+# Localization module tests (LedControl pak + boot splash wiring). They are
+# self-contained: the two shell tests only need the host SDL headers the other
+# host tests already use; the render proofs additionally build and drive the
+# real binaries headless.
+test-led-i18n:
+	../workspace/all/ledcontrol/tests/run_led_i18n_test.sh
+
+test-boot-strings:
+	../workspace/all/show2/tests/run_boot_strings_test.sh
+
+test-led-render:
+	../workspace/all/ledcontrol/tests/run_led_render_proof.sh
+
+test-show2-render:
+	../workspace/all/show2/tests/run_show2_render_proof.sh
 
 clean:
 	rm -f $(TEST_BIN)
