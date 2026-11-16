@@ -30,6 +30,9 @@ typedef struct
     uint64_t compressed_size;
     uint64_t uncompressed_size;
     uint64_t data_offset;
+    /* Permission bits from the ZIP external attributes; 0 when the producer
+     * did not record a Unix mode. */
+    uint32_t mode;
 } UpdZipEntry;
 
 typedef struct
@@ -57,6 +60,18 @@ int upd_zip_open(const char* path, UpdZip* zip, UpdError* error);
 int upd_zip_hash_entry(const UpdZip* zip, const UpdZipEntry* entry, uint64_t expected_size,
                        unsigned char digest[UPD_SHA256_BYTES], uint64_t* actual_size,
                        UpdError* error);
+
+/*
+ * Stream one entry into a newly created file. The file is created with
+ * O_EXCL|O_NOFOLLOW so an existing path is never replaced or followed. The
+ * content is checked against expected_size, expected_digest and the ZIP CRC
+ * while it is written; on any failure the partial file is removed. Permission
+ * bits come from the ZIP entry, with set-id and sticky bits stripped.
+ */
+int upd_zip_extract_entry(const UpdZip* zip, const UpdZipEntry* entry,
+                          const char* destination, uint64_t expected_size,
+                          const unsigned char expected_digest[UPD_SHA256_BYTES],
+                          UpdError* error);
 
 /* Binary search by exact path; returns NULL when absent. */
 const UpdZipEntry* upd_zip_find(const UpdZip* zip, const char* path);

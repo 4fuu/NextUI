@@ -27,6 +27,7 @@ common_flags=(-std=gnu99 -Wall -Wextra -Werror -pedantic -D_FILE_OFFSET_BITS=64
     ../nextupd.c \
     ../update_manifest.c \
     ../update_signature.c \
+    ../update_transaction.c \
     ../update_util.c \
     ../update_zip.c \
     ../../common/json_lite.c \

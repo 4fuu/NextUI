@@ -27,6 +27,8 @@ typedef enum
     UPD_E_INTERRUPTED = 10,
     UPD_E_ALREADY_STAGED = 11,
     UPD_E_BUSY = 12,
+    UPD_E_STATE = 13,
+    UPD_E_VERSION = 14,
     UPD_E_USAGE = 64,
 } UpdExitCode;
 

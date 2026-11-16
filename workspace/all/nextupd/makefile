@@ -26,6 +26,7 @@ SOURCES = \
 	nextupd.c \
 	update_manifest.c \
 	update_signature.c \
+	update_transaction.c \
 	update_util.c \
 	update_zip.c \
 	../common/json_lite.c \
@@ -40,6 +41,7 @@ endif
 
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 TWEET_OBJECT = build/$(PLATFORM)/tweetnacl.o
+LIBDIRS = $(if $(PREFIX),-L$(PREFIX)/lib) $(if $(PREFIX_LOCAL),-L$(PREFIX_LOCAL)/lib)
 
 .PHONY: all clean
 
@@ -47,7 +49,7 @@ all:
 	mkdir -p build/$(PLATFORM)
 	$(CC) -c third_party/tweetnacl/tweetnacl.c -o $(TWEET_OBJECT) \
 		$(OPT) -Ithird_party/tweetnacl -std=gnu99 -w -fno-sanitize=undefined
-	$(CC) $(SOURCES) $(TWEET_OBJECT) -o $(PRODUCT) $(CFLAGS) -lz
+	$(CC) $(SOURCES) $(TWEET_OBJECT) -o $(PRODUCT) $(CFLAGS) $(LIBDIRS) -lz
 
 clean:
 	rm -rf build/$(PLATFORM)

@@ -581,11 +581,597 @@ def test_stage_signature_failure():
         fail("stage rejects tampered signature", "published a marker")
 
 
+NEW_ELF = b"\x7fELF\x02\x01\x01\x00NEW" + bytes(range(32))
+OLD_ELF = b"\x7fELF\x02\x01\x01\x00OLD" + bytes(range(32))
+DER_KEY = None
+
+
+def write_system_tree(live, version, elf):
+    os.makedirs(os.path.join(live, "tg5040", "bin"), exist_ok=True)
+    os.makedirs(os.path.join(live, "tg5040", "paks", "MinUI.pak"), exist_ok=True)
+    with open(os.path.join(live, "version.txt"), "w", encoding="ascii") as handle:
+        handle.write(version + "\n")
+    elf_path = os.path.join(live, "tg5040", "bin", "nextui.elf")
+    with open(elf_path, "wb") as handle:
+        handle.write(elf)
+    os.chmod(elf_path, 0o755)
+    launch = os.path.join(live, "tg5040", "paks", "MinUI.pak", "launch.sh")
+    with open(launch, "wb") as handle:
+        handle.write(b"#!/bin/sh\nexec ./nextui.elf\n")
+    os.chmod(launch, 0o755)
+
+
+def make_target(name, version="v6.15.0", previous=None):
+    root = fresh(name)
+    write_system_tree(os.path.join(root, ".system"), version, OLD_ELF)
+    if previous is not None:
+        write_system_tree(os.path.join(root, ".system.bak"), previous, OLD_ELF)
+    return root
+
+
+def package_entries(version):
+    return [
+        {"name": ".system/tg5040/", "data": b""},
+        {"name": ".system/tg5040/bin/nextui.elf", "data": NEW_ELF,
+         "compression": zipfile.ZIP_STORED, "mode": 0o100755},
+        {"name": ".system/tg5040/paks/MinUI.pak/launch.sh",
+         "data": b"#!/bin/sh\nexec ./nextui.elf\n", "mode": 0o100755},
+        {"name": ".system/version.txt", "data": (version + "\n").encode("ascii")},
+    ]
+
+
+def build_stage(name, version="v6.16.0", min_system="v6.0.0", stage_system="v6.15.0"):
+    directory = fresh(name)
+    package = os.path.join(directory, "MinUI.zip")
+    write_zip(package, package_entries(version))
+    manifest = os.path.join(directory, "MinUI.manifest.json")
+    manifest_for(package, manifest, identity={"version": version},
+                 extra=["--min-system", min_system])
+    signature = os.path.join(directory, "MinUI.manifest.sig")
+    sign_manifest(manifest, signature, DER_KEY)
+    staging_root = os.path.join(directory, "staging")
+    proc = run(stage_args(package, manifest, signature, FIXTURE_PUB, staging_root,
+                          system=stage_system))
+    if proc.returncode != 0:
+        raise RuntimeError(f"stage failed ({proc.returncode}): {proc.stdout}{proc.stderr}")
+    return os.path.join(staging_root, f"{FIXTURE_ID}-{version}-{FIXTURE_PLATFORM}")
+
+
+def install_args(staged, target, platform=FIXTURE_PLATFORM, system="v6.15.0",
+                 key=FIXTURE_PUB):
+    return ["install", "--staged-dir", staged, "--target-root", target,
+            "--trusted-key", key, "--platform", platform, "--system-version", system]
+
+
+def recover_args(target, rollback=False):
+    args = ["recover", "--target-root", target, "--json"]
+    if rollback:
+        args.append("--rollback")
+    return args
+
+
+def read_tree_version(directory):
+    with open(os.path.join(directory, "version.txt"), "r", encoding="ascii") as handle:
+        return handle.read().strip()
+
+
+def read_version_file(root):
+    return read_tree_version(os.path.join(root, ".system"))
+
+
+def tree_manifest(root):
+    entries = []
+    for directory, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in dirnames:
+            path = os.path.join(directory, name)
+            relative = os.path.relpath(path, root)
+            entries.append((relative, "dir", os.lstat(path).st_mode & 0o777))
+        for name in sorted(filenames):
+            path = os.path.join(directory, name)
+            relative = os.path.relpath(path, root)
+            if os.path.islink(path):
+                entries.append((relative, "link:" + os.readlink(path), 0))
+            else:
+                entries.append((relative, sha256_file(path),
+                                os.lstat(path).st_mode & 0o777))
+    return entries
+
+
+def expect_unchanged(name, root, before, proc=None):
+    if tree_manifest(root) != before:
+        fail(name, "target tree changed on a refused install", proc)
+        return False
+    ok(name)
+    return True
+
+
+def read_txn(root):
+    return read_json(os.path.join(root, ".nextupd-txn", "txn.json"))
+
+
+def assert_live_system(name, target, version, elf):
+    live = os.path.join(target, ".system")
+    problems = []
+    if not os.path.isfile(os.path.join(live, "version.txt")):
+        problems.append("missing version.txt")
+    elif read_version_file(target) != version:
+        problems.append(f"version is {read_version_file(target)}, expected {version}")
+    elf_path = os.path.join(live, "tg5040", "bin", "nextui.elf")
+    if not os.path.isfile(elf_path):
+        problems.append("missing nextui.elf")
+    elif open(elf_path, "rb").read() != elf:
+        problems.append("nextui.elf content is wrong")
+    else:
+        if os.lstat(elf_path).st_mode & 0o777 != 0o755:
+            problems.append("nextui.elf is not executable")
+    launch = os.path.join(live, "tg5040", "paks", "MinUI.pak", "launch.sh")
+    if not os.path.isfile(launch):
+        problems.append("missing launch.sh")
+    if os.path.exists(os.path.join(live, ".nextupd-install-txn")):
+        problems.append("transaction marker was left in the live system")
+    if os.path.exists(os.path.join(target, ".nextupd-txn", "new")):
+        problems.append("candidate tree was left behind")
+    if problems:
+        fail(name, "; ".join(problems))
+    else:
+        ok(name)
+
+
+def test_install_success_and_repeat(key_der):
+    target = make_target("install-success")
+    staged = build_stage("install-success-stage")
+    proc = run(install_args(staged, target) + ["--json"])
+    value = expect_json("install success", proc)
+    if value:
+        if (value.get("outcome") != "installed" or value.get("version") != "v6.16.0"
+                or value.get("previous_version") != "v6.15.0"):
+            fail("install success", f"unexpected result: {value}", proc)
+        else:
+            ok("install success fields")
+    assert_live_system("install live system", target, "v6.16.0", NEW_ELF)
+    if read_tree_version(os.path.join(target, ".system.bak")) != "v6.15.0":
+        fail("install backup", "backup does not hold the previous version")
+    else:
+        ok("install backup")
+    descriptor = read_txn(target)
+    if descriptor.get("state") != "committed":
+        fail("install transaction", f"unexpected state: {descriptor}")
+    else:
+        ok("install transaction committed")
+
+    before = tree_manifest(target)
+    proc = run(install_args(staged, target) + ["--json"])
+    value = expect_json("install repeat", proc)
+    if value and value.get("outcome") != "already_installed":
+        fail("install repeat", f"unexpected result: {value}", proc)
+    elif value:
+        ok("install repeat is a no-op")
+    expect_unchanged("install repeat writes nothing", target, before, proc)
+
+    proc = run(recover_args(target))
+    value = expect_json("recover after commit", proc)
+    if value and value.get("outcome") not in ("nothing_to_recover", "recovered_commit"):
+        fail("recover after commit", f"unexpected result: {value}", proc)
+    else:
+        ok("recover after commit")
+
+
+def test_install_rollback_and_reinstall(key_der):
+    target = make_target("install-rollback")
+    staged = build_stage("install-rollback-stage")
+    expect("install before rollback", run(install_args(staged, target)), 0)
+    proc = run(recover_args(target, rollback=True))
+    value = expect_json("manual rollback", proc)
+    if value and (value.get("outcome") != "recovered_rollback"
+                  or value.get("version") != "v6.15.0"):
+        fail("manual rollback", f"unexpected result: {value}", proc)
+    else:
+        ok("manual rollback fields")
+    assert_live_system("manual rollback live system", target, "v6.15.0", OLD_ELF)
+    if os.path.exists(os.path.join(target, ".system.bak")):
+        fail("manual rollback", ".system.bak was not consumed")
+    else:
+        ok("manual rollback consumes backup")
+    if read_txn(target).get("state") != "rolled_back":
+        fail("manual rollback transaction", f"unexpected state: {read_txn(target)}")
+    else:
+        ok("manual rollback transaction state")
+    expect("reinstall after rollback", run(install_args(staged, target)), 0)
+    assert_live_system("reinstall after rollback", target, "v6.16.0", NEW_ELF)
+
+
+def test_install_refusals(key_der):
+    staged = build_stage("install-refusal-stage")
+    target = make_target("install-refusal")
+
+    expect("install without target root",
+           run(["install", "--staged-dir", staged, "--trusted-key", FIXTURE_PUB,
+                "--platform", FIXTURE_PLATFORM, "--system-version", "v6.15.0"]),
+           64, "target_root_missing")
+    expect("install missing target root",
+           run(install_args(staged, os.path.join(WORK, "does-not-exist"))),
+           13, "target_missing")
+    empty = fresh("install-empty-root")
+    expect("install root without .system", run(install_args(staged, empty)), 13,
+           "target_missing")
+
+    no_version = fresh("install-no-version")
+    os.makedirs(os.path.join(no_version, ".system"), exist_ok=True)
+    expect("install target without version", run(install_args(staged, no_version)), 13,
+           "target_version_missing")
+
+    before = tree_manifest(target)
+    expect("install wrong platform",
+           run(install_args(staged, target, platform="h700")), 4, "platform_mismatch")
+    expect_unchanged("install wrong platform writes nothing", target, before)
+
+    expect("install with insufficient space",
+           run(install_args(staged, target), env={"NEXTUPD_TEST_FREE_BYTES": "100"}),
+           9, "insufficient_space")
+    expect_unchanged("install low space writes nothing", target, before)
+    if os.path.exists(os.path.join(target, ".nextupd-txn")):
+        fail("install low space", "created a transaction directory")
+    else:
+        ok("install low space leaves no transaction")
+
+    old_staged = build_stage("install-old-stage", version="v6.14.0")
+    before = tree_manifest(target)
+    expect("install downgrade", run(install_args(old_staged, target)), 14,
+           "downgrade_refused")
+    expect_unchanged("install downgrade writes nothing", target, before)
+
+    same_staged = build_stage("install-same-stage", version="v6.15.0")
+    before = tree_manifest(target)
+    expect("install same version", run(install_args(same_staged, target)), 0,
+           "already_installed")
+    expect_unchanged("install same version writes nothing", target, before)
+
+    required_staged = build_stage("install-required-stage", version="v6.16.0",
+                                  min_system="v6.16.0", stage_system="v6.16.0")
+    before = tree_manifest(target)
+    expect("install requires newer system", run(install_args(required_staged, target)), 4,
+           "system_too_old")
+    expect_unchanged("install required system writes nothing", target, before)
+
+    contradictory = build_stage("install-contradictory-stage", version="v6.15.1",
+                                min_system="v6.16.0", stage_system="v6.16.0")
+    before = tree_manifest(target)
+    expect("install rejects version below min_system",
+           run(install_args(contradictory, target, system="v6.16.0")), 3,
+           "invalid_min_system")
+    expect_unchanged("install contradictory min_system writes nothing", target, before)
+
+    bad_backup = make_target("install-bad-backup", previous="v6.10.0")
+    os.unlink(os.path.join(bad_backup, ".system.bak", "version.txt"))
+    before = tree_manifest(bad_backup)
+    expect("install refuses bad existing backup", run(install_args(staged, bad_backup)),
+           13, "backup_corrupt")
+    expect_unchanged("install bad existing backup writes nothing", bad_backup, before)
+
+    app_dir = fresh("install-app")
+    app_package = os.path.join(app_dir, "Demo.pakz")
+    write_zip(app_package, [
+        {"name": "launch.sh", "data": b"#!/bin/sh\nexec ./demo\n", "mode": 0o100755},
+    ])
+    app_manifest = os.path.join(app_dir, "Demo.manifest.json")
+    manifest_for(app_package, app_manifest, identity={
+        "id": "com.example.demo", "kind": "app", "version": "v1.0.0",
+        "platform": "universal",
+    })
+    app_signature = os.path.join(app_dir, "Demo.manifest.sig")
+    sign_manifest(app_manifest, app_signature, key_der)
+    app_staging = os.path.join(app_dir, "staging")
+    proc = run(stage_args(app_package, app_manifest, app_signature, FIXTURE_PUB,
+                          app_staging))
+    if proc.returncode != 0:
+        fail("stage app for install", "could not stage app", proc)
+    else:
+        app_staged = os.path.join(app_staging, "com.example.demo-v1.0.0-universal")
+        before = tree_manifest(target)
+        expect("install rejects app package", run(install_args(app_staged, target)), 3,
+               "unsupported_kind")
+        expect_unchanged("install app writes nothing", target, before)
+
+
+def test_install_verification_is_zero_write(key_der):
+    target = make_target("install-zero-write")
+    before = tree_manifest(target)
+
+    directory = fresh("install-corrupt-archive")
+    package = os.path.join(directory, "MinUI.zip")
+    write_zip(package, package_entries("v6.16.0"))
+    manifest = os.path.join(directory, "MinUI.manifest.json")
+    manifest_for(package, manifest, extra=["--min-system", "v6.0.0"])
+    signature = os.path.join(directory, "MinUI.manifest.sig")
+    sign_manifest(manifest, signature, key_der)
+    staging = os.path.join(directory, "staging")
+    expect("stage for corrupt install",
+           run(stage_args(package, manifest, signature, FIXTURE_PUB, staging)), 0)
+    staged = os.path.join(staging, f"{FIXTURE_ID}-v6.16.0-{FIXTURE_PLATFORM}")
+    with open(os.path.join(staged, "MinUI.zip"), "ab") as handle:
+        handle.write(b"x")
+    expect("install corrupt archive", run(install_args(staged, target)), 6,
+           "archive_size_mismatch")
+    expect_unchanged("install corrupt archive writes nothing", target, before)
+
+    directory = fresh("install-tampered-manifest")
+    package = os.path.join(directory, "MinUI.zip")
+    write_zip(package, package_entries("v6.16.0"))
+    manifest = os.path.join(directory, "MinUI.manifest.json")
+    manifest_for(package, manifest, extra=["--min-system", "v6.0.0"])
+    signature = os.path.join(directory, "MinUI.manifest.sig")
+    sign_manifest(manifest, signature, key_der)
+    staging = os.path.join(directory, "staging")
+    expect("stage for tampered manifest",
+           run(stage_args(package, manifest, signature, FIXTURE_PUB, staging)), 0)
+    staged = os.path.join(staging, f"{FIXTURE_ID}-v6.16.0-{FIXTURE_PLATFORM}")
+    with open(os.path.join(staged, "manifest.json"), "ab") as handle:
+        handle.write(b"\n")
+    expect("install tampered manifest", run(install_args(staged, target)), 8,
+           "signature_invalid")
+    expect_unchanged("install tampered manifest writes nothing", target, before)
+
+    staged = build_stage("install-wrong-key-stage")
+    other_der, other_public = make_key("22" * 32, os.path.join(WORK, "install-other-key"))
+    expect("install wrong trusted key",
+           run(install_args(staged, target, key=other_public)), 8, "signature_invalid")
+    expect_unchanged("install wrong key writes nothing", target, before)
+
+    staged = build_stage("install-descriptor-stage")
+    descriptor_path = os.path.join(staged, "staged.json")
+    original = read_json(descriptor_path)
+    tampered = dict(original)
+    tampered["version"] = "v9.9.9"
+    write_json(descriptor_path, tampered)
+    expect("install descriptor version mismatch", run(install_args(staged, target)), 3,
+           "staged_manifest_mismatch")
+    expect_unchanged("install descriptor mismatch writes nothing", target, before)
+
+    tampered = dict(original)
+    tampered["manifest_sha256"] = "0" * 64
+    write_json(descriptor_path, tampered)
+    expect("install descriptor manifest hash", run(install_args(staged, target)), 6,
+           "manifest_hash_mismatch")
+    expect_unchanged("install descriptor hash writes nothing", target, before)
+
+    tampered = dict(original)
+    tampered["unexpected"] = True
+    write_json(descriptor_path, tampered)
+    expect("install descriptor unknown field", run(install_args(staged, target)), 3,
+           "unknown_field")
+    expect_unchanged("install descriptor unknown field writes nothing", target, before)
+
+    tampered = dict(original)
+    tampered["status"] = "ready"
+    write_json(descriptor_path, tampered)
+    expect("install descriptor bad status", run(install_args(staged, target)), 3,
+           "invalid_status")
+    expect_unchanged("install descriptor bad status writes nothing", target, before)
+
+
+def test_install_crash_points(key_der):
+    staged = build_stage("install-crash-stage")
+    phases = [
+        ("preparing", "v6.15.0", "rolled_back"),
+        ("extract_mid", "v6.15.0", "rolled_back"),
+        ("prepared", "v6.15.0", "rolled_back"),
+        ("backup_evicted", "v6.15.0", "rolled_back"),
+        ("backing_up", "v6.15.0", "rolled_back"),
+        ("backup_moved", "v6.15.0", "rolled_back"),
+        ("installing", "v6.15.0", "rolled_back"),
+        ("installed_live", "v6.16.0", "committed"),
+        ("installed", "v6.16.0", "committed"),
+        ("committed", "v6.16.0", "committed"),
+    ]
+    for phase, expected_version, expected_state in phases:
+        target = make_target(f"install-crash-{phase}", previous="v6.10.0")
+        proc = run(install_args(staged, target),
+                   env={"NEXTUPD_TEST_CRASH_PHASE": phase})
+        if proc.returncode != 70:
+            fail(f"install crash {phase}", "expected simulated power loss exit 70", proc)
+            continue
+        ok(f"install crash {phase} interrupted")
+        proc = run(recover_args(target))
+        value = expect_json(f"install recover {phase}", proc)
+        if value is None:
+            continue
+        assert_live_system(f"install crash {phase} coherent", target, expected_version,
+                           NEW_ELF if expected_version == "v6.16.0" else OLD_ELF)
+        state = read_txn(target).get("state")
+        if state != expected_state:
+            fail(f"install crash {phase} state", f"got {state}, expected {expected_state}")
+        else:
+            ok(f"install crash {phase} state {state}")
+        if expected_state == "committed":
+            if read_tree_version(os.path.join(target, ".system.bak")) != "v6.15.0":
+                fail(f"install crash {phase} backup", "backup is not the previous system")
+            elif os.path.exists(os.path.join(target, ".nextupd-txn", "previous.bak")):
+                fail(f"install crash {phase} backup", "evicted backup was not removed")
+            else:
+                ok(f"install crash {phase} backup retained")
+        else:
+            backup = os.path.join(target, ".system.bak")
+            if os.path.exists(backup) and read_tree_version(os.path.join(target, ".system.bak")) != "v6.10.0":
+                fail(f"install crash {phase} backup", "older backup was not restored")
+            else:
+                ok(f"install crash {phase} backup restored")
+
+
+def test_install_crash_without_previous_backup(key_der):
+    staged = build_stage("install-crash-no-backup-stage")
+    for phase in ("backup_moved", "installing"):
+        target = make_target(f"install-no-backup-{phase}")
+        proc = run(install_args(staged, target), env={"NEXTUPD_TEST_CRASH_PHASE": phase})
+        if proc.returncode != 70:
+            fail(f"install no backup crash {phase}", "expected exit 70", proc)
+            continue
+        proc = run(recover_args(target))
+        if expect_json(f"install no backup recover {phase}", proc) is None:
+            continue
+        assert_live_system(f"install no backup {phase}", target, "v6.15.0", OLD_ELF)
+        if os.path.exists(os.path.join(target, ".system.bak")):
+            fail(f"install no backup {phase}", "fabricated a backup")
+        else:
+            ok(f"install no backup {phase} has no backup")
+
+
+def test_install_backup_corruption(key_der):
+    staged = build_stage("install-corrupt-backup-stage")
+    target = make_target("install-corrupt-backup")
+    proc = run(install_args(staged, target),
+               env={"NEXTUPD_TEST_CRASH_PHASE": "installing"})
+    if proc.returncode != 70:
+        fail("install backup corruption setup", "expected exit 70", proc)
+        return
+    backup_version = os.path.join(target, ".system.bak", "version.txt")
+    with open(backup_version, "w", encoding="ascii") as handle:
+        handle.write("v0.0.0\n")
+    before = tree_manifest(target)
+    expect("recover refuses corrupt backup", run(recover_args(target)), 13,
+           "backup_corrupt")
+    expect_unchanged("corrupt backup recovery writes nothing", target, before)
+    with open(backup_version, "w", encoding="ascii") as handle:
+        handle.write("v6.15.0\n")
+    expect("recover after backup repair", run(recover_args(target)), 0)
+    assert_live_system("recover after backup repair", target, "v6.15.0", OLD_ELF)
+
+    target = make_target("install-corrupt-committed-backup")
+    expect("install committed backup setup", run(install_args(staged, target)), 0)
+    backup_version = os.path.join(target, ".system.bak", "version.txt")
+    with open(backup_version, "w", encoding="ascii") as handle:
+        handle.write("v0.0.0\n")
+    before = tree_manifest(target)
+    expect("rollback refuses corrupt backup", run(recover_args(target, rollback=True)),
+           13, "backup_corrupt")
+    expect_unchanged("corrupt backup rollback writes nothing", target, before)
+    assert_live_system("corrupt backup rollback keeps live", target, "v6.16.0", NEW_ELF)
+
+
+def test_install_rollback_crash(key_der):
+    staged = build_stage("install-rollback-crash-stage")
+    for phase in ("rolling_back", "rollback_moved"):
+        target = make_target(f"install-rollback-crash-{phase}")
+        expect(f"install before rollback crash {phase}", run(install_args(staged, target)), 0)
+        proc = run(recover_args(target, rollback=True),
+                   env={"NEXTUPD_TEST_CRASH_PHASE": phase})
+        if proc.returncode != 70:
+            fail(f"rollback crash {phase}", "expected exit 70", proc)
+            continue
+        proc = run(recover_args(target))
+        value = expect_json(f"rollback crash recover {phase}", proc)
+        if value is None:
+            continue
+        assert_live_system(f"rollback crash {phase} coherent", target, "v6.15.0", OLD_ELF)
+        if read_txn(target).get("state") != "rolled_back":
+            fail(f"rollback crash {phase} state", "not rolled back")
+        elif os.path.exists(os.path.join(target, ".nextupd-txn", "failed")):
+            fail(f"rollback crash {phase}", "failed tree was left behind")
+        else:
+            ok(f"rollback crash {phase} cleaned up")
+
+
+def test_install_missing_marker_refuses(key_der):
+    staged = build_stage("install-marker-stage")
+    target = make_target("install-marker")
+    proc = run(install_args(staged, target),
+               env={"NEXTUPD_TEST_CRASH_PHASE": "installed_live"})
+    if proc.returncode != 70:
+        fail("install marker setup", "expected exit 70", proc)
+        return
+    marker = os.path.join(target, ".system", ".nextupd-install-txn")
+    if not os.path.exists(marker):
+        fail("install marker setup", "marker is missing")
+        return
+    os.unlink(marker)
+    before = tree_manifest(target)
+    expect("recover refuses ambiguous live tree", run(recover_args(target)), 13,
+           "state_ambiguous")
+    expect_unchanged("ambiguous recovery writes nothing", target, before)
+
+
+def test_install_restored_live_without_state(key_der):
+    staged = build_stage("install-restored-live-stage")
+    target = make_target("install-restored-live")
+    proc = run(install_args(staged, target),
+               env={"NEXTUPD_TEST_CRASH_PHASE": "installing"})
+    if proc.returncode != 70:
+        fail("install restored live setup", "expected exit 70", proc)
+        return
+    os.rename(os.path.join(target, ".system.bak"), os.path.join(target, ".system"))
+    proc = run(recover_args(target))
+    value = expect_json("recover restored live", proc)
+    if value and value.get("outcome") != "recovered_rollback":
+        fail("recover restored live", f"unexpected result: {value}", proc)
+    else:
+        ok("recover restored live rolls back")
+    assert_live_system("recover restored live coherent", target, "v6.15.0", OLD_ELF)
+    if read_txn(target).get("state") != "rolled_back":
+        fail("recover restored live state", "not rolled back")
+    else:
+        ok("recover restored live state")
+
+
+def test_install_missing_live_before_backup_refuses(key_der):
+    staged = build_stage("install-missing-live-stage")
+    target = make_target("install-missing-live")
+    proc = run(install_args(staged, target),
+               env={"NEXTUPD_TEST_CRASH_PHASE": "prepared"})
+    if proc.returncode != 70:
+        fail("install missing live setup", "expected exit 70", proc)
+        return
+    shutil.rmtree(os.path.join(target, ".system"))
+    before = tree_manifest(target)
+    expect("recover refuses missing live before backup", run(recover_args(target)), 13,
+           "state_ambiguous")
+    expect_unchanged("missing live recovery writes nothing", target, before)
+
+
+def test_install_corrupt_transaction_record(key_der):
+    staged = build_stage("install-corrupt-txn-stage")
+    target = make_target("install-corrupt-txn")
+    proc = run(install_args(staged, target),
+               env={"NEXTUPD_TEST_CRASH_PHASE": "prepared"})
+    if proc.returncode != 70:
+        fail("install corrupt txn setup", "expected exit 70", proc)
+        return
+    with open(os.path.join(target, ".nextupd-txn", "txn.json"), "w",
+              encoding="ascii") as handle:
+        handle.write('{"schema":"nextui-install-txn-v1","state":"prepared"}\n')
+    before = tree_manifest(target)
+    expect("recover refuses corrupt transaction", run(recover_args(target)), 13,
+           "transaction_corrupt")
+    expect_unchanged("corrupt transaction recovery writes nothing", target, before)
+
+
+def test_install_backup_retention(key_der):
+    staged = build_stage("install-retention-stage")
+    target = make_target("install-retention", previous="v6.10.0")
+    expect("install over older backup", run(install_args(staged, target)), 0)
+    assert_live_system("install retention live", target, "v6.16.0", NEW_ELF)
+    if read_tree_version(os.path.join(target, ".system.bak")) != "v6.15.0":
+        fail("install retention", "backup is not the immediately previous system")
+    elif os.path.exists(os.path.join(target, ".nextupd-txn", "previous.bak")):
+        fail("install retention", "older backup was not removed")
+    else:
+        ok("install retention keeps one previous system")
+
+    newer = build_stage("install-retention-newer", version="v6.17.0",
+                        stage_system="v6.16.0")
+    expect("install newer package", run(install_args(newer, target, system="v6.16.0")), 0)
+    assert_live_system("install newer live", target, "v6.17.0", NEW_ELF)
+    if read_tree_version(os.path.join(target, ".system.bak")) != "v6.16.0":
+        fail("install newer backup", "backup is not the immediately previous system")
+    else:
+        ok("install newer replaces the single backup")
+
+
 def main():
-    global WORK
+    global WORK, DER_KEY
     os.makedirs(WORK, exist_ok=True)
     seed = open(SEED_HEX, "r", encoding="ascii").read().strip()
     key_der, public_key = make_key(seed, os.path.join(WORK, "fixture-key"))
+    DER_KEY = key_der
     if open(public_key, "rb").read() != open(FIXTURE_PUB, "rb").read():
         print("FAIL fixture public key does not match committed seed")
         return 1
@@ -605,6 +1191,19 @@ def main():
     test_stage_failures(key_der)
     test_sign_helper(key_der)
     test_stage_signature_failure()
+    test_install_success_and_repeat(key_der)
+    test_install_rollback_and_reinstall(key_der)
+    test_install_refusals(key_der)
+    test_install_verification_is_zero_write(key_der)
+    test_install_crash_points(key_der)
+    test_install_crash_without_previous_backup(key_der)
+    test_install_backup_corruption(key_der)
+    test_install_rollback_crash(key_der)
+    test_install_missing_marker_refuses(key_der)
+    test_install_restored_live_without_state(key_der)
+    test_install_missing_live_before_backup_refuses(key_der)
+    test_install_corrupt_transaction_record(key_der)
+    test_install_backup_retention(key_der)
 
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
