@@ -1809,7 +1809,16 @@ as they happen; nothing is reported as passing without a run.
   confirmed ancestors of it (`git merge-base --is-ancestor`), so every update
   did reach PR #31; no other pull request was created or closed over the stale
   reading. The branch is normally merged with current `origin/main` so it does
-  not drift.
+  not drift. Re-verified after the PR #37 and PR #38 merges: the branch and PR
+  #31 head are both at `b59c310` (this round's content commit `84c80ec` plus
+  the normal merge of `origin/main` `4c5398f`), OPEN and MERGEABLE per gh
+  (UNSTABLE only because the required checks on the new head are still
+  running). The merge of
+  `4c5398f` produced one conflict in this file: main's copy still carried the
+  old "F4 — Pak Store single-sourcing" entry, which PR #38's commit `052a72b`
+  had updated, while this schedule had already replaced it with the
+  owner-confirmed F4 removal entry; the resolution keeps this schedule's
+  replacement and records the supersession in the F4 section.
 - The current update travels on the branch `docs/schedule-update-11` (earlier
   schedule branches merged as `3ae1ddf`,
   `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
