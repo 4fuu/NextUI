@@ -6,7 +6,7 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `e2ca971` (merge of PR #26, the settings Assignments i18n; fetched
+  rule): `dc4bef0` (merge of PR #24, the U7 boot payload sync; fetched
   2026-11-16). Docs-only main heads do not move this baseline; the last
   docs-only tip was `07bdf4c` (merge of PR #25). Landing points on
   main, oldest first: PR #5
@@ -22,8 +22,9 @@ history; its top section mirrors the current schedule in this file.
   (schedule file, `3380fe4`), PR #20 (settings About/hints i18n, `6a98573`),
   PR #17 (U4 update feed, `4699226`), PR #21 (schedule file, `c9230cf`), PR #22
   (schedule file, `6594dce`), PR #23 (settings Network/Bluetooth i18n,
-  `5698908`), and PR #26 (settings Assignments i18n, `e2ca971`); `de69781` is
-  an ancestor of all of them. Later updates branch from `origin/main`.
+  `5698908`), PR #26 (settings Assignments i18n, `e2ca971`), and PR #24 (U7
+  boot payload sync, `dc4bef0`); `de69781` is an ancestor of all of them.
+  Later updates branch from `origin/main`.
 - Maintenance rule (2026-11-16, owner 4fuu): this schedule's baseline is the
   real functional code version; the file is committed only when a feature, fix,
   requirement, acceptance, or owner dependency actually changes. A docs-only
@@ -99,16 +100,15 @@ Rules:
   the built-in emulator removal (PR #13, `1d9aea2`); the settings
   About/hints i18n slice (PR #20, `6a98573`); the settings Network/Bluetooth
   i18n slice (PR #23, `5698908`); the settings Assignments i18n slice (PR #26,
-  `e2ca971`); and the U4 update feed block
-  (PR #17, `4699226`).
-- Host-done, unpushed: none. Open at the last check: PR #24 (U7 `.tmp_update`
-  payload sync, head `95b601a`, CI green on that head per gh with the source
-  reporting six checks, fix for the blocking defect pushed, incremental review
-  in progress, not merged),
-  PR #27 (U8 transactional update package build, head `38b8cdc`, CI green on
-  that head per gh with the source reporting six of six, independent review
-  FAIL, open), and this schedule file's own update
-  (PR #28). PR #23 (I4 settings Network/Bluetooth translation, head
+  `e2ca971`); the U7 boot payload sync (PR #24, `dc4bef0`); and the U4 update
+  feed block (PR #17, `4699226`).
+- Host-done, unpushed: none. Open at the last check: PR #27 (U8 transactional
+  update package build, head `38b8cdc`, CI green on that head per gh with the
+  source reporting six of six, independent review FAIL, open) and this schedule
+  file's own update (PR #28). PR #24 (U7 boot payload sync, final head
+  `95b601a`) merged into main as
+  `dc4bef086f651b3369618b80218da004a8b9e71f` after review PASS (114 ok / 0
+  failed). PR #23 (I4 settings Network/Bluetooth translation, head
   `bd2a40c`) merged into main as
   `5698908b44e8a0b09275440d5ff8bb7483e12239`; PR #26 (I4 settings Assignments
   translation, head `531d13e`) merged into main as
@@ -147,9 +147,11 @@ Rules:
   are green. Main landings `e2eba90` and `ec05440` had runs in progress at
   earlier checks; `1d9aea2` has full-platform CI success (run 43829493761, no
   core matrix), and the current code state on main, `4699226`, has full-platform
-  CI success (Feature checks, Development/Desktop, CI). The current main tip
-  `e2ca971` (merge of PR #26) also has full-platform CI success (Feature
-  checks, Development/Desktop, CI all success per gh). The docs-only landings
+  CI success (Feature checks, Development/Desktop, CI). Main landings `e2ca971`
+  and the current tip `dc4bef0` (merge of PR #24) show: `e2ca971` has
+  full-platform CI success (Feature checks, Development/Desktop, CI all success
+  per gh); `dc4bef0` had runs in progress at the last check and is not recorded
+  as passing. The docs-only landings
   `c9230cf` and `6594dce` do not move the schedule baseline and their CI state
   is not tracked here.
   PR #13 (built-in emulator removal, head `e1275e4`) merged into main as
@@ -633,39 +635,41 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
   (dispatched 2026-11-16 after PR #17 merged; the next open gap in the update
   chain).
-- Status: fix pushed for the blocking review defect; incremental review in
-  progress; not merged. PR #24
-  (https://github.com/4fuu/NextUI/pull/24, branch `feature/boot-payload-sync`),
-  head `95b601a5749ac89eb62274c88c2956e40b09440c` (advanced from
-  `beae0cf902ddcf09193ea00a8d3751c0e1fa224f`, itself from `27c9547` and
-  `e339d61`; each older head's result is superseded and is not recorded for
-  this head), base `origin/main` `4699226`; OPEN and mergeable per gh. CI on
-  `95b601a`: gh shows Feature checks (push and pull_request) and
-  Development/Desktop success; the source reports six checks green. The
-  independent review
-  (https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0) is
-  running the affected cases on this SHA, and the merge owner T-01a1e2e1 gates
-  on review plus CI.
-- The fix for the blocking defect: a terminal `committed`/`rolled_back`
-  `txn.json` plus a non-binding boot journal from a later attempt is now
-  treated as an orphan — the boot payload rolls back and the terminal
-  `.system` is left untouched. Non-terminal foreign journals and
+- Status: review PASS on the fix head; merged into main; not device-validated.
+  PR #24 (https://github.com/4fuu/NextUI/pull/24, branch
+  `feature/boot-payload-sync`), final head
+  `95b601a5749ac89eb62274c88c2956e40b09440c` (advanced from `beae0cf`, itself
+  from `27c9547` and `e339d61`; each older head's result is superseded and is
+  not recorded for this head), branch point `origin/main` `4699226`; merged as
+  `dc4bef086f651b3369618b80218da004a8b9e71f`. CI on `95b601a` was six of six
+  green (gh shows Feature checks push and pull_request and
+  Development/Desktop success). The independent review
+  (https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0) passed
+  with 114 ok / 0 failed: the terminal-record orphan-journal blocker is
+  resolved, fail-closed cases are preserved, and the full regression subset is
+  ok. The merge owner merged after review plus CI; real-device boot and
+  power-cut acceptance remain with V1.
+- Evidence on `95b601a`: nextupd 355 passed/0 failed (177 updater + 55 feed +
+  67 boot-sync + 56 boot recovery), `make -C tests test` pass, desktop build
+  pass.
+- Prior blocking finding (resolved on the merged head): with a terminal
+  committed transaction already present, a new update interrupted between
+  writing the boot journal and overwriting `txn.json` left the journal judged
+  foreign, the gate power-cycled in a loop, and `recover`/`rollback`/re-run
+  `install` all returned rc13 `boot_transaction_mismatch`. The fix treats a
+  terminal `committed`/`rolled_back` `txn.json` plus a non-binding boot journal
+  from a later attempt as an orphan: the boot payload rolls back and the
+  terminal `.system` is left untouched. Non-terminal foreign journals and
   unknown/corrupt schemas still fail closed, and normal installed-crash
   recovery still commits. New regression: a committed baseline plus a crash at
   each of the seven boot-publish points; the gate returns rc=0, normal
   `recover` leaves `.system` unchanged with no journal, and the same install
   succeeds; plus `--rollback`, foreign mid-transaction, and unknown terminal
   schema cases.
-- Evidence on `95b601a`: nextupd 355 passed/0 failed (177 updater + 55 feed +
-  67 boot-sync + 56 boot recovery), `make -C tests test` pass, desktop build
-  pass.
-- Prior blocking finding (addressed by this fix, not yet verified by review):
-  with a terminal committed transaction already present, a new update
-  interrupted between writing the boot journal and overwriting `txn.json` left
-  the journal judged foreign, the gate power-cycled in a loop, and
-  `recover`/`rollback`/re-run `install` all returned rc13
-  `boot_transaction_mismatch`. Do not record this as fixed or delivered until
-  the incremental review passes.
+- Docs wording note (non-blocking): `UPDATES.md` still says "two boot scripts"
+  although `nextupd-recover.sh` is sourced; the PR body is precise and the
+  wording correction rides this schedule's open docs PR #28, not the frozen
+  head.
 - Delivered: signed-package-driven `.system` plus optional `.tmp_update` sync,
   the independent recovery tool published first, `.tmp_update.bak` rollback, a
   separate v1-compatible boot journal, legacy system-only packages untouched,
@@ -772,9 +776,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   into a release.
 - Not delivered: production release source, feed configuration, production
   signing key, any device install or release publication.
-- Next: organization review plus CI and merge of PR #27; the `UPDATES.md`
-  cross-reference is left to the updater thread to avoid a conflict with its
-  in-flight edit.
+- Next: the packaging source fixes B1-B3 (layout, default system-only, output
+  cleanup, device-shape tests) and pushes a new head; organization review plus
+  CI then the merge owner decides. The `UPDATES.md` cross-reference is left to
+  the updater thread to avoid a conflict with its in-flight edit.
 
 ### I9 — Settings abnormal-data fault tolerance
 - Owner thread: https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
