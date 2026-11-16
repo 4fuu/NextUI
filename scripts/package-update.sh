@@ -33,10 +33,12 @@
 # The archive, manifest and signature are ONE artifact set. The script builds
 # and self-checks the whole set in a staging directory inside --out-dir, then
 # publishes it with same-filesystem renames and writes the commit marker last.
-# A failed, interrupted (even SIGKILLed) or repeated run therefore never leaves
-# a partial or mixed set, and never damages the previous complete output: the
-# marker present with every listed file matching its hash is what marks a set
-# complete.
+# A failed or repeated run never damages the previous complete output. An
+# interrupted run (even SIGKILL) can leave a transient mixed set, but only one
+# the commit marker flags as incomplete: it never passes as a complete package,
+# because nextupd check rejects any manifest/archive hash mismatch, and the next
+# run republishes a complete set. The marker present with every listed file
+# matching its hash is what marks a set complete.
 #
 # The manifest records the archive's final basename, so renaming the archive
 # afterwards requires regenerating and re-signing the manifest.
