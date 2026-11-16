@@ -180,6 +180,7 @@ static const I18nEntry zhTable[] = {
     {"Action for this button; pak actions open from the menu.", "此按键的功能；选择 pak 后可从菜单中打开。"},
     {" (missing)", "（缺失）"},
 
+    {"Pair", "配对"},
     {"Pair this device.", "配对此设备。"},
     {"Pairing...", "正在配对..."},
     {"Forget this device.", "忘记此设备。"},
