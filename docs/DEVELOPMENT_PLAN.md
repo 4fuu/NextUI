@@ -1306,24 +1306,32 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e4aa-91b9-766e-bc8d-71ea9189e7d4
   (Step Medium; dispatched 2026-11-16; first head delivered 2026-11-16 14:57
   as PR #37, open and not merged).
-- Status: first head delivered and open; awaiting independent review, so this
-  is source-delivered, not acceptance-complete. PR #37
+- Status: first head delivered and open; source-verified, awaiting the merge
+  owner's independent verification, so this is not acceptance-complete. PR #37
   (https://github.com/4fuu/NextUI/pull/37, branch `app-install-transaction`),
   head `00217d546b4194b79d91eaf9aac86d7e0ff66ba5` (supersedes
-  `117bc578663cdff3a7ed2dc4807079f0b10473a1`, whose CI was green per gh), OPEN
-  per gh; CI at the new head is in progress at the last check, so nothing is
-  recorded as passing on it. It adds an independent `update_app.{h,c}` pair
+  `117bc578663cdff3a7ed2dc4807079f0b10473a1`, whose CI was green per gh), OPEN,
+  MERGEABLE and CLEAN per gh; CI at this head is green per gh (Feature checks
+  push and pull_request, Development/Desktop), and the source reports 430
+  passed / 0 failed with the app suite at 74 and ASan/UBSan the same. It adds
+  an independent `update_app.{h,c}` pair
   with zero changes to the system `update_transaction.c`/`.h`, signed local
-  app install and update, and independent transaction recovery; the source
-  reports 418 cases plus ASan/UBSan passing. Not merged; the independent
-  review result is not reported.
-- Review assumption flagged (to the source and the merge owner, 2026-11-16):
-  whether the final-state system `.nextupd-txn` record masks the app recover.
-  This is an untested assumption, not a confirmed defect, and it is recorded as
-  a review item rather than a finding.
-- Remaining gap kept open: the source provides the on-disk directory shape
-  only; there is no real launcher discovery or launch evidence yet, so that
-  acceptance item is not closed.
+  app install and update, and independent transaction recovery. Not merged; the
+  independent review result is not reported.
+- Coexistence verified by the source (real nextupd A/B runs plus regression;
+  awaiting the merge owner's independent verification, and not recorded as a
+  defect): a terminal-state system `.nextupd-txn` record does not block the app
+  recover in the same run; a non-terminal system record recovers first and the
+  second recover handles the app; and `.system` is not rewritten by the app
+  recovery.
+- Evidence boundary (recorded so the verification is not overstated): what the
+  source added is a verbatim copy of the production algorithm as an independent
+  C scanner plus install-output positive and negative controls -- not a real
+  launcher binary and not a shared production-function integration test. Host
+  algorithm and layout are therefore verified; real launcher launch and
+  rendering, and real-device behavior, remain unverified.
+- Remaining gap kept open: there is no real launcher discovery or launch
+  evidence yet, so that acceptance item is not closed.
 - Status before this delivery (audited and split into three layers; the install
   layer was not delivered). (1) The stage/verify layer for app packages IS delivered and
   host-verified: manifest plus Ed25519 signature plus per-file SHA-256, ZIP
