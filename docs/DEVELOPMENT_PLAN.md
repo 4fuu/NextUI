@@ -6,9 +6,10 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `d25543b` (merge of PR #30, the About page Unknown zh entry; that
-  merge also carries PR #27 the transactional update package build and, below
-  it, PR #29 the I9 settings abnormal-data fixes; fetched 2026-11-16).
+  rule): `a6f507f` (merge of PR #34, the Off/On labels slice and the in-repo
+  i18n fixture value test; below it PR #30 the About page Unknown zh entry,
+  which also carries PR #27 the transactional update package build and PR #29
+  the I9 settings abnormal-data fixes; fetched 2026-11-16).
   Docs-only main heads do not move this baseline; the last
   docs-only tip was `8e4f744` (merge of PR #28). Landing points on
   main, oldest first: PR #5
@@ -106,7 +107,8 @@ Rules:
   `e2ca971`); the U7 boot payload sync (PR #24, `dc4bef0`); the I9 settings
   abnormal-data fixes (PR #29, `5de96d2`); the transactional update package
   build (PR #27, `0239203`); the About page Unknown zh entry (PR #30,
-  `d25543b`); this schedule file (PR #28,
+  `d25543b`); the Off/On labels slice with the in-repo i18n fixture value
+  test (PR #34, `a6f507f`); this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #32 (U9 system update
@@ -134,12 +136,7 @@ Rules:
   `a6cb5c228975fb35659d6e66b7204b736cd7e2d9` (supersedes
   `2528d0e23aff90e2348cb272a8efb45a3843904a`; the change content is not yet
   reported by the source), cut fresh from `origin/main`
-  `d25543b`, OPEN, MERGEABLE per gh with mergeStateStatus UNSTABLE; CI at the
-  new head is in progress at the last check (Feature checks push and
-  pull_request and Development/Desktop all in progress), so nothing is
-  recorded as passing on it. CI at `2528d0e` was green per gh (Feature checks
-  push and pull_request, Development/Desktop); the pull request is not
-  merged. Merged
+  `d25543b`. Merged
   since the last check: PR #27 (U8 transactional update package build, final
   head `c6b5e6f`) merged into main as
   `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh)
@@ -323,15 +320,26 @@ Rules:
   device result.
 - Fifth slice (Off/On labels), open and not merged: PR #34
   (https://github.com/4fuu/NextUI/pull/34, branch `i18n/on-off-labels`), head
-  `a6cb5c228975fb35659d6e66b7204b736cd7e2d9` (supersedes
-  `2528d0e23aff90e2348cb272a8efb45a3843904a`; the head moved and the change
-  content is not yet reported by the source), cut fresh from `origin/main`
-  `d25543b` (`2528d0e` was two commits, no force and no amend: `ee17fe0` the
-  Off/On fix, `2528d0e` the multiset fixture test), OPEN and MERGEABLE per gh
-  with mergeStateStatus UNSTABLE; CI at the new head is in progress at the
-  last check, so nothing is recorded as passing on it, while CI at `2528d0e`
-  was green per gh (Feature checks push and pull_request, Development/Desktop)
-  and the source reported all six checks pass there. `i18n.c`
+  `a6cb5c228975fb35659d6e66b7204b736cd7e2d9` (three commits, no force and no
+  amend: `ee17fe0` the Off/On fix, `2528d0e` the multiset fixture test, and
+  `a6cb5c2` a self-guard for that test against an empty table or fixture),
+  cut fresh from `origin/main` `d25543b`, merged into main as
+  `a6f507f04917e0da4c9862bdcba918fe62e37811` (2026-11-16T12:42:20Z per gh).
+  CI at the merged head was green per gh (Feature checks push and
+  pull_request, Development/Desktop) and the source reported all six checks
+  pass; on the merge commit `a6f507f` Feature checks and Development/Desktop
+  are success per gh while the full CI run is in progress at the last check
+  (not recorded as passing). The source verified the merged state rather than
+  assuming it: `origin/main` is at `a6f507f`, the merged content is present
+  (the two fixture-test files in `workspace/all/common/tests/`,
+  `test-i18n-fixture` at line 39 of `tests/makefile`, 25 `on_off_tr`
+  references in `settings.cpp` -- one declaration plus 24 rows -- and
+  `{"Unknown", "未知"}` at line 129 of `i18n.c`), and the three i18n targets
+  rerun on merged main all pass. The I4 line is now idle: it opens nothing
+  further until the merge owner sends either the PR #32 key alignment or a new
+  gap to close, and for PR #32 it will add only the exact literals the UI
+  source uses, as an append-only hunk that cannot collide with the page
+  strings that thread owns. `i18n.c`
   already carried the `Off`/`On` entries and the Appearance page already used
   the translated copy, but every other Off/On row still passed the static
   `on_off` vector, which is a file-scope `static const` initialised before the
@@ -1244,8 +1252,8 @@ as they happen; nothing is reported as passing without a run.
   a pull request into `main`; the CI/merge owner merges after checks pass. This
   thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because real tasks changed (the I4 fifth slice opened as PR #34 with the
-  in-repo i18n fixture value test, PR #27 and PR #30 merged into main with
+  because real tasks changed (the I4 fifth slice merged as PR #34 at
+  `a6f507f` with the in-repo i18n fixture value test, PR #27 and PR #30 merged into main with
   green post-merge runs, the U9 system update install UI advanced to PR #32
   head `7b27adf2` after two review-blocking fixes, and the package
   content CI job opened as PR #33), not because a docs head moved. The previous
@@ -1257,4 +1265,4 @@ as they happen; nothing is reported as passing without a run.
   `8e4f744`). Its pull request is PR #31; while that pull request stays open,
   later real changes fold into it instead of opening another one, which is why
   the PR #32, PR #33, PR #34, and merge facts ride the same branch. The
-  schedule baseline moved to `d25543b` with those merges.
+  schedule baseline moved to `a6f507f` with the PR #34 merge.
