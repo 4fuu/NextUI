@@ -2,6 +2,8 @@
 #define _FILE_OFFSET_BITS 64
 
 #include "update_manifest.h"
+#include "update_download.h"
+#include "update_feed.h"
 #include "update_signature.h"
 #include "update_transaction.h"
 #include "update_zip.h"
@@ -35,6 +37,9 @@ typedef struct
     const char* out;
     const char* staged_dir;
     const char* target_root;
+    const char* feed;
+    int timeout_seconds;
+    int quiet;
     int integrity_only;
     int replace;
     int rollback;
@@ -54,6 +59,8 @@ static void usage(FILE* out)
             "usage: nextupd <command> [options]\n"
             "\n"
             "  check     verify a package against a signed manifest; write nothing\n"
+            "  feed      check a configured update feed; write nothing\n"
+            "  fetch     check a feed, download, verify, and stage a system update\n"
             "  stage     verify and publish a package into a staging directory\n"
             "  install   apply a staged system package to an explicit target root\n"
             "  recover   resolve an interrupted install in an explicit target root\n"
@@ -63,6 +70,15 @@ static void usage(FILE* out)
             "  --package <file> --manifest <file> --platform <platform>\n"
             "  [--signature <file> --trusted-key <file>] [--integrity-only]\n"
             "  [--system-version <vX.Y.Z>] [--json]\n"
+            "\n"
+            "feed:\n"
+            "  [--feed <file|url>] --platform <platform> --system-version <vX.Y.Z>\n"
+            "  --trusted-key <file> [--timeout <seconds>] [--json]\n"
+            "\n"
+            "fetch:\n"
+            "  [--feed <file|url>] --platform <platform> --system-version <vX.Y.Z>\n"
+            "  --trusted-key <file> --staging-root <dir> [--timeout <seconds>]\n"
+            "  [--replace] [--json]\n"
             "\n"
             "stage:\n"
             "  --package <file> --manifest <file> --signature <file>\n"
@@ -81,10 +97,13 @@ static void usage(FILE* out)
             "  --platform <platform> [--min-system <vX.Y.Z>] [--out <file>]\n"
             "\n"
             "check without --integrity-only fails when no signature and trusted key are\n"
-            "provided. stage always requires both. SHA-256 detects damage; it does not\n"
-            "establish who produced a manifest. install writes only inside an explicit\n"
-            "--target-root that already contains .system; there is no default root and no\n"
-            "boot or launch activation. recover is the offline arbitration entry point.\n");
+            "provided. stage and fetch always require both. SHA-256 detects damage; it\n"
+            "does not establish who produced a manifest. install writes only inside an\n"
+            "explicit --target-root that already contains .system; there is no default root\n"
+            "and no boot or launch activation. recover is the offline arbitration entry\n"
+            "point. feed and fetch have no built-in release source; without --feed or\n"
+            "NEXTUI_UPDATE_FEED they report feed_unconfigured. fetch stages only and never\n"
+            "installs.\n");
 }
 
 static const char* path_basename(const char* path)
@@ -731,6 +750,67 @@ static int storage_free_bytes(const char* root, uint64_t* free_bytes, UpdError* 
     return 1;
 }
 
+static int stage_dir_for(const char* root, const UpdManifest* manifest, char* out,
+                         size_t out_size, UpdError* error)
+{
+    char base[256];
+    int length;
+
+    length = snprintf(base, sizeof base, "%s-%s-%s", manifest->id, manifest->version,
+                      manifest->platform);
+    if (length < 0 || (size_t)length >= sizeof base)
+    {
+        upd_error_set(error, UPD_E_USAGE, "path_too_long", "package name is too long");
+        return 0;
+    }
+    length = snprintf(out, out_size, "%s/%s", root, base);
+    if (length < 0 || (size_t)length >= out_size)
+    {
+        upd_error_set(error, UPD_E_USAGE, "path_too_long", "staging directory is too long");
+        return 0;
+    }
+    return 1;
+}
+
+static int make_temp_dir(const char* base, const char* prefix, char* out, size_t out_size,
+                         UpdError* error)
+{
+    int length = snprintf(out, out_size, "%s/%sXXXXXX", base, prefix);
+
+    if (length < 0 || (size_t)length >= out_size)
+    {
+        upd_error_set(error, UPD_E_USAGE, "path_too_long", "temporary path is too long");
+        return 0;
+    }
+    if (mkdtemp(out) == NULL)
+    {
+        if (errno == ENOSPC)
+            upd_error_set(error, UPD_E_SPACE, "insufficient_space",
+                          "cannot create temporary directory: no space left");
+        else
+            upd_error_set(error, UPD_E_IO, "io_error",
+                          "cannot create temporary directory: %s", strerror(errno));
+        return 0;
+    }
+    return 1;
+}
+
+static void cleanup_temp_dir(const char* directory, const char* archive_name)
+{
+    char path[4096];
+
+    if (directory == NULL || directory[0] == '\0') return;
+    if (snprintf(path, sizeof path, "%s/manifest.json", directory) < (int)sizeof path)
+        unlink(path);
+    if (snprintf(path, sizeof path, "%s/manifest.sig", directory) < (int)sizeof path)
+        unlink(path);
+    if (archive_name != NULL && archive_name[0] != '\0'
+        && snprintf(path, sizeof path, "%s/%s", directory, archive_name)
+               < (int)sizeof path)
+        unlink(path);
+    rmdir(directory);
+}
+
 static void cleanup_stage(const char* stage_dir, const char* zip_path,
                           const char* manifest_path, const char* signature_path,
                           const char* marker_path)
@@ -759,7 +839,6 @@ static int run_stage(const Options* options)
     UpdError error;
     char root[4096];
     char lock_path[4096];
-    char base[256];
     char stage_dir[4096];
     char zip_path[4096];
     char manifest_path[4096];
@@ -846,18 +925,8 @@ static int run_stage(const Options* options)
         return result;
     }
 
-    if (snprintf(base, sizeof base, "%s-%s-%s", verified.manifest.id,
-                 verified.manifest.version, verified.manifest.platform)
-        >= (int)sizeof base)
+    if (!stage_dir_for(root, &verified.manifest, stage_dir, sizeof stage_dir, &error))
     {
-        upd_error_set(&error, UPD_E_USAGE, "path_too_long", "package name is too long");
-        result = report_error(&error, options->json);
-        goto done;
-    }
-    if (snprintf(stage_dir, sizeof stage_dir, "%s/%s", root, base)
-        >= (int)sizeof stage_dir)
-    {
-        upd_error_set(&error, UPD_E_USAGE, "path_too_long", "staging directory is too long");
         result = report_error(&error, options->json);
         goto done;
     }
@@ -1046,33 +1115,37 @@ static int run_stage(const Options* options)
     }
     if (!upd_fsync_dir(root))
         fprintf(stderr, "nextupd: warning: could not sync staging directory\n");
-    if (options->json)
+    if (!options->quiet)
     {
-        fputs("{\"ok\":true,\"result\":\"staged\",\"id\":", stdout);
-        print_json_string(verified.manifest.id);
-        fputs(",\"version\":", stdout);
-        print_json_string(verified.manifest.version);
-        fputs(",\"platform\":", stdout);
-        print_json_string(verified.manifest.platform);
-        fputs(",\"staging_root\":", stdout);
-        print_json_string(root);
-        fputs(",\"archive_path\":", stdout);
-        print_json_string(zip_path);
-        fputs(",\"manifest_path\":", stdout);
-        print_json_string(manifest_path);
-        fputs(",\"signature_path\":", stdout);
-        print_json_string(signature_path);
-        fputs(",\"marker_path\":", stdout);
-        print_json_string(marker_path);
-        fputs("}\n", stdout);
-    }
-    else
-    {
-        printf("staged %s %s at %s\n", verified.manifest.id, verified.manifest.version, root);
-        printf("archive: %s\n", zip_path);
-        printf("manifest: %s\n", manifest_path);
-        printf("signature: %s (key %s)\n", signature_path, verified.key_id);
-        printf("marker: %s\n", marker_path);
+        if (options->json)
+        {
+            fputs("{\"ok\":true,\"result\":\"staged\",\"id\":", stdout);
+            print_json_string(verified.manifest.id);
+            fputs(",\"version\":", stdout);
+            print_json_string(verified.manifest.version);
+            fputs(",\"platform\":", stdout);
+            print_json_string(verified.manifest.platform);
+            fputs(",\"staging_root\":", stdout);
+            print_json_string(root);
+            fputs(",\"archive_path\":", stdout);
+            print_json_string(zip_path);
+            fputs(",\"manifest_path\":", stdout);
+            print_json_string(manifest_path);
+            fputs(",\"signature_path\":", stdout);
+            print_json_string(signature_path);
+            fputs(",\"marker_path\":", stdout);
+            print_json_string(marker_path);
+            fputs("}\n", stdout);
+        }
+        else
+        {
+            printf("staged %s %s at %s\n", verified.manifest.id, verified.manifest.version,
+                   root);
+            printf("archive: %s\n", zip_path);
+            printf("manifest: %s\n", manifest_path);
+            printf("signature: %s (key %s)\n", signature_path, verified.key_id);
+            printf("marker: %s\n", marker_path);
+        }
     }
     result = 0;
     goto done;
@@ -1083,6 +1156,486 @@ done:
     free(signature_bytes);
     if (lock_fd >= 0) close(lock_fd);
     upd_manifest_free(&verified.manifest);
+    return result;
+}
+
+static int print_feed_up_to_date(const Options* options, const char* platform,
+                                 const char* system_version, const UpdFeedEntry* entry)
+{
+    if (options->json)
+    {
+        fputs("{\"ok\":true,\"result\":\"up_to_date\",\"platform\":", stdout);
+        print_json_string(platform);
+        fputs(",\"system_version\":", stdout);
+        print_json_string(system_version);
+        fputs(",\"latest_version\":", stdout);
+        print_json_string(entry != NULL ? entry->version : system_version);
+        fputs("}\n", stdout);
+    }
+    else
+    {
+        printf("up to date: %s is current (feed latest %s)\n", system_version,
+               entry != NULL ? entry->version : system_version);
+    }
+    return 0;
+}
+
+static int print_feed_available(const Options* options, const char* platform,
+                                const char* system_version, const UpdManifest* manifest,
+                                const char* key_id, const char* manifest_url,
+                                const char* signature_url, const char* archive_url)
+{
+    char archive_sha[UPD_SHA256_HEX];
+
+    upd_hex_encode(manifest->archive_sha256, UPD_SHA256_BYTES, archive_sha);
+    if (options->json)
+    {
+        fputs("{\"ok\":true,\"result\":\"update_available\",\"platform\":", stdout);
+        print_json_string(platform);
+        fputs(",\"system_version\":", stdout);
+        print_json_string(system_version);
+        fputs(",\"id\":", stdout);
+        print_json_string(manifest->id);
+        fputs(",\"version\":", stdout);
+        print_json_string(manifest->version);
+        fputs(",\"min_system\":", stdout);
+        print_json_string(manifest->min_system);
+        fputs(",\"archive\":", stdout);
+        print_json_string(manifest->archive_name);
+        fprintf(stdout, ",\"archive_size\":%llu,\"archive_sha256\":\"%s\"",
+                (unsigned long long)manifest->archive_size, archive_sha);
+        fputs(",\"manifest_url\":", stdout);
+        print_json_string(manifest_url);
+        fputs(",\"signature_url\":", stdout);
+        print_json_string(signature_url);
+        fputs(",\"archive_url\":", stdout);
+        print_json_string(archive_url);
+        fputs(",\"signature_verified\":true,\"signature_key_id\":", stdout);
+        print_json_string(key_id);
+        fputs("}\n", stdout);
+    }
+    else
+    {
+        printf("update available: %s %s (current %s)\n", manifest->id, manifest->version,
+               system_version);
+        printf("minimum system: %s\n", manifest->min_system);
+        printf("archive: %s (%llu bytes, sha256 %s)\n", manifest->archive_name,
+               (unsigned long long)manifest->archive_size, archive_sha);
+        printf("manifest: %s\n", manifest_url);
+        printf("signature: %s (key %s)\n", signature_url, key_id);
+        printf("package: %s\n", archive_url);
+    }
+    return 0;
+}
+
+static int print_fetch_staged(const Options* options, const UpdManifest* manifest,
+                              const char* key_id, const char* root, const char* stage_dir,
+                              const char* archive_path, const char* manifest_path,
+                              const char* signature_path, const char* marker_path,
+                              int reused)
+{
+    if (options->json)
+    {
+        fputs("{\"ok\":true,\"result\":", stdout);
+        print_json_string(reused ? "already_staged" : "staged");
+        fputs(",\"reused\":", stdout);
+        fputs(reused ? "true" : "false", stdout);
+        fputs(",\"id\":", stdout);
+        print_json_string(manifest->id);
+        fputs(",\"version\":", stdout);
+        print_json_string(manifest->version);
+        fputs(",\"platform\":", stdout);
+        print_json_string(manifest->platform);
+        fputs(",\"signature_key_id\":", stdout);
+        print_json_string(key_id);
+        fputs(",\"staging_root\":", stdout);
+        print_json_string(root);
+        fputs(",\"staged_dir\":", stdout);
+        print_json_string(stage_dir);
+        fputs(",\"archive_path\":", stdout);
+        print_json_string(archive_path);
+        fputs(",\"manifest_path\":", stdout);
+        print_json_string(manifest_path);
+        fputs(",\"signature_path\":", stdout);
+        print_json_string(signature_path);
+        fputs(",\"marker_path\":", stdout);
+        print_json_string(marker_path);
+        fputs("}\n", stdout);
+    }
+    else
+    {
+        printf("%s %s %s at %s\n", reused ? "already staged" : "staged", manifest->id,
+               manifest->version, stage_dir);
+        printf("archive: %s\n", archive_path);
+        printf("manifest: %s\n", manifest_path);
+        printf("signature: %s (key %s)\n", signature_path, key_id);
+        printf("marker: %s\n", marker_path);
+    }
+    return 0;
+}
+
+static int staged_manifest_matches_verified(const UpdManifest* manifest,
+                                            const UpdStaged* staged)
+{
+    Sha256Lite context;
+    unsigned char digest[UPD_SHA256_BYTES];
+
+    sha256_lite_init(&context);
+    sha256_lite_update(&context, manifest->raw, manifest->raw_length);
+    sha256_lite_final(&context, digest);
+    return memcmp(digest, staged->manifest_sha256, UPD_SHA256_BYTES) == 0;
+}
+
+static int resolve_feed_source(const Options* options, char* out, size_t out_size,
+                               UpdError* error)
+{
+    const char* feed = options->feed;
+
+    if (feed == NULL || feed[0] == '\0') feed = getenv("NEXTUI_UPDATE_FEED");
+    if (feed == NULL || feed[0] == '\0')
+    {
+        upd_error_set(error, UPD_E_UNCONFIGURED, "feed_unconfigured",
+                      "no update feed is configured; pass --feed or set "
+                      "NEXTUI_UPDATE_FEED (no release source is built in)");
+        return 0;
+    }
+    if (strlen(feed) >= out_size)
+    {
+        upd_error_set(error, UPD_E_USAGE, "path_too_long", "feed source is too long");
+        return 0;
+    }
+    snprintf(out, out_size, "%s", feed);
+    return 1;
+}
+
+static int run_feed(const Options* options, int fetch)
+{
+    UpdError error;
+    UpdFeed feed;
+    VerifiedPackage verified;
+    UpdStaged staged;
+    const UpdFeedEntry* entry = NULL;
+    const char* platform;
+    const char* system_version;
+    char feed_source[4096];
+    char feed_path[4096];
+    char temp_dir[4096];
+    char manifest_path[4096];
+    char signature_path[4096];
+    char archive_path[4096];
+    char manifest_url[UPD_MAX_URL + 1];
+    char signature_url[UPD_MAX_URL + 1];
+    char archive_url[UPD_MAX_URL + 1];
+    char root[4096];
+    char stage_dir[4096];
+    char staged_manifest[4096];
+    char staged_signature[4096];
+    char staged_archive[4096];
+    char marker_path[4096];
+    const char* temp_base;
+    const char* temp_prefix;
+    uint64_t signature_size = 0;
+    uint64_t required = 0;
+    uint64_t free_bytes = 0;
+    int timeout;
+    int comparison;
+    int feed_is_temporary = 0;
+    int temp_created = 0;
+    int result = 0;
+
+    upd_error_clear(&error);
+    upd_feed_init(&feed);
+    upd_manifest_init(&verified.manifest);
+    memset(&staged, 0, sizeof staged);
+
+    platform = resolved_platform(options);
+    system_version = resolved_system_version(options);
+    if (platform == NULL || platform[0] == '\0')
+    {
+        upd_error_set(&error, UPD_E_USAGE, "platform_missing",
+                      "--platform or PLATFORM is required");
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (system_version == NULL || system_version[0] == '\0')
+    {
+        upd_error_set(&error, UPD_E_USAGE, "system_version_missing",
+                      "--system-version or NEXTUI_SYSTEM_VERSION is required");
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (options->trusted_key == NULL || options->trusted_key[0] == '\0')
+    {
+        upd_error_set(&error, UPD_E_SIGNATURE, "trusted_key_missing",
+                      "feed and fetch require --trusted-key");
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (fetch && (options->staging_root == NULL || options->staging_root[0] == '\0'))
+    {
+        upd_error_set(&error, UPD_E_USAGE, "staging_root_missing",
+                      "fetch needs --staging-root; there is no default");
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    timeout = options->timeout_seconds > 0 ? options->timeout_seconds
+                                           : UPD_DEFAULT_TIMEOUT_SECONDS;
+    if (!resolve_feed_source(options, feed_source, sizeof feed_source, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (upd_url_is_remote(feed_source))
+    {
+        if (!upd_download_temporary(feed_source, UPD_MAX_FEED_BYTES, timeout, feed_path,
+                                    sizeof feed_path, &error))
+        {
+            result = report_error(&error, options->json);
+            goto done;
+        }
+        feed_is_temporary = 1;
+    }
+    else
+    {
+        if (strlen(feed_source) >= sizeof feed_path)
+        {
+            upd_error_set(&error, UPD_E_USAGE, "path_too_long", "feed path is too long");
+            result = report_error(&error, options->json);
+            goto done;
+        }
+        snprintf(feed_path, sizeof feed_path, "%s", feed_source);
+    }
+    if (!upd_feed_load(feed_path, &feed, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (!upd_feed_select(&feed, platform, system_version, &entry, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (!upd_semver_compare(entry->version, system_version, &comparison))
+    {
+        upd_error_set(&error, UPD_E_INVALID, "invalid_version",
+                      "feed version is not vX.Y.Z");
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (comparison <= 0)
+    {
+        result = print_feed_up_to_date(options, platform, system_version, entry);
+        goto done;
+    }
+    if (!upd_url_resolve(feed_source, entry->manifest_url, manifest_url,
+                         sizeof manifest_url, &error)
+        || !upd_url_resolve(feed_source, entry->signature_url, signature_url,
+                            sizeof signature_url, &error)
+        || !upd_url_resolve(feed_source, entry->archive_url, archive_url,
+                            sizeof archive_url, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+
+    if (fetch)
+    {
+        if (strlen(options->staging_root) >= sizeof root)
+        {
+            upd_error_set(&error, UPD_E_USAGE, "path_too_long", "staging root is too long");
+            result = report_error(&error, options->json);
+            goto done;
+        }
+        snprintf(root, sizeof root, "%s", options->staging_root);
+        if (!upd_mkdir_p(root, &error))
+        {
+            result = report_error(&error, options->json);
+            goto done;
+        }
+        temp_base = root;
+        temp_prefix = ".nextupd-incoming-";
+    }
+    else
+    {
+        temp_base = getenv("TMPDIR");
+        if (temp_base == NULL || temp_base[0] == '\0') temp_base = "/tmp";
+        temp_prefix = "nextupd-check-";
+    }
+    if (!make_temp_dir(temp_base, temp_prefix, temp_dir, sizeof temp_dir, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    temp_created = 1;
+    if (snprintf(manifest_path, sizeof manifest_path, "%s/manifest.json", temp_dir)
+            >= (int)sizeof manifest_path
+        || snprintf(signature_path, sizeof signature_path, "%s/manifest.sig", temp_dir)
+               >= (int)sizeof signature_path
+        || snprintf(archive_path, sizeof archive_path, "%s/%s", temp_dir,
+                    entry->archive_name)
+               >= (int)sizeof archive_path)
+    {
+        upd_error_set(&error, UPD_E_USAGE, "path_too_long", "temporary path is too long");
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (!upd_download_to_file(manifest_url, manifest_path, UPD_MAX_MANIFEST_BYTES, timeout,
+                              &error)
+        || !upd_download_to_file(signature_url, signature_path, UPD_MAX_SIGNATURE_BYTES,
+                                 timeout, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (!upd_manifest_load(manifest_path, &verified.manifest, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (!upd_signature_verify(verified.manifest.raw, verified.manifest.raw_length,
+                              signature_path, options->trusted_key, verified.key_id,
+                              sizeof verified.key_id, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    verified.signature_verified = 1;
+    if (!upd_feed_entry_matches_manifest(entry, &verified.manifest, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (!upd_manifest_check_min_system(&verified.manifest, system_version, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (!fetch)
+    {
+        result = print_feed_available(options, platform, system_version,
+                                      &verified.manifest, verified.key_id, manifest_url,
+                                      signature_url, archive_url);
+        goto done;
+    }
+
+    if (!stage_dir_for(root, &verified.manifest, stage_dir, sizeof stage_dir, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (snprintf(staged_manifest, sizeof staged_manifest, "%s/manifest.json", stage_dir)
+            >= (int)sizeof staged_manifest
+        || snprintf(staged_signature, sizeof staged_signature, "%s/manifest.sig", stage_dir)
+               >= (int)sizeof staged_signature
+        || snprintf(staged_archive, sizeof staged_archive, "%s/%s", stage_dir,
+                    verified.manifest.archive_name)
+               >= (int)sizeof staged_archive
+        || snprintf(marker_path, sizeof marker_path, "%s/staged.json", stage_dir)
+               >= (int)sizeof marker_path)
+    {
+        upd_error_set(&error, UPD_E_USAGE, "path_too_long", "staging path is too long");
+        result = report_error(&error, options->json);
+        goto done;
+    }
+
+    if (!options->replace && access(marker_path, F_OK) == 0)
+    {
+        if (upd_staged_load(stage_dir, &staged, &error)
+            && upd_staged_verify(stage_dir, &staged, &verified.manifest, verified.key_id,
+                                 &error)
+            && staged_manifest_matches_verified(&verified.manifest, &staged))
+        {
+            result = print_fetch_staged(options, &verified.manifest, verified.key_id, root,
+                                        stage_dir, staged_archive, staged_manifest,
+                                        staged_signature, marker_path, 1);
+            goto done;
+        }
+        /* A marker that does not verify is not reusable. Replace it rather than
+         * leaving a package that a later install could mistake for valid. */
+        upd_error_clear(&error);
+    }
+
+    if (!upd_file_size(signature_path, &signature_size, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (verified.manifest.archive_size > (UINT64_MAX - 64 * 1024) / 2
+        || verified.manifest.raw_length > UINT64_MAX - verified.manifest.archive_size * 2
+        || signature_size
+               > UINT64_MAX - verified.manifest.archive_size * 2
+                     - verified.manifest.raw_length - 64 * 1024)
+    {
+        upd_error_set(&error, UPD_E_INVALID, "too_large", "staging requirement overflows");
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    required = verified.manifest.archive_size * 2 + verified.manifest.raw_length
+               + signature_size + 64 * 1024;
+    if (!storage_free_bytes(root, &free_bytes, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+#ifdef NEXTUPD_TESTING
+    {
+        long long override;
+        if (test_limit("NEXTUPD_TEST_FREE_BYTES", &override))
+            free_bytes = (uint64_t)override;
+    }
+#endif
+    if (free_bytes < required)
+    {
+        upd_error_set(&error, UPD_E_SPACE, "insufficient_space",
+                      "need %llu bytes, %llu available", (unsigned long long)required,
+                      (unsigned long long)free_bytes);
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (!upd_download_to_file(archive_url, archive_path, verified.manifest.archive_size,
+                              timeout, &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    {
+        uint64_t downloaded_size = 0;
+        if (!upd_file_size(archive_path, &downloaded_size, &error))
+        {
+            result = report_error(&error, options->json);
+            goto done;
+        }
+        if (downloaded_size != verified.manifest.archive_size)
+        {
+            upd_error_set(&error, UPD_E_INTEGRITY, "archive_size_mismatch",
+                          "archive is %llu bytes, manifest says %llu",
+                          (unsigned long long)downloaded_size,
+                          (unsigned long long)verified.manifest.archive_size);
+            result = report_error(&error, options->json);
+            goto done;
+        }
+    }
+    {
+        Options stage_options = *options;
+        stage_options.package = archive_path;
+        stage_options.manifest = manifest_path;
+        stage_options.signature = signature_path;
+        stage_options.staging_root = root;
+        stage_options.feed = NULL;
+        stage_options.quiet = 1;
+        stage_options.replace = 1;
+        result = run_stage(&stage_options);
+    }
+    if (result != 0) goto done;
+    result = print_fetch_staged(options, &verified.manifest, verified.key_id, root,
+                                stage_dir, staged_archive, staged_manifest,
+                                staged_signature, marker_path, 0);
+
+done:
+    if (temp_created) cleanup_temp_dir(temp_dir, entry != NULL ? entry->archive_name : NULL);
+    if (feed_is_temporary) unlink(feed_path);
+    upd_manifest_free(&verified.manifest);
+    upd_feed_free(&feed);
     return result;
 }
 
@@ -1285,6 +1838,20 @@ static int run_recover(const Options* options)
     return 0;
 }
 
+static int parse_timeout_option(const char* text, int* timeout_seconds)
+{
+    char* end = NULL;
+    long value;
+
+    if (text == NULL || text[0] == '\0') return 0;
+    errno = 0;
+    value = strtol(text, &end, 10);
+    if (errno != 0 || end == NULL || *end != '\0' || value < 1 || value > 3600)
+        return 0;
+    *timeout_seconds = (int)value;
+    return 1;
+}
+
 static int parse_options(int argc, char** argv, const char* command, Options* options)
 {
     int i;
@@ -1307,6 +1874,7 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         else if (strcmp(argument, "--platform") == 0) target = &options->platform;
         else if (strcmp(argument, "--system-version") == 0) target = &options->system_version;
         else if (strcmp(argument, "--staging-root") == 0) target = &options->staging_root;
+        else if (strcmp(argument, "--feed") == 0) target = &options->feed;
         else if (strcmp(argument, "--id") == 0) target = &options->id;
         else if (strcmp(argument, "--kind") == 0) target = &options->kind;
         else if (strcmp(argument, "--version") == 0) target = &options->version;
@@ -1314,6 +1882,20 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         else if (strcmp(argument, "--out") == 0) target = &options->out;
         else if (strcmp(argument, "--staged-dir") == 0) target = &options->staged_dir;
         else if (strcmp(argument, "--target-root") == 0) target = &options->target_root;
+        else if (strcmp(argument, "--timeout") == 0)
+        {
+            if (i + 1 >= argc || argv[i + 1][0] == '\0')
+            {
+                fprintf(stderr, "nextupd: --timeout requires a value\n");
+                return 0;
+            }
+            if (!parse_timeout_option(argv[++i], &options->timeout_seconds))
+            {
+                fprintf(stderr, "nextupd: --timeout must be between 1 and 3600 seconds\n");
+                return 0;
+            }
+            continue;
+        }
         else if (strcmp(argument, "--integrity-only") == 0)
         {
             options->integrity_only = 1;
@@ -1346,6 +1928,12 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
             return 0;
         }
         *target = argv[++i];
+    }
+    if (strcmp(command, "feed") != 0 && strcmp(command, "fetch") != 0
+        && (options->feed != NULL || options->timeout_seconds != 0))
+    {
+        fprintf(stderr, "nextupd: --feed/--timeout are only valid for feed and fetch\n");
+        return 0;
     }
     if (strcmp(command, "manifest") == 0
         && (options->id == NULL || options->kind == NULL || options->version == NULL
@@ -1380,6 +1968,39 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
     if (strcmp(command, "recover") == 0 && options->target_root == NULL)
     {
         fprintf(stderr, "nextupd: recover needs --target-root\n");
+        return 0;
+    }
+    if ((strcmp(command, "feed") == 0 || strcmp(command, "fetch") == 0)
+        && (options->package != NULL || options->manifest != NULL
+            || options->signature != NULL || options->id != NULL
+            || options->kind != NULL || options->version != NULL
+            || options->min_system != NULL || options->out != NULL
+            || options->staged_dir != NULL || options->target_root != NULL
+            || options->integrity_only || options->rollback))
+    {
+        fprintf(stderr, "nextupd: %s does not accept package/manifest/install options\n",
+                command);
+        return 0;
+    }
+    if ((strcmp(command, "feed") == 0 || strcmp(command, "fetch") == 0)
+        && options->trusted_key == NULL)
+    {
+        fprintf(stderr, "nextupd: %s needs --trusted-key\n", command);
+        return 0;
+    }
+    if (strcmp(command, "feed") == 0 && options->replace)
+    {
+        fprintf(stderr, "nextupd: feed does not accept --replace\n");
+        return 0;
+    }
+    if (strcmp(command, "feed") == 0 && options->staging_root != NULL)
+    {
+        fprintf(stderr, "nextupd: feed does not accept --staging-root\n");
+        return 0;
+    }
+    if (strcmp(command, "fetch") == 0 && options->staging_root == NULL)
+    {
+        fprintf(stderr, "nextupd: fetch needs --staging-root; there is no default\n");
         return 0;
     }
     if (strcmp(command, "manifest") == 0
@@ -1454,7 +2075,8 @@ int main(int argc, char** argv)
     }
     if (strcmp(command, "check") != 0 && strcmp(command, "stage") != 0
         && strcmp(command, "install") != 0 && strcmp(command, "recover") != 0
-        && strcmp(command, "manifest") != 0)
+        && strcmp(command, "manifest") != 0 && strcmp(command, "feed") != 0
+        && strcmp(command, "fetch") != 0)
     {
         fprintf(stderr, "nextupd: unknown command '%s'\n", command);
         usage(stderr);
@@ -1462,6 +2084,8 @@ int main(int argc, char** argv)
     }
     if (!parse_options(argc - 2, argv + 2, command, &options)) return UPD_E_USAGE;
     if (strcmp(command, "check") == 0) return run_check(&options);
+    if (strcmp(command, "feed") == 0) return run_feed(&options, 0);
+    if (strcmp(command, "fetch") == 0) return run_feed(&options, 1);
     if (strcmp(command, "stage") == 0) return run_stage(&options);
     if (strcmp(command, "install") == 0) return run_install(&options);
     if (strcmp(command, "recover") == 0) return run_recover(&options);

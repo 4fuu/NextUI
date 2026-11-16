@@ -34,11 +34,12 @@ RELEASE_BASE=NextUI-$(RELEASE_TIME)$(RELEASE_BETA)
 RELEASE_DOT:=$(shell find ./releases/. -regex ".*/${RELEASE_BASE}-[0-9]+-base\.zip" | wc -l | sed 's/ //g')
 RELEASE_NAME ?= $(RELEASE_BASE)-$(RELEASE_DOT)
 
-# Extra paks to ship
+# Extra paks to ship. The system update feed is not bundled here: this repo has
+# no default release source, and the third-party updater pak is no longer
+# referenced by default.
 VENDOR_DEST := ./build/VENDOR/Tools
 PACKAGE_URL_MAPPINGS := \
-	"https://github.com/UncleJunVIP/nextui-pak-store/releases/latest/download/Pak.Store.pakz nextui.pak_store.pakz" \
-	"https://github.com/LoveRetro/nextui-updater-pak/releases/latest/download/nextui.updater.pakz nextui.updater.pakz"
+	"https://github.com/UncleJunVIP/nextui-pak-store/releases/latest/download/Pak.Store.pakz nextui.pak_store.pakz"
 	# add more URLs as needed
 
 ###########################################################
@@ -211,7 +212,6 @@ package: tidy
 	# cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves miyoo miyoo354 trimui rg35xx rg35xxplus gkdpixel miyoo355 magicx em_ui.sh MinUI.zip README.txt
 	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves Shaders Overlays trimui h700 em_ui.sh MinUI.zip *.pakz README.txt
 	cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-extras.zip Bios Roms Saves Overlays Tools README.txt
-	echo "$(RELEASE_VERSION)" > ./build/latest.txt
 
 	# compound zip (brew install libzip needed) 
 	cd ./releases && zipmerge $(RELEASE_NAME)-all.zip $(RELEASE_NAME)-base.zip  && zipmerge $(RELEASE_NAME)-all.zip $(RELEASE_NAME)-extras.zip

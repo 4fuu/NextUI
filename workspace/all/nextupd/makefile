@@ -24,6 +24,8 @@ TARGET = nextupd
 INCDIR = -I. -I../common
 SOURCES = \
 	nextupd.c \
+	update_download.c \
+	update_feed.c \
 	update_manifest.c \
 	update_signature.c \
 	update_transaction.c \

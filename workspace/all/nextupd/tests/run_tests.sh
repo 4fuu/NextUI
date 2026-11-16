@@ -25,6 +25,8 @@ common_flags=(-std=gnu99 -Wall -Wextra -Werror -pedantic -D_FILE_OFFSET_BITS=64
 
 "$compiler" "${common_flags[@]}" "${sanitize_flags[@]}" \
     ../nextupd.c \
+    ../update_download.c \
+    ../update_feed.c \
     ../update_manifest.c \
     ../update_signature.c \
     ../update_transaction.c \
@@ -38,6 +40,11 @@ common_flags=(-std=gnu99 -Wall -Wextra -Werror -pedantic -D_FILE_OFFSET_BITS=64
 ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \
 UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
     python3 test_updater.py "$build_dir/nextupd" "$(pwd)/fixtures" "$build_dir/work" \
+        "$(cd .. && pwd)/scripts/sign-manifest.sh"
+
+ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \
+UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
+    python3 test_feed.py "$build_dir/nextupd" "$(pwd)/fixtures" "$build_dir/feed-work" \
         "$(cd .. && pwd)/scripts/sign-manifest.sh"
 
 ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \

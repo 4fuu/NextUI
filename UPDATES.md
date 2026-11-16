@@ -1,16 +1,26 @@
-# Update package manifests, safe staging, and offline system installs
+# Update package manifests, feeds, safe staging, and offline system installs
 
-Status: manifest verification, safe staging, and the offline install transaction
-are implemented. Installation only happens inside an explicitly supplied target
-root; there is no default root, no automatic activation, and no edit to
-`launch.sh`, keymon, devserv, or the release feed. The install boot scripts call
-`recover` before the first `.system` write and before launch when a transaction
-record exists; the recovery tool ships in `.tmp_update/<platform>/`. Updater
-source switching and automatic online updates remain separate tasks.
+Status: manifest verification, feed checking, download-to-staging, safe staging,
+and the offline install transaction are implemented. Installation only happens
+inside an explicitly supplied target root; there is no default root, no automatic
+activation, and no edit to `launch.sh`, keymon, devserv, or a release feed. The
+install boot scripts call `recover` before the first `.system` write and before
+launch when a transaction record exists; the recovery tool ships in
+`.tmp_update/<platform>/`.
+
+The update feed is not configured by default. There is no built-in release
+source and no production signing key in this repository, so `feed` and `fetch`
+report `feed_unconfigured` until a caller supplies `--feed` or
+`NEXTUI_UPDATE_FEED` and a real trusted key is provisioned by the owner. The
+test feed and test signing seed are for protocol tests only. The install UI,
+`.tmp_update` refresh, real release publication, and production key custody
+remain separate tasks.
 
 The code lives in `workspace/all/nextupd/`. Host tests cover the manifest,
 signature, ZIP, corrupt-package, path/link, disk-space, interruption,
-transaction-phase crash, re-entry, rollback, and backup-corruption cases.
+transaction-phase crash, re-entry, rollback, backup-corruption, feed parsing,
+feed compatibility selection, download truncation/timeout, and staged-package
+reuse cases.
 
 ## Package identity
 
@@ -167,6 +177,86 @@ stage cleans stale parts. A power loss after the archive copy but before the
 marker leaves no ready package. Replacing an existing stage requires
 `--replace`.
 
+## Update feed, check, and download
+
+The feed is a versioned `nextui-feed-v1` JSON document. It is routing metadata,
+not a trust anchor: every entry names a signed `nextui-update-v1` manifest, and
+only that signature (plus the trusted key) authorizes staging. The feed itself is
+not signed, so a feed cannot make an unsigned archive trustworthy.
+
+```json
+{
+  "schema": "nextui-feed-v1",
+  "channel": "test",
+  "generated_at": "2026-11-16T00:00:00Z",
+  "entries": [
+    {
+      "platform": "tg5040",
+      "version": "v6.16.0",
+      "min_system": "v6.0.0",
+      "manifest_url": "packages/v6.16.0/MinUI.manifest.json",
+      "signature_url": "packages/v6.16.0/MinUI.manifest.sig",
+      "archive_url": "packages/v6.16.0/MinUI.zip",
+      "archive_name": "MinUI.zip",
+      "archive_size": 610,
+      "archive_sha256": "89a5..."
+    }
+  ]
+}
+```
+
+- `entries` is the compatibility matrix: one row per platform and version.
+  `min_system` is the oldest running system that may install that row. `feed`
+  selects the newest row whose `min_system` is not newer than the running
+  system; a row that requires a newer system is skipped. If no row is
+  compatible, the result is `system_too_old`.
+- `version`, `min_system`, `id` (derived as `nextui.system.<platform>`), archive
+  name, size, and SHA-256 must match the signed manifest. A mismatch fails as
+  `feed_manifest_mismatch` before the package is downloaded.
+- `manifest_url`, `signature_url`, and `archive_url` may be absolute or relative
+  to the feed location. HTTP and HTTPS are accepted; local feeds resolve
+  relative paths against the feed's directory.
+- Unknown fields, duplicate platform/version rows, unknown platforms, invalid
+  semver, unsafe file names, and relative `..` segments are rejected.
+- `channel` and `generated_at` are optional metadata and are not trusted.
+
+Check a configured feed without writing anything:
+
+```sh
+nextupd feed --feed <feed-url-or-file> --platform tg5040 \
+  --system-version v6.16.0 --trusted-key nextui-test-only-1.pub --json
+```
+
+`feed` downloads only the manifest and signature, verifies them, and reports
+`update_available` or `up_to_date`. It never downloads the archive.
+
+Download, verify, and stage:
+
+```sh
+nextupd fetch --feed <feed-url-or-file> --platform tg5040 \
+  --system-version v6.16.0 --trusted-key nextui-test-only-1.pub \
+  --staging-root "$TEST_ROOT/staging" --json
+```
+
+`fetch` requires `--trusted-key` and an explicit `--staging-root`; it has no
+default root and never installs. It downloads into a private
+`.nextupd-incoming-*` directory under the staging root, verifies the manifest and
+signature before downloading the archive, enforces the manifest's archive size,
+then reuses the existing `stage` path (`.part`, marker last, fsync, lock, space
+precheck). A controlled failure removes the incoming directory and leaves no
+`staged.json`. A hard power loss may leave a hidden incoming directory, but it
+is not a staged package and `install` refuses it without `staged.json`.
+
+If a valid package with the same identity is already staged, `fetch` verifies
+and reuses it (`already_staged`) without downloading the archive again.
+`--replace` forces a fresh download and restage. A damaged or incompatible
+staging directory is replaced rather than reused.
+
+There is no default feed URL. `--feed` or `NEXTUI_UPDATE_FEED` is required; if
+neither is set, `feed` and `fetch` fail with exit 15 and `feed_unconfigured`
+instead of contacting a third-party or upstream updater. The release source
+address and production key remain owner decisions.
+
 ## Installing a staged system
 
 `install` applies a verified system package to an explicit target root:
@@ -301,6 +391,7 @@ prove real-device boot or power-cut behavior.
 | 12 | another stage holds the lock |
 | 13 | transaction state, target, or backup is invalid |
 | 14 | version policy refused the package |
+| 15 | update feed is not configured |
 | 64 | usage |
 
 ## Tests
@@ -312,6 +403,14 @@ SANITIZE=1 workspace/all/nextupd/tests/run_tests.sh
 
 The sanitizer run builds with ASan/UBSan and disables UBSan only for the
 vendored TweetNaCl file, which uses the signed-shift idiom internally.
+
+The feed tests start a loopback HTTP fixture and cover `update_available`,
+`up_to_date`, unknown platform/version, `min_system` selection, malformed feed
+fields, untrusted signatures, feed/manifest mismatch, chunked responses,
+redirects, corrupt/truncated/stalled downloads, HTTP errors, insufficient space,
+staging reuse, replacement of damaged staging, and HTTPS without curl. They use
+only a test feed, test packages, and the committed test seed; they never contact
+a release source or a device.
 
 Fixed fixtures are in `workspace/all/nextupd/tests/fixtures/`. The private test
 seed is committed only to make signatures reproducible; it is not a production
@@ -330,9 +429,22 @@ key and must never be used to sign a release.
 - `.tmp_update` is refreshed by the legacy `MinUI.zip`/bootstrap path, not by a
   transactional install. A transactional install does not update the boot
   payload.
-- No feed, updater source switch, or release-pipeline change is included.
-- The download layer is not part of this task. "Disconnect" is represented by a
-  truncated archive; staging takes a local package file.
+- The feed is unsigned routing metadata. It can select a signed package but
+  cannot authorize one; the manifest signature and trusted key remain required.
+- There is no production feed address and no production key in this repository.
+  `feed` and `fetch` are unavailable until the owner provisions both. No
+  downstream release workflow publishes `nextui-feed-v1` yet.
+- HTTPS downloads delegate to the system `curl` with TLS verification enabled.
+  If `curl` is absent, the result is `transport_unavailable`; there is no
+  insecure fallback. Plain HTTP is supported for local/LAN feeds and fixtures.
+- `fetch` does not install and does not refresh `.tmp_update`. The install UI is
+  not part of this module; `feed`/`check` output is available for a later UI.
+- A hard power loss during download may leave a hidden
+  `.nextupd-incoming-*` directory. It has no `staged.json`, so it is never
+  treated as a ready package; controlled failures remove it.
+- The application store source is not part of this feed. This change does not
+  select or replace the app-store source; only the default third-party system
+  updater pak reference was removed.
 - Version policy trusts the target's `.system/version.txt`. There is no signed,
   monotonic anti-rollback counter; replaying an older signed package is refused
   while the live version file is newer, but an attacker who can rewrite that
