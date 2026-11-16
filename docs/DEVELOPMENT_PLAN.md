@@ -5,9 +5,8 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `6a98573` (merge of PR #20, the settings About page
-  and shared button hints i18n; fetched 2026-11-16). Landing points on main,
-  oldest first: PR #5
+- Baseline: `origin/main` @ `4699226` (merge of PR #17, the U4 update feed
+  block; fetched 2026-11-16). Landing points on main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
   (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
@@ -17,9 +16,9 @@ history; its top section mirrors the current schedule in this file.
   `ec05440`), PR #11 (boot-time recovery wiring, `1a3f2a7`), PR #12 (schedule
   file, `3ae1ddf`), PR #13 (built-in emulator removal, `1d9aea2`), PR #16
   (schedule file, `0385b21`), PR #18 (schedule file, `471de2c`), PR #19
-  (schedule file, `3380fe4`), and PR #20 (settings About/hints i18n,
-  `6a98573`); `de69781` is an ancestor of all of them. Later updates branch
-  from `origin/main`.
+  (schedule file, `3380fe4`), PR #20 (settings About/hints i18n, `6a98573`),
+  and PR #17 (U4 update feed, `4699226`); `de69781` is an ancestor of all of
+  them. Later updates branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -86,15 +85,14 @@ Rules:
   boot-time recovery wiring (PR #11, `1a3f2a7`); this schedule file
   (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, PR #10, `b28b126`, PR #12,
   `3ae1ddf`, PR #16, `0385b21`, PR #18, `471de2c`, and PR #19, `3380fe4`);
-  the built-in emulator removal (PR #13, `1d9aea2`); and the settings
-  About/hints i18n slice (PR #20, `6a98573`).
-- Host-done, unpushed: none. Open at the last check: PR #17 (U4 update feed,
-  head `18c2a57c`, CI green and MERGEABLE/CLEAN per gh, F1 fixed in `e51aeb2e`,
-  awaiting incremental review `T-01a1e380` and owner merge; not merged) and
-  this schedule file's own update (a new pull request from `origin/main`). This
-  schedule file's previous updates merged into main: PR #12 (`3ae1ddf`), PR #16
-  (`0385b21`), PR #18 (`471de2c`), and PR #19 (`3380fe4`). The runtime line (I1)
-  merged into main as `3a50fe8`; the updater
+  the built-in emulator removal (PR #13, `1d9aea2`); the settings
+  About/hints i18n slice (PR #20, `6a98573`); and the U4 update feed block
+  (PR #17, `4699226`).
+- Host-done, unpushed: none. Open at the last check: only this schedule file's
+  own update (a pull request from `origin/main`). PR #17 (U4 update feed) merged
+  into main as `4699226`; this schedule file's previous updates merged into
+  main: PR #12 (`3ae1ddf`), PR #16 (`0385b21`), PR #18 (`471de2c`), and PR #19
+  (`3380fe4`). The runtime line (I1) merged into main as `3a50fe8`; the updater
   staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
   the display/audio backend module (PR #6, `b506dbd`), the transaction
   hardening (PR #15, `e2eba90`), the settings i18n first slice (PR #14,
@@ -519,21 +517,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
   (system update check; dispatched 2026-11-16 after PR #11 merged; first
   verifiable block pushed as PR #17).
-- Status: F1 fixed, new head CI green and mergeable, awaiting incremental
-  review and owner merge; not merged. PR #17
-  (https://github.com/4fuu/NextUI/pull/17, branch `feature/updater-feed`) now
-  has head `18c2a57c5e98fb117424b9b00b411852f53da085`, a normal merge of
-  `origin/main` `6a98573c` (no rebase/force). The incremental review's F1 is
-  fixed in `e51aeb2e`: the verified manifest digest is bound to
-  `staged->manifest_sha256`, with an alternate-manifest regression test; the
-  old `5259c25` reproduces the false `already_staged` (3 failures) and the
-  fixed head passes 55 feed tests while normal reuse still avoids a second
-  download. CI on `18c2a57c` is green (Feature checks push and pull_request,
-  Development/Desktop; the source reports all six checks) and gh reports
-  MERGEABLE/CLEAN. Local: full tests 177 + 55 + 56 pass, SANITIZE the same,
-  desktop build exits 0. F2/F3/F4 remain documented low-risk behavior. Next
-  gate: incremental review thread `T-01a1e380`, then the CI/merge owner
-  merges.
+- Status: merged into main. PR #17
+  (https://github.com/4fuu/NextUI/pull/17, branch `feature/updater-feed`),
+  final head `18c2a57c5e98fb117424b9b00b411852f53da085` (a normal merge of
+  `origin/main` `6a98573c`, no rebase/force), merged as
+  `46992265eb04669ab6d4844a4f2e6cbd98693442` by the CI/merge owner
+  (2026-11-16T09:09:41Z per the source). The incremental review `T-01a1e380`
+  passed with no blockers: F1 verified fixed in `e51aeb2e` (the verified
+  manifest digest is bound to `staged->manifest_sha256`, with an
+  alternate-manifest regression test), the old `5259c25` reproduces the false
+  `already_staged` (3 failures), the new head passes 55/0 feed tests, and the
+  reviewer's 88 independent checks pass; full local tests 177 + 55 + 56 and the
+  SANITIZE suite pass. CI on `18c2a57c` was green (Feature checks push and
+  pull_request, Development/Desktop; the source reports all six checks) and gh
+  reported MERGEABLE/CLEAN at merge time. F2/F3/F4 remain documented low-risk
+  behavior.
 - Delivered in PR #17: `nextui-feed-v1` feed parsing and selection, `feed`
   check against a signed manifest, `fetch` download into verify into the
   existing staging, staged reuse and `--replace`, failure cleanup, exit 15 when
@@ -558,7 +556,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Depends on: I6 manifest/signature/staging (in main), U1 transaction (in
   main), and the X1 feed contract.
 - Next: U5 (signature policy and key custody) once the owner decides key
-  custody; the feed entry for user-initiated downgrade feeds back into U3.
+  custody; the delivered feed now gives U3 the entry for user-initiated
+  downgrade.
 
 #### U5 — Signature policy and key custody
 - Owner: owner decision plus updater thread implementation.
@@ -575,7 +574,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner: any thread; low risk.
 - Status: not started; release body and skeleton READMEs still point at
   upstream docs. The makefile's default third-party updater pak download was
-  removed by PR #17 (U4 packaging cleanup, pending merge).
+  removed by PR #17 (U4 packaging cleanup, now merged into main).
 - Depends on: none (independent).
 - Delivery/verification: release workflow body and skeleton BASE/EXTRAS
   READMEs point at this repo's documentation entry; NOTICE and the upstream
@@ -745,6 +744,6 @@ as they happen; nothing is reported as passing without a run.
   (`471de2c`), and PR #19 (`3380fe4`). Later schedule updates branch from
   `origin/main` and open a pull request into `main`; the CI/merge owner merges
   after checks pass. This thread performs no merges itself.
-- The current update travels on a new branch cut from `origin/main` @
-  `6a98573` (earlier schedule branches merged as `3ae1ddf`, `0385b21`,
-  `471de2c`, and `3380fe4`).
+- The current update travels on branch `docs/schedule-update-7`, PR #21
+  (cut from `origin/main` @ `6a98573`; main has since moved to `4699226` and the
+  pull request stays mergeable without rebase or force).
