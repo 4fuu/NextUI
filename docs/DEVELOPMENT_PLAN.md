@@ -44,11 +44,12 @@ history; its top section mirrors the current schedule in this file.
 - Superseded product decisions (see the last section): the permission settings
   UI is stopped and is no longer a goal; installation grants default highest
   permission; a manifest capability declaration only states support and never
-  authorizes anything; and no application store is a goal -- the pre-existing
-  third-party Pak Store download and launcher entry belong to the original
-  project, not to this round, and they stay unchanged unless the owner answers
-  the Space's single open question about removing them (asked there, not
-  repeated in threads).
+  authorizes anything; and no application store is a goal -- the owner
+  confirmed on 2026-11-16 that the original third-party Pak Store entry, its
+  build-time download, and its preinstalled pak are to be removed directly
+  (thread T-01a1e4ce, dispatched), while local application install, the
+  generic `Tools` discovery and launch, and the system update path stay, and no
+  real device or user application is touched.
 - Standing authorization (2026-11-16, owner 4fuu): use CI and workflows;
   develop on branches; push feature branches promptly and open pull requests;
   merge only after real CI and review pass. The sole CI and merge owner is
@@ -1169,11 +1170,12 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   tests, addressing the four independent-review failures recorded at
   `ed7b9de` (the marker not consumed by nextupd, the old whole set not
   recoverable during publish, the untested mixed-consumer boundary, and the
-  `sha256sum` hard dependency missing on macOS). The post-merge runs on
-  `b3dcae4` (Feature checks and Development/Desktop) are success per gh while
-  the full CI run is in progress at the last check (not recorded as passing).
-  No separate review-passed report reached this schedule, so only the merge and
-  CI facts are recorded. The first head
+  `sha256sum` hard dependency missing on macOS). The independent review on the
+  final head is PASS per the source's explicit report (2026-11-16 14:31: the
+  real three-window coverage, the portable hash, and the 55 tests; the old set
+  not being guaranteed kept is documented as a downgrade). The post-merge runs
+  on `b3dcae4` (Feature checks, Development/Desktop, and CI) are all success
+  per gh. The first head
   `ed7b9de5e4aa7a57fe0f6d697bf2333652aefa87` (based on main `3a0b048`) failed
   the independent review per the merge owner (2026-11-16 14:04): the commit
   marker is not consumed by nextupd, so a window with three new files plus the
@@ -1421,29 +1423,30 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   end-to-end and default-allow suites all pass;
   `make setup && make common PLATFORM=desktop` exits 0; `git status` clean.
 
-#### F4 — Pak Store single-sourcing (cancelled by the owner; no app store is a goal)
-- Owner: owner decision (4fuu), 2026-11-16.
-- Status: cancelled, not completed. The owner asked whether the app store was
-  even needed and whether it was original functionality; the Space answered
-  from the audit evidence that the original project already carries the
-  third-party Pak Store download logic and the launcher entry, and that this
-  round did not add it. A removed requirement is a scope change, never
-  development completion: building an own store, switching the store index
-  source, and authorizing own store repositories are no longer goals and are
-  not listed as unfinished work.
-- What stays: the pre-existing third-party build-time download
-  (`makefile:36-42`, UncleJunVIP/nextui-pak-store to `nextui.pak_store.pakz`)
-  and the launcher quick entry shown when `Tools/<platform>/Pak Store.pak`
-  exists (`nextui.c:544-552`, `727-729`) remain untouched unless the owner
-  answers the Space's single open question -- whether to remove the original
-  store entry and the build-time download as well. That question is already
-  asked in the Space and is unanswered, so nothing is removed unilaterally and
-  the question is not repeated in threads.
-- Depends on: nothing further; local application install (F6) proceeds
-  separately from any store.
-- Delivery/verification: none; recorded so the store is not mistaken for an
-  unfinished goal.
-- Next: none, unless the owner answers the removal question.
+#### F4 — Pak Store removal (owner-confirmed; no app store is a goal)
+- Owner: dispatched implementation thread
+  https://ampcode.com/threads/T-01a1e4ce-8cef-71a5-b426-f58e89bc4a39
+  (Step Medium; dispatched 2026-11-16 after the owner's confirmation).
+- Status: removal confirmed by the owner and dispatched; no head delivered, so
+  nothing is recorded as done. The owner answered the Space's removal question
+  directly: remove it, no need to install it in the machine. Building an own
+  store, switching the store index source, and authorizing own store
+  repositories are not goals (a removed requirement is a scope change, never
+  development completion), and local application install (F6) is not cancelled
+  by this.
+- Scope: remove the original third-party Pak Store launcher entry
+  (`nextui.c:544-552`, `727-729`) and the build-time download
+  (`makefile:36-42`, UncleJunVIP/nextui-pak-store to `nextui.pak_store.pakz`),
+  and drop the preinstalled store pak, through an independent pull request to
+  the sole CI/merge owner's gate. The generic `Tools/<platform>` discovery and
+  launch, F6, and the system update path stay. No existing real device is
+  operated on and no user application is deleted.
+- Depends on: nothing; it does not block F6 or the system update line.
+- Delivery/verification: the entry, the build-time download, and the
+  preinstalled pak are gone; a build without them succeeds; the remaining
+  `Tools` discovery and launch behave exactly as before; a run without a pull
+  request is not a delivery.
+- Next: the source delivers a head, then the merge owner reviews and merges.
 
 #### F5 — Application release pipeline
 - Owner: unassigned; blocked on owner repository authorization and U5 keys.
