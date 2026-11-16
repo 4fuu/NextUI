@@ -23,11 +23,20 @@
 # different artifact; this script never reads or rewrites it, and `nextupd
 # install` refuses an archive with an unhandled root before writing anything.
 #
-# Outputs, all inside --out-dir, replaced on every run:
+# Outputs, all inside --out-dir, published atomically as one set:
 #
 #   <name>                  the archive, a .zip of .system [.tmp_update]
 #   <base>.manifest.json    nextui-update-v1 manifest (nextupd manifest)
 #   <base>.manifest.sig     detached Ed25519 signature (only with --key/--key-id)
+#   <base>.manifest.set     commit marker: this set's file names and sha256s
+#
+# The archive, manifest and signature are ONE artifact set. The script builds
+# and self-checks the whole set in a staging directory inside --out-dir, then
+# publishes it with same-filesystem renames and writes the commit marker last.
+# A failed, interrupted (even SIGKILLed) or repeated run therefore never leaves
+# a partial or mixed set, and never damages the previous complete output: the
+# marker present with every listed file matching its hash is what marks a set
+# complete.
 #
 # The manifest records the archive's final basename, so renaming the archive
 # afterwards requires regenerating and re-signing the manifest.
@@ -105,7 +114,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-for tool in zip find mktemp awk readlink; do
+for tool in zip find mktemp awk readlink sha256sum; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing $tool" 69
 done
 
@@ -160,8 +169,15 @@ if { [ -n "$key_file" ] && [ -z "$key_id" ]; } || { [ -z "$key_file" ] && [ -n "
     fail "--key and --key-id must be supplied together" 64
 fi
 base=$(basename "$name" .zip)
+# The three files below are ONE artifact set: the archive, its manifest and the
+# detached signature share the base name and are published together or not at
+# all. The commit marker records the exact set (file names and hashes) so a
+# completed publish is distinguishable from an interrupted one without a signing
+# key; see the publish step at the end of this script.
+archive_out="$out_dir/$name"
 manifest_out="$out_dir/$base.manifest.json"
 signature_out="$out_dir/$base.manifest.sig"
+marker_out="$out_dir/$base.manifest.set"
 
 # The boot payload is optional, but when present it must be complete: the
 # installer publishes it from the same signed manifest, and a partial payload
@@ -177,14 +193,54 @@ if [ "$require_boot" = 1 ] && [ "$include_boot" = 0 ]; then
 fi
 
 staging=$(mktemp -d "${TMPDIR:-/tmp}/nextui-update.XXXXXX")
+publish=
 key_pub="$staging.pub"
-trap 'rm -rf "$staging" "$key_pub"' EXIT INT TERM
+trap 'rm -rf "$staging" "$publish" "$key_pub"' EXIT INT TERM
 mkdir -p "$staging/payload" "$out_dir"
 
-# Each run replaces its outputs. `zip` updates an existing archive in place and
-# would keep entries a previous build removed, and a stale signature beside a
-# new manifest would verify nothing.
-rm -f "$out_dir/$name" "$manifest_out" "$signature_out"
+case "$out_dir" in
+    /*) absolute_out=$out_dir ;;
+    *) absolute_out="$PWD/$out_dir" ;;
+esac
+
+# A run killed mid-publish (SIGKILL skips the EXIT trap) can leave a staging
+# directory behind. It is dot-prefixed and holds no published name, so it is
+# never mistaken for output; sweep any leftovers from an earlier kill before
+# building.
+find "$absolute_out" -maxdepth 1 -type d -name '.package-update.*' \
+    -exec rm -rf {} + 2>/dev/null || true
+
+# If a previous publish was interrupted, the final names can disagree with the
+# commit marker. That is never a valid set -- nextupd check rejects a
+# manifest/archive hash mismatch, so it cannot pass as a complete package -- and
+# this run rebuilds and republishes a complete set in its place. Warn so the
+# operator knows the earlier output was incomplete.
+if [ -f "$marker_out" ]; then
+    marker_ok=1
+    while read -r marker_kind marker_name marker_hash; do
+        case "$marker_kind" in
+            archive|manifest|signature) ;;
+            *) continue ;;
+        esac
+        marker_path="$out_dir/$marker_name"
+        if [ ! -f "$marker_path" ] ||
+           [ "$(sha256sum "$marker_path" | cut -d' ' -f1)" != "$marker_hash" ]; then
+            marker_ok=0
+        fi
+    done < "$marker_out"
+    if [ "$marker_ok" = 0 ]; then
+        printf '%s: previous publish of %s was interrupted; rebuilding and replacing it\n' \
+            "$PROGRAM" "$base" >&2
+    fi
+fi
+
+# Build and verify the whole set in a staging directory INSIDE --out-dir, so the
+# final publish is a same-filesystem rename (atomic per file). The previous
+# complete output is never removed or overwritten until a complete, self-checked
+# set exists here: a failure anywhere before the publish leaves it byte-for-byte
+# intact, and `zip` writing to a fresh path (not updating an existing archive)
+# means no stale entries can survive either.
+publish=$(mktemp -d "$absolute_out/.package-update.XXXXXX")
 
 # Refuse links that leave the build tree: cp -RL would copy whatever they point
 # at, including files that are not part of the package.
@@ -287,21 +343,23 @@ fi
 [ -n "$(find "$staging/payload/.system/$platform" -mindepth 1 -print -quit 2>/dev/null)" ] \
     || fail "system directory $system_dir staged nothing under .system/$platform" 69
 
-case "$out_dir" in
-    /*) absolute_out=$out_dir ;;
-    *) absolute_out="$PWD/$out_dir" ;;
-esac
 roots=".system"
 [ "$include_boot" = 1 ] && roots="$roots .tmp_update"
 # -X drops per-builder UID/GID and extended-timestamp extras; modes are
 # preserved. Entry mtimes still come from the files, so identical content does
 # not guarantee identical bytes across hosts.
-(cd "$staging/payload" && zip -q -r -X "$absolute_out/$name" $roots)
-archive="$out_dir/$name"
+#
+# The archive is built here, in the staging directory, under its FINAL name, so
+# the manifest's archive.name and every hash already match what will be
+# published. Nothing is written to a published path until the commit step.
+(cd "$staging/payload" && zip -q -r -X "$publish/$name" $roots)
+archive="$publish/$name"
+manifest_build="$publish/$base.manifest.json"
+signature_build="$publish/$base.manifest.sig"
 
 # Quoted throughout so paths with spaces work.
 set -- "--package" "$archive" "--id" "nextui.system.$platform" "--kind" "system" \
-    "--version" "$version" "--platform" "$platform" "--out" "$manifest_out"
+    "--version" "$version" "--platform" "$platform" "--out" "$manifest_build"
 [ -n "$min_system" ] && set -- "$@" "--min-system" "$min_system"
 "$nextupd_bin" manifest "$@" >/dev/null \
     || fail "nextupd manifest failed for $archive" 70
@@ -312,7 +370,7 @@ if [ -n "$key_file" ] && [ -n "$key_id" ]; then
     [ -f "$sign_script" ] || fail "sign script $sign_script not found" 69
     command -v openssl >/dev/null 2>&1 || fail "signing needs openssl" 69
     printf '%s' "$key_id" | grep -Eq '^[A-Za-z0-9._-]+$' || fail "invalid key id '$key_id'" 65
-    "$sign_script" "$key_file" "$key_id" "$manifest_out" "$signature_out" \
+    "$sign_script" "$key_file" "$key_id" "$manifest_build" "$signature_build" \
         || fail "signing the manifest failed" 70
     # The public sidecar exists only for the self-check below; the private key
     # never leaves the packaging host and the sidecar is removed on exit.
@@ -324,9 +382,9 @@ if [ -n "$key_file" ] && [ -n "$key_id" ]; then
     signed=1
 fi
 
-set -- "--package" "$archive" "--manifest" "$manifest_out" "--platform" "$platform"
+set -- "--package" "$archive" "--manifest" "$manifest_build" "--platform" "$platform"
 if [ "$signed" = 1 ]; then
-    set -- "$@" "--signature" "$signature_out" "--trusted-key" "$key_pub"
+    set -- "$@" "--signature" "$signature_build" "--trusted-key" "$key_pub"
 else
     set -- "$@" "--integrity-only"
 fi
@@ -339,13 +397,45 @@ if [ "$signed" = 1 ]; then
         || fail "signature was not verified by nextupd check" 70
 fi
 
-printf 'wrote %s\n' "$archive"
+# Publish the artifact set. Each rename is atomic (same filesystem, mv uses
+# rename(2)); the previous complete output is replaced in place with no window
+# where a published name is missing. The commit marker is written LAST and
+# renamed into place, so "marker present and every listed file matches its
+# recorded hash" is the definition of a complete set. A kill between two renames
+# can only leave a state the marker flags as incomplete -- never a silently
+# valid set, because nextupd check rejects any manifest/archive mismatch -- and
+# the next run republishes a complete set over it.
+mv -f "$archive" "$archive_out"
+mv -f "$manifest_build" "$manifest_out"
+if [ "$signed" = 1 ]; then
+    mv -f "$signature_build" "$signature_out"
+else
+    # An unsigned run replaces the set, so a signature left by an earlier signed
+    # run must not survive beside the new manifest.
+    rm -f "$signature_out"
+fi
+
+# Commit marker: the exact files of this set and their hashes, written after the
+# renames so it never advertises a set the renames have not finished.
+{
+    printf 'nextui-package-set-v1\n'
+    printf 'signed %s\n' "$signed"
+    printf 'archive %s %s\n' "$name" "$(sha256sum "$archive_out" | cut -d' ' -f1)"
+    printf 'manifest %s %s\n' "$base.manifest.json" "$(sha256sum "$manifest_out" | cut -d' ' -f1)"
+    if [ "$signed" = 1 ]; then
+        printf 'signature %s %s\n' "$base.manifest.sig" "$(sha256sum "$signature_out" | cut -d' ' -f1)"
+    fi
+} > "$publish/$base.manifest.set"
+mv -f "$publish/$base.manifest.set" "$marker_out"
+
+printf 'wrote %s\n' "$archive_out"
 printf 'wrote %s\n' "$manifest_out"
 if [ "$signed" = 1 ]; then
     printf 'wrote %s (key %s)\n' "$signature_out" "$key_id"
 else
     printf 'unsigned: sign %s with the release key before publishing\n' "$manifest_out"
 fi
+printf 'set %s\n' "$marker_out"
 if [ "$include_boot" = 1 ]; then
     printf 'roots: .system .tmp_update (platform %s)\n' "$platform"
 else
