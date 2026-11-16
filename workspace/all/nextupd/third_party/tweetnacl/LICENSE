@@ -1,0 +1,11 @@
+TweetNaCl (20140427)
+
+Copyright: Daniel J. Bernstein, Bernard van Gastel, Wesley Janssen,
+Tanja Lange, Peter Schwabe, and Sjaak Smetsers.
+
+This implementation is in the public domain. See https://tweetnacl.cr.yp.to/
+for the original distribution and papers.
+
+Vendored here only for detached Ed25519 signature verification. nextupd does
+not generate keys, sign manifests, or use the secret-key APIs. The
+randombytes symbol is stubbed in update_signature.c and is never called.

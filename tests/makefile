@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh test-session test-session-e2e clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh test-session test-session-e2e test-updater clean
 
-test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-session
+test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-session test-updater
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -48,6 +48,9 @@ test-session:
 
 test-session-e2e:
 	../workspace/all/common/tests/run_session_e2e_test.sh
+
+test-updater:
+	../workspace/all/nextupd/tests/run_tests.sh
 
 clean:
 	rm -f $(TEST_BIN)
