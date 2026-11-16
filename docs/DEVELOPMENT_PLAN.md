@@ -99,7 +99,8 @@ Rules:
   About/hints i18n slice (PR #20, `6a98573`); and the U4 update feed block
   (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #24 (U7 `.tmp_update`
-  payload sync, head `e339d61`, CI in progress, review pending, not merged) and
+  payload sync, head `27c9547`, Feature checks success on that head per gh with
+  Development/Desktop in progress, review pending, not merged) and
   PR #23 (I4 settings Network/Bluetooth translation, head `bd2a40c`, CI green on
   that head per gh, open). This schedule file's updates merged into main as
   PR #12 `3ae1ddf`, PR #16 `0385b21`, PR #18 `471de2c`, PR #19 `3380fe4`, PR #21
@@ -608,24 +609,38 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   chain).
 - Status: implemented and pushed; not merged. PR #24
   (https://github.com/4fuu/NextUI/pull/24, branch `feature/boot-payload-sync`),
-  head `e339d61cc9fbfa9da4f9764c0600931631993a3e`, base `origin/main`
-  `4699226`; OPEN and mergeable per gh, with CI runs in progress at the last
-  check (Feature checks push/PR, Development/Desktop) — not recorded as
-  passing. Independent review is pending with the CI/merge owner
-  (T-01a1e2e1).
-- Delivered: signed-package-driven `.system` plus optional `.tmp_update` sync,
-  the independent recovery tool published first, `.tmp_update.bak` rollback, a
-  separate v1-compatible boot journal, legacy system-only packages untouched,
-  fail-closed on missing/corrupt/unknown/mismatched state, and an
-  isolated-root/test-key crash matrix with repeat recovery. Evidence: nextupd
-  341 passed/0 failed (177 updater + 55 feed + 53 new boot-sync + 56 boot
-  recovery), `make -C tests test` pass, desktop build pass; the tg5040 target
-  compile is owned by CI.
-- Remaining boundary: the transactional release artifact root set must be
-  decided by the packaging/build owner (`.system` plus optional
-  `.tmp_update`; the bootstrap `MinUI.zip` with `Tools/` is not installable);
-  no production feed/key, release, device, ADB, or install UI. The packaging
-  delta goes to thread T-01a1e307.
+  head `27c95475f2c41617259618a716dd0cc1e666a1b8` (advanced from
+  `e339d61cc9fbfa9da4f9764c0600931631993a3e`; the old head's green CI is
+  superseded and is not recorded for this head), base `origin/main`
+  `4699226`; OPEN and mergeable per gh. CI on `27c9547`: Feature checks (push
+  and pull_request) success per gh, Development/Desktop in progress at the last
+  check — not all checks are recorded as passing. Independent review is with
+  https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0, and the
+  merge owner T-01a1e2e1 gates on CI plus review.
+- Delivered (including the 09:47 hardening): signed-package-driven `.system`
+  plus optional `.tmp_update` sync, the independent recovery tool published
+  first, `.tmp_update.bak` rollback, a separate v1-compatible boot journal,
+  legacy system-only packages untouched, fail-closed on
+  missing/corrupt/unknown/mismatched state, and an isolated-root/test-key
+  crash matrix with repeat recovery. The hardening publishes the boot payload
+  before `txn.json`, so a tool that understands a future transaction schema is
+  live before that schema can be written; an install that dies before the
+  record leaves an orphan boot journal, which `recover` rolls back instead of
+  advancing the boot tree alone; and `.tmp_update.bak` is verified
+  byte-for-byte/mode-for-mode against the live payload before any live boot
+  write. Crash/corruption tests and contract docs follow the new ordering.
+  Evidence: nextupd 341 passed/0 failed (177 updater + 55 feed + 53 new
+  boot-sync + 56 boot recovery), desktop build pass, `make -C tests test`
+  rerunning at the last report; the tg5040 target compile is owned by CI.
+- Contract (unchanged by the hardening): signed archive = `.system/` plus
+  optional `.tmp_update/`; legacy system-only packages leave `.tmp_update`
+  untouched; a `Tools`-bearing bootstrap is still refused by `install`; no ZIP
+  whitelist relaxation.
+- Remaining boundary: the transactional release artifact root set is owned by
+  the transactional update package thread
+  https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa (the
+  precise contract was handed over; T-01a1e307 is no longer the only owner);
+  no production feed/key, release, device, ADB, or install UI.
 - Scope: signed-package-driven, interruptible-recovery payload synchronization
   and the packaging contract, so the `.tmp_update` area (today refreshed only
   by the legacy MinUI.zip/bootstrap path) can be refreshed by this repo's own
@@ -643,6 +658,22 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   verification.
 - Next: the install UI (a separate slice); production feed/signing key custody
   stays with the owner decision (U5).
+
+### I9 — Settings abnormal-data fault tolerance
+- Owner thread: https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
+  (dispatched 2026-11-16; works in isolation from the translation pull
+  requests and hands results to the sole CI/merge owner).
+- Status: dispatched, not started.
+- Scope: fix the settings crashes and corruption cases found in abnormal
+  data — the missing-version crash, the trailing-newline missing glyphs, and
+  the empty-timezone abort — with host regression coverage; no translation
+  changes in the same slice.
+- Depends on: baseline; coordinates with I4 only on file ownership, not on the
+  translation slices.
+- Delivery/verification: host tests reproduce each abnormal case before the
+  fix and pass after; English output unchanged; real-machine behavior stays
+  with V1.
+- Next: closes when the owner merges the fix.
 
 ### P3 — Full UI translation remainder
 
@@ -791,6 +822,12 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   retained)
 - `.tmp_update` payload sync thread:
   https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
+- Independent review thread for the U7 boot payload sync:
+  https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0
+- Transactional update package thread (release artifact root set):
+  https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa
+- Settings abnormal-data fault tolerance thread:
+  https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
   in once confirmed; ran the exact libsamplerate co-render regression on main
   `1d9aea2` with `a6-host-adapter` @
@@ -813,8 +850,12 @@ as they happen; nothing is reported as passing without a run.
   `main`; the CI/merge owner merges after checks pass. This thread performs no
   merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because a real task changed (U7 reached "implemented and pushed" as PR #24),
-  not because a docs head moved.
-- The current update travels on a new branch cut from `origin/main` @
-  `6594dce` (earlier schedule branches merged as `3ae1ddf`, `0385b21`,
-  `471de2c`, `3380fe4`, `c9230cf`, and `6594dce`).
+  because real tasks changed (U7's head advanced with the boot-payload ordering
+  hardening, the transactional package and review owners were named, and the
+  settings fault-tolerance task was dispatched), not because a docs head moved.
+  It continues on branch `docs/schedule-update-9` and folds into the still-open
+  PR #25; no new pull request is opened for it.
+- The current update travels on branch `docs/schedule-update-9` (cut from
+  `origin/main` @ `6594dce`), delivered through PR #25; earlier schedule
+  branches merged as `3ae1ddf`, `0385b21`, `471de2c`, `3380fe4`, `c9230cf`,
+  and `6594dce`.
