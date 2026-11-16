@@ -11,7 +11,7 @@
 # here, so no rebuild is needed; regenerate this file only after a wording
 # change and report any new character before shipping.
 
-# ---- values (241) ----
+# ---- values (242) ----
 最近游玩
 最近
 收藏
@@ -106,6 +106,7 @@ NextUI 版本
 原厂系统版本
 BusyBox 版本
 未找到 BusyBox 版本。
+未知
 确定
 退出
 回车
