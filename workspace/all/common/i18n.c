@@ -140,6 +140,43 @@ static const I18nEntry zhTable[] = {
     {"space", "空格"},
     {"enter", "回车"},
 
+    // Settings: Network (WiFi) page labels, hints and values.
+    {"WiFi", "WiFi"},
+    {"Enable/disable WiFi", "启用或禁用 WiFi。"},
+    {"WiFi diagnostics", "WiFi 诊断"},
+    {"Enable/disable WiFi logging", "启用或禁用 WiFi 日志记录。"},
+    {"Enabling WiFi...", "正在启用 WiFi..."},
+    {"Disabling WiFi...", "正在禁用 WiFi..."},
+    {"Options", "选项"},
+    {"Disconnect", "断开连接"},
+    {"Disconnect from this network.", "断开与此网络的连接。"},
+    {"Connect", "连接"},
+    {"Connect to this network.", "连接到此网络。"},
+    {"Forget", "忘记"},
+    {"Removes credentials for this network.", "删除此网络的凭据。"},
+    {"Enter WiFi passcode", "输入 WiFi 密码"},
+    {"Enter Wifi passcode", "输入 WiFi 密码"},
+    {"Connecting...", "正在连接..."},
+
+    // Settings: Bluetooth page labels, hints and values. The page's MenuList
+    // title is "Network" in the source (a copy/paste from the WiFi menu); the
+    // English string is left as it is, so the shared "Network" key above covers
+    // it and the Chinese title reads the same as the WiFi page until the label
+    // is fixed. Reported rather than changed.
+    {"Enable/disable Bluetooth", "启用或禁用蓝牙。"},
+    {"Bluetooth diagnostics", "蓝牙诊断"},
+    {"Enable/disable Bluetooth logging", "启用或禁用蓝牙日志记录。"},
+    {"Maximum sampling rate", "最高采样率"},
+    {"44100 Hz: better compatibility\n48000 Hz: better quality", "44100 Hz：兼容性更好；48000 Hz：音质更好"},
+    {"Enabling Bluetooth...", "正在启用蓝牙..."},
+    {"Disabling Bluetooth...", "正在禁用蓝牙..."},
+    {"Pair", "配对"},
+    {"Pair this device.", "配对此设备。"},
+    {"Pairing...", "正在配对..."},
+    {"Forget this device.", "忘记此设备。"},
+    {"Connect this device.", "连接此设备。"},
+    {"Disconnect this device.", "断开此设备的连接。"},
+
     // Settings: Display page labels and hints.
     {"Brightness", "亮度"},
     {"Display brightness (0 to 10)", "显示亮度（0 到 10）"},
