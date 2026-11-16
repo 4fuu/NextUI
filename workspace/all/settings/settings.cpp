@@ -615,7 +615,7 @@ int main(int argc, char *argv[])
                 deviceInfo.getModel() == DeviceInfo::RGCubeXX ? DISPLAYCAL_PRESET_RGCUBEXX :
                 DISPLAYCAL_PRESET_DEFAULT);
             displayItems.push_back(
-                new MenuItem{ListItemType::Generic, TR("White point correction"), TR("Corrects the display white point to better match the \nsRGB standard, at the expense of some peak brightness."), {false, true}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("White point correction"), TR("Corrects the display white point to better match the \nsRGB standard, at the expense of some peak brightness."), {false, true}, on_off_tr, []() -> std::any
                 { return GetDisplayCalEnabled() != 0; }, [](const std::any &value)
                 { SetDisplayCalEnabled(std::any_cast<bool>(value)); },
                 [defaultDisplayCal]() { SetDisplayCalEnabled(defaultDisplayCal.enabled); }});
@@ -655,7 +655,7 @@ int main(int argc, char *argv[])
             { return CFG_getSuspendTimeoutSecs(); }, [](const std::any &value)
             { CFG_setSuspendTimeoutSecs(std::any_cast<uint32_t>(value)); },
             []() { CFG_setSuspendTimeoutSecs(CFG_DEFAULT_SUSPENDTIMEOUTSECS);}},
-            new MenuItem{ListItemType::Generic, TR("Haptic feedback"), TR("Enable or disable haptic feedback on certain actions in the OS"), {false, true}, on_off, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Haptic feedback"), TR("Enable or disable haptic feedback on certain actions in the OS"), {false, true}, on_off_tr, []() -> std::any
             { return CFG_getHaptics(); }, [](const std::any &value)
             { CFG_setHaptics(std::any_cast<bool>(value)); },
             []() { CFG_setHaptics(CFG_DEFAULT_HAPTICS);}},
@@ -665,17 +665,17 @@ int main(int argc, char *argv[])
             []() -> std::any { return CFG_getDefaultView(); },
             [](const std::any &value){ CFG_setDefaultView(std::any_cast<int>(value)); },
             []() { CFG_setDefaultView(CFG_DEFAULT_VIEW);}},
-            new MenuItem{ListItemType::Generic, TR("Show 24h time format"), TR("Show clock in the 24hrs time format"), {false, true}, on_off, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Show 24h time format"), TR("Show clock in the 24hrs time format"), {false, true}, on_off_tr, []() -> std::any
             { return CFG_getClock24H(); },
             [](const std::any &value)
             { CFG_setClock24H(std::any_cast<bool>(value)); },
             []() { CFG_setClock24H(CFG_DEFAULT_CLOCK24H);}},
-            new MenuItem{ListItemType::Generic, TR("Show clock"), TR("Show clock in the status pill"), {false, true}, on_off, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Show clock"), TR("Show clock in the status pill"), {false, true}, on_off_tr, []() -> std::any
             { return CFG_getShowClock(); },
             [](const std::any &value)
             { CFG_setShowClock(std::any_cast<bool>(value)); },
             []() { CFG_setShowClock(CFG_DEFAULT_SHOWCLOCK);}},
-            new MenuItem{ListItemType::Generic, TR("Set time and date automatically"), TR("Automatically adjust system time\nwith NTP (requires internet access)"), {false, true}, on_off, []() -> std::any
+            new MenuItem{ListItemType::Generic, TR("Set time and date automatically"), TR("Automatically adjust system time\nwith NTP (requires internet access)"), {false, true}, on_off_tr, []() -> std::any
             { return TIME_getNetworkTimeSync(); }, [](const std::any &value)
             { TIME_setNetworkTimeSync(std::any_cast<bool>(value)); },
             []() { TIME_setNetworkTimeSync(false);}}, // default from stock
@@ -695,7 +695,7 @@ int main(int argc, char *argv[])
         if(deviceInfo.getPlatform() == DeviceInfo::tg5040)
         {
             systemItems.push_back(
-                new MenuItem{ListItemType::Generic, TR("Safe poweroff"), TR("Bypasses the stock shutdown procedure to avoid the \"limbo bug\".\nInstructs the PMIC directly to soft disconnect the battery."), {false, true}, on_off,
+                new MenuItem{ListItemType::Generic, TR("Safe poweroff"), TR("Bypasses the stock shutdown procedure to avoid the \"limbo bug\".\nInstructs the PMIC directly to soft disconnect the battery."), {false, true}, on_off_tr,
                 []() -> std::any { return CFG_getPowerOffProtection(); },
                 [](const std::any &value) { CFG_setPowerOffProtection(std::any_cast<bool>(value)); },
                 []() { CFG_setPowerOffProtection(CFG_DEFAULT_POWEROFFPROTECTION); }}
@@ -705,7 +705,7 @@ int main(int argc, char *argv[])
         if(deviceInfo.getPlatform() == DeviceInfo::tg5040 || deviceInfo.getPlatform() == DeviceInfo::h700)
         {
             systemItems.push_back(
-                new MenuItem{ListItemType::Generic, TR("Keep awake over USB"), TR("Prevent screen-off and sleep while connected to a\ncomputer as a USB device (not just charging)."), {false, true}, on_off,
+                new MenuItem{ListItemType::Generic, TR("Keep awake over USB"), TR("Prevent screen-off and sleep while connected to a\ncomputer as a USB device (not just charging)."), {false, true}, on_off_tr,
                 []() -> std::any { return CFG_getKeepAwakeWhenUSB(); },
                 [](const std::any &value) { CFG_setKeepAwakeWhenUSB(std::any_cast<bool>(value)); },
                 []() { CFG_setKeepAwakeWhenUSB(CFG_DEFAULT_KEEPAWAKEWHENUSB); }}
@@ -736,7 +736,7 @@ int main(int argc, char *argv[])
             []() -> std::any { return GetMutedVolume(); },
             [](const std::any &value) { SetMutedVolume(std::any_cast<int>(value)); },
             []() { SetMutedVolume(0); }},
-            new MenuItem{ListItemType::Generic, TR("FN switch disables LED"), TR("Switch will also disable LEDs"), {false, true}, on_off,
+            new MenuItem{ListItemType::Generic, TR("FN switch disables LED"), TR("Switch will also disable LEDs"), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getMuteLEDs(); },
             [](const std::any &value) { CFG_setMuteLEDs(std::any_cast<bool>(value)); },
             []() { CFG_setMuteLEDs(CFG_DEFAULT_MUTELEDS); }},
@@ -788,35 +788,35 @@ int main(int argc, char *argv[])
             }
 
             muteItems.insert(muteItems.end(), {
-                new MenuItem{ListItemType::Generic, TR("Turbo fire A"), TR("Enable turbo fire A"), {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire A"), TR("Enable turbo fire A"), {0, 1}, on_off_tr, []() -> std::any
                 { return GetMuteTurboA(); },
                 [](const std::any &value) { SetMuteTurboA(std::any_cast<int>(value));},
                 []() { SetMuteTurboA(0);}},
-                new MenuItem{ListItemType::Generic, TR("Turbo fire B"), TR("Enable turbo fire B"), {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire B"), TR("Enable turbo fire B"), {0, 1}, on_off_tr, []() -> std::any
                 { return GetMuteTurboB(); },
                 [](const std::any &value) { SetMuteTurboB(std::any_cast<int>(value));},
                 []() { SetMuteTurboB(0);}},
-                new MenuItem{ListItemType::Generic, TR("Turbo fire X"), TR("Enable turbo fire X"), {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire X"), TR("Enable turbo fire X"), {0, 1}, on_off_tr, []() -> std::any
                 { return GetMuteTurboX(); },
                 [](const std::any &value) { SetMuteTurboX(std::any_cast<int>(value));},
                 []() { SetMuteTurboX(0);}},
-                new MenuItem{ListItemType::Generic, TR("Turbo fire Y"), TR("Enable turbo fire Y"), {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire Y"), TR("Enable turbo fire Y"), {0, 1}, on_off_tr, []() -> std::any
                 { return GetMuteTurboY(); },
                 [](const std::any &value) { SetMuteTurboY(std::any_cast<int>(value));},
                 []() { SetMuteTurboY(0);}},
-                new MenuItem{ListItemType::Generic, TR("Turbo fire L1"), TR("Enable turbo fire L1"), {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire L1"), TR("Enable turbo fire L1"), {0, 1}, on_off_tr, []() -> std::any
                 { return GetMuteTurboL1(); },
                 [](const std::any &value) { SetMuteTurboL1(std::any_cast<int>(value));},
                 []() { SetMuteTurboL1(0);}},
-                new MenuItem{ListItemType::Generic, TR("Turbo fire L2"), TR("Enable turbo fire L2"), {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire L2"), TR("Enable turbo fire L2"), {0, 1}, on_off_tr, []() -> std::any
                 { return GetMuteTurboL2(); },
                 [](const std::any &value) { SetMuteTurboL2(std::any_cast<int>(value));},
                 []() { SetMuteTurboL2(0);}},
-                new MenuItem{ListItemType::Generic, TR("Turbo fire R1"), TR("Enable turbo fire R1"), {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire R1"), TR("Enable turbo fire R1"), {0, 1}, on_off_tr, []() -> std::any
                 { return GetMuteTurboR1(); },
                 [](const std::any &value) { SetMuteTurboR1(std::any_cast<int>(value));},
                 []() { SetMuteTurboR1(0);}},
-                new MenuItem{ListItemType::Generic, TR("Turbo fire R2"), TR("Enable turbo fire R2"), {0, 1}, on_off, []() -> std::any
+                new MenuItem{ListItemType::Generic, TR("Turbo fire R2"), TR("Enable turbo fire R2"), {0, 1}, on_off_tr, []() -> std::any
                 { return GetMuteTurboR2(); },
                 [](const std::any &value) { SetMuteTurboR2(std::any_cast<int>(value));},
                 []() { SetMuteTurboR2(0);}}

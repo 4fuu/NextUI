@@ -27,6 +27,18 @@ test-i18n:
 test-i18n-width:
 	../workspace/all/common/tests/run_i18n_width_test.sh
 
+# The i18n table and its charset fixture must hold the same values. Declared on
+# its own lines rather than added to the .PHONY and test lists above, so this
+# hunk never collides with another thread editing those lines.
+.PHONY: test-i18n-fixture
+test: test-i18n-fixture
+
+# Catches a value deleted from the fixture while its characters still appear
+# elsewhere in it, which is the blind spot that let the "Pair" regression ship
+# and which the character-set font verifier cannot see.
+test-i18n-fixture:
+	../workspace/all/common/tests/run_i18n_fixture_values_test.sh
+
 test-app-state:
 	../workspace/all/common/tests/run_app_state_test.sh
 
