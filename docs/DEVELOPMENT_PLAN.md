@@ -6,9 +6,9 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `5698908` (merge of PR #23, the settings Network/Bluetooth i18n;
-  fetched 2026-11-16). Docs-only main heads do not move this baseline; the
-  last docs-only tip was `6594dce` (merge of PR #22). Landing points on
+  rule): `e2ca971` (merge of PR #26, the settings Assignments i18n; fetched
+  2026-11-16). Docs-only main heads do not move this baseline; the last
+  docs-only tip was `07bdf4c` (merge of PR #25). Landing points on
   main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
@@ -21,10 +21,9 @@ history; its top section mirrors the current schedule in this file.
   (schedule file, `0385b21`), PR #18 (schedule file, `471de2c`), PR #19
   (schedule file, `3380fe4`), PR #20 (settings About/hints i18n, `6a98573`),
   PR #17 (U4 update feed, `4699226`), PR #21 (schedule file, `c9230cf`), PR #22
-  (schedule file, `6594dce`), and PR #23 (settings Network/Bluetooth i18n,
-  `5698908`); the latest main tip `07bdf4c` (merge of PR #25) is docs-only and
-  does not move this baseline. `de69781` is an ancestor of all of them. Later
-  updates branch from `origin/main`.
+  (schedule file, `6594dce`), PR #23 (settings Network/Bluetooth i18n,
+  `5698908`), and PR #26 (settings Assignments i18n, `e2ca971`); `de69781` is
+  an ancestor of all of them. Later updates branch from `origin/main`.
 - Maintenance rule (2026-11-16, owner 4fuu): this schedule's baseline is the
   real functional code version; the file is committed only when a feature, fix,
   requirement, acceptance, or owner dependency actually changes. A docs-only
@@ -99,17 +98,20 @@ Rules:
   `c9230cf`, and PR #22, `6594dce`);
   the built-in emulator removal (PR #13, `1d9aea2`); the settings
   About/hints i18n slice (PR #20, `6a98573`); the settings Network/Bluetooth
-  i18n slice (PR #23, `5698908`); and the U4 update feed block
+  i18n slice (PR #23, `5698908`); the settings Assignments i18n slice (PR #26,
+  `e2ca971`); and the U4 update feed block
   (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #24 (U7 `.tmp_update`
   payload sync, head `beae0cf`, CI green on that head per gh with the source
-  reporting six checks, review pending, not merged), PR #26 (I4 settings
-  Assignments translation, head `303c9ed`, CI green on that head per gh, open),
-  PR #27 (U8 transactional update package build, head `3b406c6`, CI green on
-  that head per gh with the source reporting six of six, open), and this
-  schedule file's own update. PR #23 (I4 settings Network/Bluetooth
-  translation, head `bd2a40c`) merged into main as
-  `5698908b44e8a0b09275440d5ff8bb7483e12239`; this schedule file's update
+  reporting six checks, independent review FAIL and blocking, not merged),
+  PR #27 (U8 transactional update package build, head `38b8cdc`, six of six
+  green per the source with gh showing Feature checks and Development/Desktop
+  success, awaiting review, open), and this schedule file's own update
+  (PR #28). PR #23 (I4 settings Network/Bluetooth translation, head
+  `bd2a40c`) merged into main as
+  `5698908b44e8a0b09275440d5ff8bb7483e12239`; PR #26 (I4 settings Assignments
+  translation, head `531d13e`) merged into main as
+  `e2ca9716b569ce16f9a605026e118f7c6a92eb05`; this schedule file's update
   PR #25 merged as `07bdf4c` (docs-only). This schedule file's updates merged
   into main as
   PR #12 `3ae1ddf`, PR #16 `0385b21`, PR #18 `471de2c`, PR #19 `3380fe4`, PR #21
@@ -222,7 +224,7 @@ Rules:
 
 ### I4 — Settings pages i18n (remaining user-visible settings)
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-e50d-7610-be41-7417d83ab622
-- State: three slices merged into main. PR #14 (branch
+- State: four slices merged into main. PR #14 (branch
   `i18n/settings-pages-main`), head
   `69379591f256c8cde1713814b34d15f48bc4b540` "Translate the settings Appearance
   page into Simplified Chinese", merged as `ec05440`; CI on that head was green
@@ -233,7 +235,13 @@ Rules:
   PR #23 (same branch, head `bd2a40c` "Translate the settings Network (WiFi)
   and Bluetooth pages"), merged as `5698908b44e8a0b09275440d5ff8bb7483e12239`
   with independent review PASS; CI on that head was green per gh. The PR body
-  was corrected to 236 width counts.
+  was corrected to 236 width counts. The fourth slice is PR #26 (branch
+  `i18n/settings-assignments`, final head `531d13e` "Finish the Pair
+  restoration: fixture value, entry count and the None fallback"), merged as
+  `e2ca9716b569ce16f9a605026e118f7c6a92eb05` after two review rounds with final
+  PASS: table and fixture 241 to 241, Pair unique, `TR(None)` present, 242
+  width counts, 390 font coverage. Assignments remains scratch work, not a
+  device result.
 - Scope boundary for PR #23: the new WiFi Connect row with saved credentials
   is desktop-unreachable and was not visually verified; do not read the slice
   as full visual coverage.
@@ -252,16 +260,14 @@ Rules:
   charset fixtures/tests; coordinates shared i18n keys with I5; must not edit
   devserv/keymon/launch/updater or revive the stopped permission UI.
 - Depends on: baseline; I5 coordination.
-- Next: the remaining settings pages continue in follow-up slices. The
-  Network/Bluetooth slice is merged as PR #23 (head `bd2a40c`, independent
-  review PASS). The Assignments slice is open as PR #26 (branch
-  `i18n/settings-assignments`, head `303c9ed` "Translate the settings
-  Assignments page into Simplified Chinese"), with CI green on that head per
-  gh and not merged at the last check. The second block (About plus the shared
-  menu/keyboard hints) is delivered as PR #20. Per the owner's decision the
-  In-Game menu is gone with PR #13, so it is not a translation gap; the
-  Notifications and RetroAchievements submenus went with the In-Game menu and
-  are not listed as gaps either.
+- Next: the planned settings page slices are delivered (Appearance, About plus
+  shared hints, Network/Bluetooth, Assignments). The Assignments slice merged
+  as PR #26 (head `531d13e`, two review rounds, final PASS); it stays scratch
+  work, not a device result. The remaining English surfaces stay with their
+  file owners: `common/api.c` overlay hints and the Remove Loading pak's
+  "Done". Per the owner's decision the In-Game menu is gone with PR #13, so it
+  is not a translation gap; the Notifications and RetroAchievements submenus
+  went with the In-Game menu and are not listed as gaps either.
 
 ### I5 — LedControl and boot text i18n
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-ed1c-779c-965c-e559b98248b0
@@ -624,7 +630,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
   (dispatched 2026-11-16 after PR #17 merged; the next open gap in the update
   chain).
-- Status: implemented and pushed; not merged. PR #24
+- Status: implemented and pushed; independent review FAIL, blocking; not
+  merged. PR #24
   (https://github.com/4fuu/NextUI/pull/24, branch `feature/boot-payload-sync`),
   head `beae0cf902ddcf09193ea00a8d3751c0e1fa224f` (advanced from
   `27c95475f2c41617259618a716dd0cc1e666a1b8`, itself advanced from
@@ -632,9 +639,18 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   superseded and is not recorded for this head), base `origin/main`
   `4699226`; OPEN and mergeable per gh. CI on `beae0cf`: gh shows Feature
   checks (push and pull_request) and Development/Desktop success; the source
-  reports six checks green. Independent review is with
-  https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0, and the
-  merge owner T-01a1e2e1 gates on CI plus review.
+  reports six checks green. The independent review
+  (https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0) returned
+  FAIL and blocks the merge, so the merge owner T-01a1e2e1 has not merged.
+- Blocking finding (not fixed, not delivered): when a terminal committed
+  transaction already exists, a new update writes the boot journal and is then
+  interrupted before `txn.json` is overwritten; the journal is judged foreign,
+  the gate power-cycles in a loop, and `recover`, `rollback`, and a re-run
+  `install` all return rc13 `boot_transaction_mismatch`. The review verified a
+  fix candidate — a terminal transaction whose binding does not match goes to
+  orphan rollback, while a non-terminal one stays fail-closed — and the source
+  is implementing it with regression tests, awaiting a new head with CI and an
+  incremental review. Do not record this as fixed or delivered.
 - Delivered: signed-package-driven `.system` plus optional `.tmp_update` sync,
   the independent recovery tool published first, `.tmp_update.bak` rollback, a
   separate v1-compatible boot journal, legacy system-only packages untouched,
@@ -687,11 +703,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   (transactional update package; the packaging side of U7's scope).
 - Status: delivered and pushed; not merged. PR #27
   (https://github.com/4fuu/NextUI/pull/27, branch `feature/updater-update-package`),
-  head `3b406c6da2becb1379199944bdb9ec50520d70e2`, base `origin/main` `6594dcec`;
-  OPEN and mergeable per gh. CI at that head is six of six green per the source
-  (Host tests push and PR, build-linux, build-macos, tg5040 target build push
-  and PR); gh shows Feature checks (push and pull_request) and
-  Development/Desktop success on that head.
+  head `38b8cdc376cb15a595b7e5c2bb09b9ce4a3378be` (supersedes
+  `3b406c6da2becb1379199944bdb9ec50520d70e2`), base `origin/main` `6594dcec`;
+  OPEN and mergeable per gh. CI at the new head is six of six green per the
+  source (Host tests push and PR, build-linux, build-macos, tg5040 target build
+  push and PR), with Host tests logging "61 passed, 0 failed, 2 skipped"; gh
+  shows Feature checks (push and pull_request) and Development/Desktop success
+  on that head.
+- Symlink fix at `38b8cdc`: the independent review (updater thread T-01a1e3a0,
+  contract review PASS) flagged that the h700 system tree ships
+  `libSDL2*.so*` through `cp -a`, so a real h700 archive would have been
+  refused for symlinks. `scripts/package-update.sh` now stages with `cp -RL`,
+  so symlinks become regular files (dereferenced paths are printed and a broken
+  link fails the copy). The ZIP symlink rule, roots, archive name,
+  manifest-from-final-bytes rule, and signing boundary are unchanged, and no
+  nextupd, workspace, or workflow file was touched.
 - Delivered: `make update-package PLATFORM=... UPDATE_VERSION=...` plus
   `scripts/package-update.sh`, packaging exactly `.system/` and the optional
   `.tmp_update/` boot payload into `nextui-system-<platform>.zip` with its
@@ -702,16 +728,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `Tools/`.
 - Evidence (host only, no device): `make -C tests test` green (177 + 55 + 56
   pre-existing checks; the new suite 50 passed, 0 failed, 1 skipped); the new
-  suite against the updater's `feature/boot-payload-sync` head `27c95475`: 56
-  passed, 0 failed, 0 skipped, including the `.tmp_update` install lifecycle on
-  the packaged archive; under ASan/UBSan: 50 passed, 0 failed, 1 skipped; the
-  old bootstrap shape passes `check` and is refused by `install` with
-  `unexpected_path` and zero writes on both binaries.
+  suite against the updater's frozen head `beae0cf`: 73 passed, 0 failed, 0
+  skipped, including the h700 boot install lifecycle; on main 61 passed, 0
+  failed, 2 skipped; under ASan/UBSan: 61 passed, 0 failed, 2 skipped; the old
+  bootstrap shape passes `check` and is refused by `install` with
+  `unexpected_path` and zero writes on both binaries. New tests: an h700 tree
+  with chained `libSDL2` links (regular files with the real library bytes,
+  roots still `.system` plus optional `.tmp_update`, no `Tools/`),
+  broken-symlink and FIFO refusals, and the h700 boot install lifecycle.
 - Dependency: the `.tmp_update` install lifecycle end to end is skipped on main
   and activates automatically once the updater's boot payload sync (PR #24)
   merges; the test detects support from `check`'s `boot_payload` field. The
   tg5040 package-content CI job is proposed to the CI owner and is not yet in
-  any workflow.
+  any workflow; per the merge owner it lands as a separate test-only
+  `ci/update-package-content` pull request after this one merges, not mixed
+  into a release.
 - Not delivered: production release source, feed configuration, production
   signing key, any device install or release publication.
 - Next: organization review plus CI and merge of PR #27; the `UPDATES.md`
@@ -722,7 +753,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
   (dispatched 2026-11-16; works in isolation from the translation pull
   requests and hands results to the sole CI/merge owner).
-- Status: dispatched, not started.
+- Status: running (verified by the merge owner 2026-11-16; the absence of a
+  pull request is not evidence of no work). The source was asked to report
+  progress to this schedule.
 - Scope: fix the settings crashes and corruption cases found in abnormal
   data — the missing-version crash, the trailing-newline missing glyphs, and
   the empty-timezone abort — with host regression coverage; no translation
