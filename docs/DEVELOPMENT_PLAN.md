@@ -1478,7 +1478,9 @@ as they happen; nothing is reported as passing without a run.
   controls, PR #32 merged into main as `64540a7` with all post-merge runs
   green, the System Update page's zh follow-up merged as PR #35 at `9374757`,
   the I4 fifth slice merged as PR #34 at `a6f507f` with the in-repo i18n
-  fixture value test, and the U10 first-update/output-safety task dispatched),
+  fixture value test, the U10 first-update/output-safety task dispatched with
+  its first head as PR #36, and the read-only application-install audit
+  recorded as F6 with its next block and owner decisions),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
@@ -1487,5 +1489,6 @@ as they happen; nothing is reported as passing without a run.
   `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
   `8e4f744`). Its pull request is PR #31; while that pull request stays open,
   later real changes fold into it instead of opening another one, which is why
-  the PR #32, PR #33, PR #34, PR #35, U10, and merge facts ride the same
-  branch. The schedule baseline moved to `9374757` with the PR #35 merge.
+  the PR #32, PR #33, PR #34, PR #35, PR #36, U10, F6, and merge facts ride
+  the same branch. The schedule baseline moved to `3a0b048` with the PR #33
+  merge.
