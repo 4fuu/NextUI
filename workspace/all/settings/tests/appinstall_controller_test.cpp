@@ -380,6 +380,44 @@ static void testUnknownPackagePath()
     CHECK(!exists(target + "/Tools"), "unknown path: nothing installed");
 }
 
+// The production tool path is the packaged independent boot tool at
+// <target>/.tmp_update/<platform>/nextupd.elf, exactly as the System Update
+// controller resolves it: with the tool there it is used, and without it the page
+// reports ToolUnavailable instead of guessing. There is no .system fallback.
+static void testToolPathMatchesPackage()
+{
+    std::string base = freshBase();
+    std::string target = makeTarget(base, "v6.0.0");
+    Config cfg = baseConfig(base, g_build + "/packages", target, "v6.0.0");
+    cfg.tool_path = ""; // exercise production resolution
+
+    std::string toolDir = target + "/.tmp_update/tg5040";
+    mkdirs(toolDir);
+    std::ifstream src(g_tool.c_str(), std::ios::binary);
+    std::stringstream buffer;
+    buffer << src.rdbuf();
+    writeFile(toolDir + "/nextupd.elf", buffer.str());
+    chmod((toolDir + "/nextupd.elf").c_str(), 0755);
+
+    Controller controller(cfg);
+    Result installed = controller.install(g_build + "/packages/Demo.pakz");
+    CHECK(installed.state == State::Installed, "pkgpath: used the .tmp_update tool, state %d reason %s",
+          (int)installed.state, installed.reason.c_str());
+    CHECK(exists(pakDir(target) + "/pak.json"), "pkgpath: app installed through the packaged tool");
+
+    // Without the packaged tool the page reports it, rather than looking for one
+    // inside the tree an install would replace.
+    std::string base2 = freshBase();
+    std::string target2 = makeTarget(base2, "v6.0.0");
+    Config cfg2 = baseConfig(base2, g_build + "/packages", target2, "v6.0.0");
+    cfg2.tool_path = "";
+    Controller controller2(cfg2);
+    Result missing = controller2.install(g_build + "/packages/Demo.pakz");
+    CHECK(missing.state == State::ToolUnavailable, "pkgpath: missing packaged tool, state %d reason %s",
+          (int)missing.state, missing.reason.c_str());
+    CHECK(!exists(target2 + "/Tools"), "pkgpath: nothing installed without the tool");
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 4)
@@ -401,6 +439,7 @@ int main(int argc, char **argv)
     testPlatformAndSystemVersion();
     testNoConcurrentInstall();
     testUnknownPackagePath();
+    testToolPathMatchesPackage();
 
     printf("appinstall controller: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

@@ -19,17 +19,14 @@ Menu::Menu(const int &globalQuit, int &globalDirty, Controller &controller)
     statusItem = new StaticMenuItem(ListItemType::Generic, TR("Status"), "",
                                     [this]() -> std::any { return statusText_; });
 
-    items.push_back(statusItem);
-    items.push_back(folderItem);
-    rebuildRows();
-
     refreshItem = new MenuItem(
         ListItemType::Button, TR("Look for packages"),
         TR("Scan the package folder again."), [this](AbstractMenuItem &) -> InputReactionHint {
             request("refresh", TR("Looking for packages..."));
             return InputReactionHint::NoOp;
         });
-    items.push_back(refreshItem);
+
+    rebuildRows();
 
     // Honest first state: without a trusted key nothing can be verified, and an
     // empty folder is not an error. Both are stated instead of hiding the page.
@@ -82,15 +79,15 @@ void Menu::rebuildRows()
     for (MenuItem* item : packageItems)
         delete item;
     packageItems.clear();
-    for (size_t i = items.size(); i-- > 0; )
-    {
-        AbstractMenuItem* item = items[i];
-        if (item != folderItem && item != statusItem && item != refreshItem)
-            items.erase(items.begin() + (long)i);
-    }
 
-    std::vector<Package> packages = controller.listPackages();
-    for (const Package& package : packages)
+    // The row order is fixed - status, folder, the packages, then the rescan row -
+    // and the vector is rebuilt rather than filtered, so a rescan cannot reorder
+    // the page. refreshItem is null only if a rebuild runs before the constructor
+    // has built it; the guard keeps that safe.
+    std::vector<AbstractMenuItem*> rows;
+    rows.push_back(statusItem);
+    rows.push_back(folderItem);
+    for (const Package& package : controller.listPackages())
     {
         MenuItem* item = new MenuItem(
             ListItemType::Button, package.name, describePackage(package),
@@ -107,8 +104,11 @@ void Menu::rebuildRows()
                 return InputReactionHint::NoOp;
             });
         packageItems.push_back(item);
-        items.push_back(item);
+        rows.push_back(item);
     }
+    if (refreshItem)
+        rows.push_back(refreshItem);
+    items = rows;
 
     // The rows are laid out again with the rect the page is drawn with. Unlike the
     // constructor, this is a real layout: the page is already on screen, so the
@@ -122,7 +122,7 @@ void Menu::rebuildRows()
 std::string Menu::idleStatus()
 {
     if (controller.config().trusted_key.empty())
-        return TR("Verification is not configured: no trusted key is set.");
+        return TR("No trusted key is configured.");
     for (const Package& package : controller.listPackages())
         if (package.usable)
             return TR("Choose a signed package to install.");
@@ -246,7 +246,7 @@ std::string Menu::describe(const Result &result) const
     case State::PackageUnusable:
         return packageReason(result.reason);
     case State::Unconfigured:
-        return TR("Verification is not configured: no trusted key is set.");
+        return TR("No trusted key is configured.");
     case State::ToolUnavailable:
         return TR("Update tool is not available.");
     case State::Busy:

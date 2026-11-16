@@ -146,8 +146,11 @@ std::vector<Package> Controller::listPackages() const
             continue;
         }
         // This page installs application packages only. A manifest declaring any
-        // other kind is not installable from here, so the system transaction is
-        // never reachable through this entry.
+        // other kind is not installable from here. Residual, stated rather than
+        // hidden: the sidecars are ordinary files, so a writer that swaps a
+        // validly signed system manifest in after this scan and before stage
+        // opens it could still reach install, which routes by the verified kind.
+        // The complete fix is an expected-kind flag on the tool itself.
         std::map<std::string, std::string>::const_iterator kind = fields.find("kind");
         if (kind == fields.end() || kind->second != "app")
         {

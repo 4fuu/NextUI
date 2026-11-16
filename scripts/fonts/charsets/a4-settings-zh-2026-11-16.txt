@@ -17,7 +17,7 @@
 # removed together with the RetroAchievements dead cluster. a3-zh is left as the
 # frozen audit snapshot and still lists those characters.
 
-# ---- values (288) ----
+# ---- values (291) ----
 最近游玩
 最近
 收藏
@@ -287,7 +287,6 @@ USB 连接时保持唤醒
 安装包目录
 重新扫描安装包
 重新扫描安装包目录。
-未配置验证：没有设置可信公钥。
 没有找到已签名的安装包。
 选择要安装的已签名安装包。
 已签名的应用包
@@ -306,3 +305,7 @@ USB 连接时保持唤醒
 此安装包无法安装。
 安装失败。
 更新工具不可用。
+未配置可信公钥。
+正在扫描安装包...
+此安装包不适用于本设备。
+无法读取已安装应用的版本。

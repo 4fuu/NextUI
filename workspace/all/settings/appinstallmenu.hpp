@@ -20,10 +20,12 @@ class Menu : public MenuList
     int &globalDirty;
     Controller &controller;
 
-    StaticMenuItem *folderItem;
-    StaticMenuItem *statusItem;
+    StaticMenuItem *folderItem = nullptr;
+    StaticMenuItem *statusItem = nullptr;
     std::vector<MenuItem*> packageItems;
-    MenuItem *refreshItem;
+    // Built by the constructor before the first row rebuild, and defaulted so a
+    // rebuild that runs earlier cannot compare against an uninitialized pointer.
+    MenuItem *refreshItem = nullptr;
     bool rowsStale = false; // a refresh finished; rebuild on the next frame
 
     std::thread worker;
