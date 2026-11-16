@@ -6,11 +6,12 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `64540a7` (merge of PR #32, the System Update install UI; below it
-  PR #34 the Off/On labels slice and the in-repo i18n fixture value test,
-  PR #30 the About page Unknown zh entry -- which also carries PR #27 the
-  transactional update package build -- and PR #29 the I9 settings
-  abnormal-data fixes; fetched 2026-11-16).
+  rule): `9374757` (merge of PR #35, the System Update page's zh follow-up;
+  below it PR #32 the System Update install UI, PR #34 the Off/On labels
+  slice and the in-repo i18n fixture value test, PR #30 the About page
+  Unknown zh entry -- which also carries PR #27 the transactional update
+  package build -- and PR #29 the I9 settings abnormal-data fixes; fetched
+  2026-11-16).
   Docs-only main heads do not move this baseline; the last
   docs-only tip was `8e4f744` (merge of PR #28). Landing points on
   main, oldest first: PR #5
@@ -110,6 +111,7 @@ Rules:
   build (PR #27, `0239203`); the About page Unknown zh entry (PR #30,
   `d25543b`); the Off/On labels slice with the in-repo i18n fixture value
   test (PR #34, `a6f507f`); the System Update install UI (PR #32, `64540a7`);
+  the System Update page's zh follow-up (PR #35, `9374757`);
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
@@ -178,7 +180,15 @@ Rules:
   a real top-level-menu pump regression that SIGSEGVs on the old code,
   `mapError` false states fixed, the real package's three-platform
   `.tmp_update/*/nextupd.elf` 0755 matching the UI's `resolveTool` path, and
-  the settings-runtime does-not-replace-itself safety verified). PR #34 (I4 fifth slice: the
+  the settings-runtime does-not-replace-itself safety verified). PR #35 (the
+  System Update page's zh follow-up, branch `i18n/sysupdate-zh`, final head
+  `13d079e66a9180d011d83d9415c24ff3fd005fa2`) merged into main as
+  `9374757c7d0519408ae43bbf25201116382e696b` (2026-11-16T13:19:39Z per gh)
+  with the independent review PASS per the merge owner (actual zh page
+  without truncation, fixture multiset 276 to 276, font coverage 422/422);
+  on the merge commit Development/Desktop is success per gh while Feature
+  checks and the full CI run are in progress (not recorded as passing).
+  PR #34 (I4 fifth slice: the
   System, Display and FN switch Off/On rows in Chinese, plus the in-repo
   i18n fixture value test, branch `i18n/on-off-labels`, final head
   `a6cb5c228975fb35659d6e66b7204b736cd7e2d9`) merged into main as
@@ -1103,16 +1113,41 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   their hints, in-flight prompts, and all status/error states); the keys are
   distinct from I4's merged entries, no new font characters are needed (all
   covered by `font3.ttf`, no rebuild), and `menu`/`version`/packaging are
-  untouched. Evidence: `test-i18n`, `test-i18n-fixture` (value multiset),
-  `test-i18n-width` (FONT_TINY fit), and actual zh render screenshots
-  (labels, buttons, and a live status). It awaits the merge owner's review
-  and merge; if PR #33's fix moves main, the source normal-merges.
+  untouched. It merged into main as
+  `9374757c7d0519408ae43bbf25201116382e696b` (2026-11-16T13:19:39Z per gh,
+  final head `13d079e66a9180d011d83d9415c24ff3fd005fa2`) with the independent
+  review PASS per the merge owner: the actual zh page renders without
+  truncation, the fixture multiset is 276 to 276, and font coverage is
+  422/422. On the merge commit `9374757`, Development/Desktop is success per
+  gh while Feature checks and the full CI run are in progress at the last
+  check (not recorded as passing).
 - Depends on: U4 feed (in main), U1 transaction (in main), U7 boot payload sync
   (in main), and the I9 settings fixes (in main).
-- Next: PR #32 is merged, so the remaining follow-ups are packaging-only (the
-  `nextupd.elf` boot-payload copy is verified present in the real package)
-  plus the zh follow-up PR #35 awaiting the merge owner, and any
-  owner-provisioned production feed/key.
+- Next: PR #32 and the zh follow-up PR #35 are both merged, so the remaining
+  follow-ups are packaging-only (the `nextupd.elf` boot-payload copy is
+  verified present in the real package) and any owner-provisioned production
+  feed/key. The first-update contract and package output safety gaps that
+  this slice surfaced are now the dispatched U10 task.
+
+#### U10 — First update contract and package output safety
+- Owner thread: https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652
+  (Step Medium; dispatched 2026-11-16).
+- Status: dispatched; no head delivered, so nothing is recorded as fixed. It
+  covers the pre-release code gaps recorded earlier: the bootstrap
+  `NextUI-<date>-<n>` `version.txt` versus nextupd's `vX.Y.Z` semver in the
+  first-install contract, and `package-update`'s interruption safety when the
+  whole ZIP/manifest/signature group fails mid-run.
+- Constraints (owner-set): no fabricated version mapping, no unknown default
+  of `v0`, no relaxation of signature verification, and a clear distinction
+  between new bootstrap improvements and old-card support. Isolated-root tests
+  only; an independent pull request to the sole CI/merge owner; coordinates
+  with PR #33 on the shared files; no release and no device operation.
+- Depends on: the U8 packaging output and the U1 transaction core (both in
+  main), and file coordination with PR #33.
+- Delivery/verification: isolated-root tests for the version contract and the
+  interrupted-group failure path, plus an independent pull request; a run
+  without a pull request is not a delivery.
+- Next: the source delivers a head, then the merge owner reviews and merges.
 
 ### P3 — Full UI translation remainder
 
