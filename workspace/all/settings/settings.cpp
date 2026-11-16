@@ -472,7 +472,7 @@ int main(int argc, char *argv[])
         pickers.reserve(std::size(g_colorDefs));
         for (const auto &def : g_colorDefs)
             pickers.push_back(std::make_unique<ColorPickerMenu>(
-                CFG_getColor(def.id), makeColorSetter(def.id), buildColorPresets(def.id), def.name));
+                CFG_getColor(def.id), makeColorSetter(def.id), buildColorPresets(def.id), TR(def.name)));
 
         // Build color MenuItems (loop order = g_colorDefs order = display order)
         std::vector<AbstractMenuItem *> colorMenuItems;
@@ -482,12 +482,19 @@ int main(int argc, char *argv[])
             const auto &def = g_colorDefs[i];
             ColorPickerMenu *picker = pickers[i].get();
             colorMenuItems.push_back(new MenuItem{
-                ListItemType::Color, def.name, def.desc, colors, color_strings,
+                ListItemType::Color, TR(def.name), TR(def.desc), colors, color_strings,
                 makeColorGetter(def.id),
                 makeColorSetter(def.id),
                 makeColorResetter(def.id, def.defaultColor),
-                makeColorOpener(picker, def.id, def.name), picker});
+                makeColorOpener(picker, def.id, TR(def.name)), picker});
         }
+
+        // Translated copies of the static label vectors above, which are
+        // initialized before the language is loaded (see translateLabels).
+        const std::vector<std::string> on_off_tr = translateLabels(on_off);
+        const std::vector<std::string> transition_mode_tr = translateLabels(transition_mode_labels);
+        const std::vector<std::string> curtain_opacity_tr = translateLabels(curtain_opacity_labels);
+        const std::vector<std::string> input_prompt_style_tr = translateLabels(input_prompt_style_labels);
 
         std::vector<AbstractMenuItem *> appearanceItems;
         appearanceItems.push_back(new MenuItem{
@@ -505,67 +512,67 @@ int main(int argc, char *argv[])
             font_values.push_back(f.filename);
             font_labels.push_back(f.label);
         }
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Font", "The font to render all UI text.", font_values, font_labels,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Font"), TR("The font to render all UI text."), font_values, font_labels,
             []() -> std::any { return std::string(CFG_getFontFile()); },
             [](const std::any &value) { CFG_setFontFile(std::any_cast<std::string>(value).c_str()); },
             []() { CFG_setFontFile(NULL); }});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Font style", "The style to render the UI font (e.g. bold)", std::vector<std::any>{0, 1}, std::vector<std::string>{"Normal", "Bold"},
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Font style"), TR("The style to render the UI font (e.g. bold)"), std::vector<std::any>{0, 1}, std::vector<std::string>{TR("Normal"), TR("Bold")},
             []() -> std::any { return CFG_getFontStyle(); },
             [](const std::any &value) { CFG_setFontStyle(std::any_cast<int>(value)); },
             []() { CFG_setFontStyle(CFG_DEFAULT_FONT_STYLE); }});
         appearanceItems.push_back(buildPaletteMenuItem());
         for (auto *item : colorMenuItems)
             appearanceItems.push_back(item);
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show battery percentage", "Show battery level as percent in the status pill", {false, true}, on_off,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show battery percentage"), TR("Show battery level as percent in the status pill"), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getShowBatteryPercent(); },
             [](const std::any &value) { CFG_setShowBatteryPercent(std::any_cast<bool>(value)); },
             []() { CFG_setShowBatteryPercent(CFG_DEFAULT_SHOWBATTERYPERCENT);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show menu animations", "Enable or disable menu animations", {false, true}, on_off,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show menu animations"), TR("Enable or disable menu animations"), {false, true}, on_off_tr,
             []() -> std::any{ return CFG_getMenuAnimations(); },
             [](const std::any &value) { CFG_setMenuAnimations(std::any_cast<bool>(value)); },
             []() { CFG_setMenuAnimations(CFG_DEFAULT_SHOWMENUANIMATIONS);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Menu transitions", "Style of animated transition when navigating menus", transition_mode_values, transition_mode_labels,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Menu transitions"), TR("Style of animated transition when navigating menus"), transition_mode_values, transition_mode_tr,
             []() -> std::any { return CFG_getMenuTransitions(); },
             [](const std::any &value) { CFG_setMenuTransitions(std::any_cast<int>(value)); },
             []() { CFG_setMenuTransitions(CFG_DEFAULT_SHOWMENUTRANSITIONS); }});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Game art corner radius", "Set the radius for the rounded corners of game art", 0, 24, "px",
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Game art corner radius"), TR("Set the radius for the rounded corners of game art"), 0, 24, "px",
             []() -> std::any{ return CFG_getThumbnailRadius(); },
             [](const std::any &value) { CFG_setThumbnailRadius(std::any_cast<int>(value)); },
             []() { CFG_setThumbnailRadius(CFG_DEFAULT_THUMBRADIUS);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Game art width", "Set the percentage of screen width used for game art.\nUI elements might overrule this to avoid clipping.",
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Game art width"), TR("Set the percentage of screen width used for game art.\nUI elements might overrule this to avoid clipping."),
             5, 100, "%",
             []() -> std::any{ return (int)(CFG_getGameArtWidth() * 100); },
             [](const std::any &value) { CFG_setGameArtWidth((double)std::any_cast<int>(value) / 100.0); },
             []() { CFG_setGameArtWidth(CFG_DEFAULT_GAMEARTWIDTH);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show folder names at root", "Show folder names at root directory", {false, true}, on_off,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show folder names at root"), TR("Show folder names at root directory"), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getShowFolderNamesAtRoot(); },
             [](const std::any &value) { CFG_setShowFolderNamesAtRoot(std::any_cast<bool>(value)); },
             []() { CFG_setShowFolderNamesAtRoot(CFG_DEFAULT_SHOWFOLDERNAMESATROOT);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show Recents", "Show \"Recently Played\" menu entry in game list.", {false, true}, on_off,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show Recents"), TR("Show \"Recently Played\" menu entry in game list."), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getShowRecents(); },
             [](const std::any &value) { CFG_setShowRecents(std::any_cast<bool>(value)); },
             []() { CFG_setShowRecents(CFG_DEFAULT_SHOWRECENTS);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show Tools", "Show \"Tools\" menu entry in game list.", {false, true}, on_off,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show Tools"), TR("Show \"Tools\" menu entry in game list."), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getShowTools(); },
             [](const std::any &value) { CFG_setShowTools(std::any_cast<bool>(value)); },
             []() { CFG_setShowTools(CFG_DEFAULT_SHOWTOOLS);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show game art", "Show game artwork in the main menu", {false, true}, on_off,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show game art"), TR("Show game artwork in the main menu"), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getShowGameArt(); },
             [](const std::any &value) { CFG_setShowGameArt(std::any_cast<bool>(value)); },
             []() { CFG_setShowGameArt(CFG_DEFAULT_SHOWGAMEART);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Use folder background for ROMs", "If enabled, used the emulator background image. Otherwise uses the default.", {false, true}, on_off,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Use folder background for ROMs"), TR("If enabled, used the emulator background image. Otherwise uses the default."), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getRomsUseFolderBackground(); },
             [](const std::any &value) { CFG_setRomsUseFolderBackground(std::any_cast<bool>(value)); },
             []() { CFG_setRomsUseFolderBackground(CFG_DEFAULT_ROMSUSEFOLDERBACKGROUND);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Show Quickswitcher UI", "Show/hide Quickswitcher UI elements.\nWhen hidden, will only draw background images.", {false, true}, on_off,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show Quickswitcher UI"), TR("Show/hide Quickswitcher UI elements.\nWhen hidden, will only draw background images."), {false, true}, on_off_tr,
             []() -> std::any{ return CFG_getShowQuickswitcherUI(); },
             [](const std::any &value){ CFG_setShowQuickswitcherUI(std::any_cast<bool>(value)); },
             []() { CFG_setShowQuickswitcherUI(CFG_DEFAULT_SHOWQUICKWITCHERUI);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Game switcher curtain opacity", "Show/hide curtain overlay. Helps UI elements to \nstand out when using transparent backgrounds.", curtain_opacity_values, curtain_opacity_labels, 
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Game switcher curtain opacity"), TR("Show/hide curtain overlay. Helps UI elements to \nstand out when using transparent backgrounds."), curtain_opacity_values, curtain_opacity_tr, 
             []() -> std::any{ return CFG_getGameSwitcherCurtain(); },
             [](const std::any &value){ CFG_setGameSwitcherCurtain(std::any_cast<int>(value)); },
             []() { CFG_setGameSwitcherCurtain(CFG_DEFAULT_GAMESWITCHER_CURTAIN);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, "Input prompt style", "Select the style of input prompts.", input_prompt_style_values, input_prompt_style_labels,
+        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Input prompt style"), TR("Select the style of input prompts."), input_prompt_style_values, input_prompt_style_tr,
             []() -> std::any{ return CFG_getInputPromptStyle(); },
             [](const std::any &value){ CFG_setInputPromptStyle(std::any_cast<int>(value)); },
             []() { CFG_setInputPromptStyle(CFG_DEFAULT_INPUT_PROMPT_STYLE);}});
@@ -575,8 +582,8 @@ int main(int argc, char *argv[])
         // [](const std::any &value)
         // { CFG_setGameSwitcherScaling(std::any_cast<int>(value)); },
         // []() { CFG_setGameSwitcherScaling(CFG_DEFAULT_GAMESWITCHERSCALING);}},
-        appearanceItems.push_back(new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu});
-        auto *appearanceMenu = new MenuList(MenuItemType::Fixed, "Appearance", std::move(appearanceItems));
+        appearanceItems.push_back(new MenuItem{ListItemType::Button, TR("Reset to defaults"), TR("Resets all options in this menu to their default values."), ResetCurrentMenu});
+        auto *appearanceMenu = new MenuList(MenuItemType::Fixed, TR("Appearance"), std::move(appearanceItems));
 
         std::vector<AbstractMenuItem*> displayItems = {
             new MenuItem{ListItemType::Generic, TR("Brightness"), TR("Display brightness (0 to 10)"), 0, 10, "",[]() -> std::any
