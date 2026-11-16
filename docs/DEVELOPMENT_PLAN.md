@@ -330,7 +330,8 @@ Rules:
   page), and an SD swap race was not covered by the static
   app-kind gate, so no claim was made that the system transaction is
   unreachable for that race (corrected precision, kept as the record: the
-  scan-to-stage path was already refused by the `.zip` archive-name rule, so
+  scan-to-stage path was already refused by the archive naming rule, which the
+  merge owner's evidence pins as `archive_name_mismatch`, so
   the reachable window was the staged directory between the page's two calls,
   which PR #42 now covers). The merge owner independently confirmed the real
   launcher test compiles the real `nextui.c` and executes `launch.sh`, so the
@@ -347,10 +348,10 @@ Rules:
   whose head `dccda876651e240cae29d6d77e3a4c313a8c9a42` passed the merge
   owner's independent review and merged PR #42 into main as
   `5b66d70959245d4a47da373b3b7a6f72dee44f37` (2026-11-16T20:11:04Z per gh),
-  closing the race at host level; post-merge on `5b66d70`: Development/Desktop
-  is success per gh while Feature checks and the full CI run are in progress
-  through the existing subscription (not recorded as passing until they
-  finish). Open at this check: only this schedule's own PR #31.
+  closing the race at host level; post-merge on `5b66d70`: the merge owner
+  reported at 2026-11-16 20:19 that Feature checks, Development/Desktop, and
+  the full CI run are all success, so the earlier in-progress record is now
+  all green. Open at this check: only this schedule's own PR #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1498,10 +1499,12 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   transaction was unreachable for that race -- the owner asked for either a
   staged-kind check or an honestly recorded boundary. Corrected precision
   (kept as the record and superseding the scan-to-stage wording): the
-  scan-to-stage swap of a system manifest was already refused by the `.zip`
-  archive-name rule (`invalid_archive`), a naming convention rather than a kind
-  check; the reachable window was the staged directory between the page's two
-  calls, which PR #42's regression now covers. The merge owner
+  scan-to-stage swap of a system manifest was already refused by the archive
+  naming rule, which the merge owner's evidence pins as
+  `archive_name_mismatch` (a naming convention rather than a kind check; the
+  source report had called it `invalid_archive`); the reachable window was the
+  staged directory between the page's two calls, which PR #42's regression
+  now covers. The merge owner
   has sent the fix to the source directly; no defect is recorded for the
   existing Settings convention of having no page title.
 - Fix head merged 2026-11-16: PR #41 merged into main as
@@ -1535,13 +1538,23 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   transaction, and the boot payload; both app calls pass `app`; and without
   the flag the old system control installs normally. Exact-head evidence per
   the merge owner: the full host suite 0 failures, controller 73, app 103,
-  the desktop build, and 6/6 checks; gh also shows CI green at the exact head
-  (Feature checks push and pull_request with Host tests at 652 passed / 0
-  failed per the run log and the tg5040 target build; Development/Desktop
-  with build-linux and build-macos). Post-merge on `5b66d70`: Development/
-  Desktop is success per gh while Feature checks and the full CI run are in
-  progress through the existing subscription (not recorded as passing until
-  they finish). The closing scope is the host hardening only -- device
+  the desktop build, and 6/6 checks, with the review runner also PASS and
+  SANITIZE at 178 + 103 + 55 + 67 + 56 passed / 0 failed and the desktop
+  nextupd and settings builds `-Werror` clean; gh also shows CI green at the
+  exact head (Feature checks push and pull_request with Host tests at 652
+  passed / 0 failed per the run log and the tg5040 target build;
+  Development/Desktop with build-linux and build-macos). Two precision
+  corrections from the merge owner's evidence, recorded over the source's
+  numbers: the neuter tool's mutation run fails 10 cases, not the reported 8,
+  while the rollback page wiring still fails 6; and the boot-payload
+  bytes-unchanged proof lives in the nextupd tests, not in the controller
+  fixture, so it is not attributed to the fixture. The pull request text
+  carried small numeric slips while the in-repo documentation is
+  substantively correct, so no separate code-fix or documentation-cycle pull
+  request is opened for them. Post-merge on `5b66d70`: the merge owner
+  reported at 2026-11-16 20:19 that Feature checks, Development/Desktop, and
+  the full CI run are all success, so the earlier in-progress record is now
+  all green. The closing scope is the host hardening only -- device
   behavior stays with V1, and no device, real SD card, power-loss, or
   production key evidence exists; the tg5040 target build is not on-device
   acceptance. The source thread T-01a1e5c2 has no further item.
@@ -1551,8 +1564,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   backward compatibility; no permission product, no store, no production key
   changes, and no device operation.
 - Residual precision (corrected, kept as the record): the scan-to-stage swap of
-  a system manifest was already refused by the `.zip` archive-name rule
-  (`invalid_archive`), which is a naming convention rather than a kind check;
+  a system manifest was already refused by the archive naming rule, which the
+  merge owner's evidence pins as `archive_name_mismatch` (a naming convention
+  rather than a kind check; the source report had called it `invalid_archive`);
   the empirically identified gap was the staged-directory window between the
   page's two calls, where a validly signed system package could be re-verified
   and applied as a system update. PR #42's new regression covers that window
