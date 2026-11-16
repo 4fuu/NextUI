@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh test-session test-session-e2e clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-display-audio test-led-profile test-led-refresh test-session test-session-e2e clean
 
-test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-session
+test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-display-audio test-session
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -33,6 +33,9 @@ test-device:
 test-led:
 	../workspace/all/common/tests/run_led_lease_test.sh
 	../workspace/all/common/tests/run_led_backend_test.sh
+
+test-display-audio:
+	../workspace/all/common/tests/run_display_audio_backend_test.sh
 
 # Needs the desktop SDL/msettings build dependencies.
 test-led-refresh:

@@ -89,8 +89,8 @@ therefore bounded by the next launch as well as by the generation id below.
 
 | Field | Existing seam | Brick Pro (tg5040) | tg5050 | h700 | desktop |
 | --- | --- | --- | --- | --- | --- |
-| `brightness` | `msettings` `Get/SetBrightness` | wired, device-untested | wiring only | wiring only | unavailable |
-| `colortemp` | `msettings` `Get/SetColortemp` | wired, device-untested | wiring only | wiring only | unavailable |
+| `brightness` | `msettings` `Get/SetBrightness` | capability backend wired, device-untested | capability backend wired, device-untested | capability backend wired, device-untested | unavailable |
+| `colortemp` | `msettings` `Get/SetColortemp` | capability backend wired, device-untested | capability backend wired, device-untested | capability backend wired, device-untested | unavailable |
 | `volume` | `msettings` `Get/SetVolume` | wired, device-untested | wiring only | wiring only | unavailable |
 | `mute` | `msettings` `Get/SetMute` | wired, device-untested | wiring only | unavailable (no mute switch) | unavailable |
 | `audio_sink` | `msettings` `Get/SetAudioSink` | wired, device-untested | wiring only | wiring only | unavailable |
@@ -119,12 +119,12 @@ Rules:
   unverified. `led.state:"released"` means C2's lease teardown returned
   success, not that the hardware write was observed.
 
-The production capability backend in this delivery serves only `led.control`
-through C2. The brightness/colortemp/volume/audio-sink entries above describe
-the session snapshot/restore adapter's use of msettings; the corresponding
-`display.*`/`audio.*` capability calls are still `unavailable` in production
-and must not be described as production-reachable paths. The writable fake
-backend in the adversarial E2E is test-only and does not change that.
+Production `devserv` composes `device_backend_display_audio()` with the C2 LED
+backend, so `display.brightness` and `display.colortemp` are
+production-reachable on tg5040/tg5050/h700 when the platform path is present.
+They remain device-untested, and desktop still reports them `unavailable`. The session snapshot/restore adapter uses the same msettings
+getters and setters as the capability backend; the writable fake backend in
+the adversarial E2E remains test-only.
 
 ## Dirty-only restore
 
@@ -247,7 +247,9 @@ app launch.
 - Session state is runtime-only. No session file is written; grants remain the
   only C3-adjacent persistent file and are C1-owned.
 - C2 owns the LED app profile. C3 owns the session association and teardown
-  call. No second LED, display, audio or rumble backend is added.
+  call. R1 adds the display capability backend on the same msettings seam; no
+  second brightness ioctl or sysfs controller is added. There is still no
+  audio or rumble backend.
 - Other platforms keep compile/interface wiring only. Brick Pro remains the
   only intended delivery target; no device build was run in this orb.
 - Stock boot/start chains and `/tmp/nextui_exec` power-off semantics are
