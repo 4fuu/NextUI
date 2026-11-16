@@ -96,7 +96,8 @@ Rules:
   (boot recovery wiring, head `329a7e1`) passed all six checks (Host tests
   push/PR, tg5040 target build push/PR, build-linux, build-macos) and is
   CLEAN/MERGEABLE with the merge owner reviewing — a run that has not finished
-  is never recorded as passing.
+  is never recorded as passing. PR #13 (built-in emulator removal, head
+  `ba2296a`) CI is green (Feature checks push/PR, Development/Desktop).
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -253,20 +254,44 @@ Rules:
 
 ### I8 — Remove the built-in emulator and its entry
 - Owner thread: https://ampcode.com/threads/T-01a1e307-1d43-738e-b40a-56417f8ba038
-- State: dispatched to its own orb thread (workspace preparing), no commit yet.
-- Scope (owner decision, 2026-11-16): the product no longer ships the built-in
-  emulator or its entry; remove the emulator-specific implementation, default
-  packaging/build, and menu entry references. Boundaries: user SD-card ROMs and
-  saves are untouched, no device operations, the general desktop and the code
-  shared by applications, state saving, the overlay, fonts, or device control
-  stay; no blind deletion by `game`/`emu` keywords.
+- State: delivered for review as PR #13
+  (https://github.com/4fuu/NextUI/pull/13, branch
+  `remove-builtin-emulator`), head
+  `ba2296ac3ff86185da12c61eef026c8a925a2a45`, based on `origin/main` @
+  `b28b126` (docs-only delta, clean rebase); OPEN and mergeable, not merged.
+  CI on that head is green (Host tests, tg5040 target build, build-macos,
+  build-linux; the Feature checks and Development/Desktop runs completed
+  success).
+- Deleted (built-in emulator specific only): `workspace/all/minarch` and the
+  rcheevos/libchdr/libretro-common/libsrm builds it vendored;
+  `workspace/{all,desktop,tg5040,tg5050,h700}/cores` (core builds, per-platform
+  core lists, core patches); `skeleton/SYSTEM/*/paks/Emus` (FC, GB, GBA, GBC,
+  MD, PS, SFC per platform) and `skeleton/EXTRAS/Emus`;
+  `skeleton/SYSTEM/*/{cores,shaders}`, `skeleton/BASE/Shaders`, and the
+  `minarch_*` system.cfg files; in `nextui.c` the Emus pak scans, the
+  entryFromPakName Emus lookups, and the rom-to-emulator launch path (openRom,
+  getRoms/getDiscs, cue/m3u handling, console-folder collation, rom save-slot
+  resume, autoResume, ENTRY_ROM); in `settings.cpp` the "In-Game" menu
+  ("In-game settings for MinArch") with its Notifications and
+  RetroAchievements submenus plus the libretro save-format rows; the build
+  targets cores/cores-json/build-cores/build-core, the minarch build and copy
+  steps, the emulator-only shared libraries (samplerate, zip, bz2, lzma, zstd,
+  chdr, crypto, lz4), the Emus entry in the extras zip, and the minarch/cores
+  .vscode debug configs.
+- Kept (generic capabilities): pak install and launch (Tools/<platform> scan,
+  pak.json, B3 app-state slots, B4 `saves` resume), Recents, Collections, quick
+  menu and quick actions, game switcher, folder backgrounds and artwork, the
+  shared overlay module and the /Overlays asset root, fonts and the i18n
+  table, device control, LED leases, sessions, hooks, and every non-emulator
+  pak. User data folders on the SD card (Bios, Cheats, Roms, Saves, Overlays,
+  Palettes) are untouched.
 - Depends on: `origin/main`.
 - Delivery/verification: the desktop menu no longer shows an emulator entry,
   packages no longer carry the built-in emulator, host regression tests and the
-  tg5040 build still pass, with the exact SHA/PR and evidence reported.
-- Next: PR after completion; emulator-specific CI/core build cleanup waits for
-  the removal thread's handoff and is coordinated with the CI/merge owner, who
-  merges after checks pass. This schedule no longer treats minarch or cores as
+  tg5040 build still pass; PR #13's CI is green on head `ba2296a`.
+- Next: the CI/merge owner reviews and merges; emulator-specific CI/core build
+  cleanup waits for the merged handoff and stays coordinated with the
+  CI/merge owner. This schedule no longer treats minarch or cores as
   development goals or acceptance prerequisites.
 
 ## Backlog, in priority order
@@ -428,13 +453,16 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 ### P3 — Full UI translation remainder
 
-#### T1 — minarch fixed text (cancelled by the owner)
+#### T1 — minarch fixed text (cancelled by the owner; moot after PR #13)
 - Owner thread: https://ampcode.com/threads/T-01a1e303-9b65-765c-b8d1-da4565666cd7
   (stopped and archived, 2026-11-16).
 - Status: cancelled, not completed. 4fu decided the built-in emulator is not
-  needed, so its content and entry are removed instead (see I8). A removed
-  requirement is a scope change, never development completion; the roughly 700
-  hardcoded in-game strings leave the denominator together with the emulator.
+  needed, and PR #13 removes minarch entirely, so there is no minarch left to
+  translate. The two i18n keys "In-Game" and "In-game settings for MinArch" are
+  gone from `workspace/all/common/i18n.c` and from
+  `scripts/fonts/charsets/a3-zh-2026-11-15.txt`; PAKS.md has been rewritten for
+  tool paks only; I4/I5 key coordination is unaffected beyond those two keys.
+  A removed requirement is a scope change, never development completion.
 
 #### T2 — External pak internals
 - Owner: none in this repo.
