@@ -314,7 +314,22 @@ Rules:
   (Feature checks push and pull_request with Host tests at 634 passed / 0
   failed per the run log and the tg5040 target build; Development/Desktop with
   build-linux and build-macos); the merge owner has the head for independent
-  review; not merged.
+  review; not merged. The independent review FAILED the exact head `7418cf5`
+  (merge owner, 2026-11-16; a review FAIL outranks a green source CI): the Menu
+  construction leaves `refreshItem` uninitialized (GDB-confirmed garbage
+  values); after the first rescan the package row and the "Look for packages"
+  row change order; the zh count is 24, not the claimed 25 (three strings and
+  their a4 fixture lines are missing); and on h700 at 640x480 the English
+  unconfigured-key state overlaps the Status pill, needing small-screen
+  rendering. Recorded with the FAIL as non-blocking boundaries: the id/version
+  show only in the selected row's footer (the screenshot harness crops the
+  page), and a scan-to-stage SD swap race is not covered by the static
+  app-kind gate, so no claim is made that the system transaction is
+  unreachable for that race. The merge owner independently confirmed the real
+  launcher test compiles the real `nextui.c` and executes `launch.sh`, so the
+  production-path host evidence is owner-verified; device boot and rendering
+  remain unverified. The fix is with the source; a new exact head follows for
+  CI plus an independent re-review.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1401,10 +1416,30 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   discovers the installed app and executes its queued launch command; 25 new
   zh entries plus the a4 fixture, with the font verifier reporting 0 missing
   and the width check passing. The launcher gap therefore changes from "only a
-  copied scanner" to "the source has provided production-path host evidence,
-  awaiting the merge owner's independent review" -- it is not a real-device
-  pass. Not merged; no independent review result has been reported, so nothing
-  is written as accepted, and a source self-test is not acceptance.
+  copied scanner" to "the source has provided production-path host evidence",
+  and the merge owner independently confirmed that the real launcher test
+  really compiles the real `nextui.c` and executes `launch.sh`, so that
+  evidence is owner-verified rather than only a source self-report; device
+  boot and rendering remain unverified, so it is not a real-device pass.
+- Independent review FAILED this head (merge owner, 2026-11-16; a review FAIL
+  outranks a green source CI, so neither the six green checks nor the source's
+  54/0 overrides it); the head is not merged. Four blockers: (1) the Menu
+  construction leaves `refreshItem` uninitialized, which GDB confirmed holds
+  garbage values; (2) after the first rescan the package row and the "Look for
+  packages" row change order; (3) the zh count is actually 24, not the claimed
+  25 -- "Looking for packages...", "This package is not for this device.", and
+  "The installed app version cannot be read." are missing along with their a4
+  fixture lines; (4) on h700 at 640x480 the English unconfigured-key state
+  overlaps the Status pill, which needs new small-screen rendering.
+  Non-blocking boundaries recorded with the FAIL: the id/version appear only
+  in the selected row's footer and the screenshot harness crops the page, so
+  they are not visible on every row; and while a static app-kind gate exists,
+  a scan-to-stage SD swap race is not covered, so this schedule does not claim
+  the system transaction is unreachable for that race -- the owner asks for
+  either a staged-kind check or an honestly recorded boundary. The merge owner
+  has sent the fix to the source directly. The source then delivers a new
+  exact head for CI plus an independent re-review; no defect is recorded for
+  the existing Settings convention of having no page title.
 - I10 mapping: PR #41's copy of this file records this slice as "I10 — Local
   application install UI (settings surface)" with the same owner thread and
   the same scope. It is the same task as F6b, not a second one; this schedule
@@ -1439,13 +1474,12 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   launcher binary and not a shared production-function integration test. Host
   algorithm and layout are therefore verified; real launcher launch and
   rendering, and real-device behavior, remain unverified.
-- Remaining gap (narrowed, still open): the source now provides
-  production-path host evidence -- a real nextupd install, the real `nextui.c`
-  compiled, and the same isolated root discovering the installed app and
-  executing its queued launch command -- so the old "only a copied scanner"
-  wording no longer applies to F6b. Real launcher rendering, boot, power-loss,
-  and device behavior are still unverified, so that acceptance item is not
-  closed.
+- Remaining gap (narrowed, still open): the merge owner independently confirmed
+  that the real launcher test really compiles the real `nextui.c` and executes
+  `launch.sh`, so the production-path host evidence is owner-verified and the
+  old "only a copied scanner" wording no longer applies to F6b. Real launcher
+  rendering, boot, power-loss, and device behavior are still unverified, so
+  that acceptance item is not closed.
 - Status before this delivery (audited and split into three layers; the install
   layer was not delivered). (1) The stage/verify layer for app packages IS delivered and
   host-verified: manifest plus Ed25519 signature plus per-file SHA-256, ZIP
@@ -1877,7 +1911,9 @@ as they happen; nothing is reported as passing without a run.
   (final head `b0ce4d3`, independent review PASS), moving the schedule
   baseline to `1b73667`; and F6b delivered its first head as PR #41 (head
   `7418cf5`, awaiting the merge owner's independent review), with the source's
-  I10 entry mapped to F6b so the slice stays one task),
+  I10 entry mapped to F6b so the slice stays one task; the independent review
+  then FAILED the exact head `7418cf5` with four blockers and two non-blocking
+  boundaries, which are recorded with priority over the green CI),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
