@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render clean
 
-test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings
+test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -19,6 +19,13 @@ test-manifest:
 
 test-i18n:
 	./run_i18n_test.sh
+
+# Simplified Chinese width regressions for the i18n table. Enforces the
+# FONT_TINY description/value path for every entry and reports the FONT_SMALL
+# row-name path; see the test header for why only one of the two is enforced.
+# Needs the desktop SDL_ttf dependency, like test-text.
+test-i18n-width:
+	../workspace/all/common/tests/run_i18n_width_test.sh
 
 test-app-state:
 	../workspace/all/common/tests/run_app_state_test.sh

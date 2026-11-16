@@ -1883,12 +1883,22 @@ int upd_install_execute(const UpdInstallRequest* request, UpdTransactionResult* 
     }
     if (!read_directory_version(paths.candidate, candidate_version,
                                 sizeof candidate_version, "candidate_version_missing", error))
+    {
+        UpdError ignored;
+        UpdTransactionResult ignored_result;
+        upd_error_clear(&ignored);
+        (void)rollback_precommit(&paths, &record, 1, &ignored_result, &ignored);
         return 0;
+    }
     if (strcmp(candidate_version, request->manifest->version) != 0)
     {
+        UpdError ignored;
+        UpdTransactionResult ignored_result;
         upd_error_set(error, UPD_E_INTEGRITY, "version_file_mismatch",
                       "candidate version.txt says %s, manifest says %s", candidate_version,
                       request->manifest->version);
+        upd_error_clear(&ignored);
+        (void)rollback_precommit(&paths, &record, 1, &ignored_result, &ignored);
         return 0;
     }
     if (!write_candidate_marker(paths.candidate, record.txn_id, error)) return 0;
