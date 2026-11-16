@@ -17,9 +17,11 @@ devserv's default path.
 C3 adds launch-scoped device session snapshots/restore; C4 adds a
 session-scoped app-exit request fed by keymon and enforced by the launch parent.
 The settings authorization UI is not part of this build. The host test backend
-is `none`; production devserv uses the C2 LED backend, and every other hardware
-capability reports `unavailable` until a later task plugs in the existing NextUI
-device paths.
+is `none`; production devserv composes the C2 LED backend with the R1/R2
+display/audio backend. Display/audio report `unavailable` when the platform or
+msettings path cannot implement them, never fake success. Other hardware
+capabilities remain `unavailable` until a later task plugs in the existing
+NextUI device paths.
 
 ## Session lifecycle
 
@@ -375,11 +377,21 @@ settings authorization UI/per-item flow is not part of this build.
 implementation calls the existing NextUI paths (`PWR_*`, `LEDS_*`, `VIB_*`,
 `PLAT_*`) and reports `available() == 0` whenever the platform or hardware is
 missing. `device_backend_none()` remains the fail-closed default for
-capabilities that have no implementation. C2's production `devserv` uses
-`device_backend_leds()`: `led.control` goes through the existing LED path and
-every other capability still reports `unavailable`. This avoids faking success
-for the desktop platform's no-op implementations and avoids duplicating
-hardware control.
+capabilities that have no implementation.
+
+C2's `device_backend_leds()` serves `led.control`. R1/R2 add
+`device_backend_display_audio()` and compose it with the LED backend:
+
+```c
+backend = device_backend_display_audio_compose(device_backend_leds());
+```
+
+`devserv` therefore still has exactly one `DeviceBackend`. `display.*` and
+`audio.*` go to the msettings backend; every other capability (including
+`led.control`) goes to the LED backend. The desktop preview links both but
+reports display/audio `unavailable`, because its libmsettings setters are
+no-ops. This avoids faking success for the desktop platform and avoids
+duplicating hardware control.
 
 ## LED app lease (C2)
 
@@ -447,13 +459,102 @@ Availability and verification:
 - Responses are bounded by `DEVICE_GATE_VALUE_MAX` (512 bytes); an oversized
   response becomes `backend_error` instead of truncation.
 
+## Display and audio backend (R1/R2)
+
+Both capabilities use the existing msettings path. The backend adds no sysfs
+controller, no second mixer and no second brightness ioctl.
+
+### Actions
+
+| Capability | Action | Args | Result value |
+| --- | --- | --- | --- |
+| `display.get` | `get` (default) | none | `{"brightness":B,"brightness_min":0,"brightness_max":10,"colortemp":C,"colortemp_min":0,"colortemp_max":40}` |
+| `display.brightness` | `get` | none | `{"level":B,"min":0,"max":10}` |
+| `display.brightness` | `set` | `{"value":0..10}` | `{"level":B,"previous":P,"min":0,"max":10,"readback":B,"verified":"settings","hardware_ack":false}` |
+| `display.colortemp` | `get` | none | `{"level":C,"min":0,"max":40}` |
+| `display.colortemp` | `set` | `{"value":0..40}` | same shape as brightness |
+| `audio.volume` | `get` | none | `{"level":V,"min":0,"max":20,"mute_supported":bool,"mute":0\|1,"sink":"default\|bluetooth\|usbdac"}` |
+| `audio.volume` | `set` | `{"value":0..20}` | same shape as brightness |
+| `audio.volume` | `setmute` | `{"value":0\|1}` | `{"mute":M,"previous":P,"readback":M,"verified":"settings","hardware_ack":false}` |
+| `audio.sink` | `get` | none | `{"sink":"default","index":0,"options":["default","bluetooth","usbdac"]}` |
+| `audio.sink` | `set` | `{"sink":"default\|bluetooth\|usbdac"}` or `{"value":0..2}` | `{"sink":"...","index":N,"previous":"...","readback":N,"verified":"settings","hardware_ack":false}` |
+
+- `set`/`setmute` accept a single-key object. Missing, extra, non-integer or
+  out-of-range values are rejected before any platform write; no clamp is
+  silently applied.
+- `setmute` is part of `audio.volume` so there is no extra capability to grant.
+  `audio.volume` `get` always reports the current mute value when the platform
+  has a mute switch; on h700 it reports `mute_supported:false` and no `mute`
+  field.
+- Sink index 0 is msettings `AUDIO_SINK_DEFAULT`, which follows the headphone
+  jack; `speaker` is accepted as an input alias for 0, but responses always use
+  `default`.
+
+### Availability
+
+Availability is answered before every call and never proved by a grant. It is
+side-effect free: it does not initialize msettings, because devserv starts
+before the desktop and creating the shared settings segment too early would
+reapply the mute profile.
+
+| Field | tg5040 | tg5050 | h700 | desktop |
+| --- | --- | --- | --- | --- |
+| brightness | `/dev/disp` writable | backlight node writable | `/dev/disp` writable | unavailable |
+| colortemp | color-temperature node writable | color-temperature node writable | color-temperature node writable | unavailable |
+| volume, sink | `/dev/snd` present | `/dev/snd` present | `/dev/snd` present | unavailable |
+| mute | `/dev/snd` present, mute switch modelled | same | unavailable (msettings is a no-op) | unavailable |
+
+The node checks are the same nodes each platform's `SetRawBrightness()` /
+`SetRawColortemp()` already uses. They only decide availability; every write
+still goes through msettings.
+
+### Honest limits
+
+- `SetBrightness`, `SetColortemp`, `SetVolume`, `SetAudioSink` and `SetMute`
+  return `void` in every platform libmsettings. They ignore a failed `fopen`,
+  `open` or ioctl. The backend therefore cannot observe a hardware write
+  failure.
+- After a write the backend reads the value back through msettings. A
+  successful response means the shared settings state accepted and returns the
+  value. It does **not** mean the panel or mixer physically changed. Responses
+  say `verified:"settings"` and `hardware_ack:false`; clients must not present
+  this as hardware-confirmed.
+- A read-back mismatch turns the call into `backend_error`; it is never reported
+  as success. This catches a missing node or a setter that silently did
+  nothing in the shared state.
+- While the mute profile is active and has a non-default muted value for
+  brightness, colortemp or volume, msettings redirects those setters to the
+  muted value. The backend refuses the write with a stable detail instead of
+  returning success for a value that did not take effect.
+- `verified:"settings"` and `hardware_ack:false` are protocol fields, not
+  prose. Device verification of brightness, colortemp, volume, mute and audio
+  routing remains a separate real-device task; the host fake-ops test is not
+  acceptance.
+
+### Session interaction
+
+A successful `display.brightness`/`set`, `display.colortemp`/`set`,
+`audio.volume`/`set`, `audio.volume`/`setmute` or `audio.sink`/`set` marks the
+corresponding C3 field dirty, so a normal app exit restores the value that was
+captured at session start. See `SESSION-API.md`.
+
+### Verification
+
+`workspace/all/common/tests/run_display_audio_backend_test.sh` compiles the
+adapter with fake ops and fake session ops. It covers range/argument rejection
+without a write, default-mode reads and writes, read-back mismatch, backend
+write failure, unsupported platforms, h700's mute shape, dirty marking, normal
+exit restore, partial restore and backend composition. That is host-only and
+does not prove any hardware effect.
+
 ## Not in C1
 
 - Settings authorization UI, per-item prompts, and translations. Installed apps
   use the default-allow path; the old grant store is compatibility-only.
 - Device session internals, snapshots and launch hooks — C3 (see
   [SESSION-API.md](SESSION-API.md)); C4 app exit is implemented on top of C3.
-- Real hardware backends for display/audio/network/rumble/power/time.
+- Real hardware backends for network, rumble, power and time; display/audio
+  are R1/R2 above.
 - Service supervision/autostart is launch.sh's job; it starts `devserv` in C3.
   Until then it can be started manually or by a package.
 

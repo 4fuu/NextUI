@@ -163,8 +163,8 @@ int device_session_is_active(const DeviceSession* session);
 /*
  * Record a successful gated call. Only mutating capabilities are mapped:
  * display.brightness/set, display.colortemp/set, audio.volume/set,
- * audio.sink/set, and any successful led.control action. Unknown capabilities,
- * read-only get calls and failed calls change nothing.
+ * audio.volume/setmute, audio.sink/set, and any successful led.control action.
+ * Unknown capabilities, read-only get calls and failed calls change nothing.
  */
 void device_session_note_capability(DeviceSession* session, const char* capability,
                                     const char* action);

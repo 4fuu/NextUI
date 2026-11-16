@@ -94,6 +94,7 @@ tests="$common/tests"
 "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 -I"$common" \
     "$ROOT/workspace/all/devserv/devserv.c" \
     "$common/device_backend.c" \
+    "$common/device_backend_display_audio.c" \
     "$common/device_backend_leds.c" \
     "$common/device_caps.c" \
     "$common/device_gate.c" \
@@ -150,6 +151,7 @@ EOF
 "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 -I"$common" \
     "$BUILD_DIR/grant_tool.c" \
     "$common/device_backend.c" \
+    "$common/device_backend_display_audio.c" \
     "$common/device_caps.c" \
     "$common/device_gate.c" \
     "$common/device_grants.c" \

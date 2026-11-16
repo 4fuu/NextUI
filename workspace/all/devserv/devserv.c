@@ -1,4 +1,5 @@
 #include "device_backend.h"
+#include "device_backend_display_audio.h"
 #include "device_backend_leds_platform.h"
 #include "device_gate.h"
 #include "device_protocol.h"
@@ -697,7 +698,7 @@ int main(int argc, char* argv[])
      * the LED backend below; this keeps the C1 none-backend test meaningful. */
     backend = device_backend_none();
 #else
-    backend = device_backend_leds();
+    backend = device_backend_display_audio_compose(device_backend_leds());
     (void)atexit(device_backend_leds_shutdown);
 #endif
 
