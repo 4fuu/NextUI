@@ -1,6 +1,6 @@
 # Fixed-UI zh values - the single source of truth for font3.ttf coverage.
 # Source: workspace/all/common/i18n.c at integration/i18n-display@5bfc39d plus
-# the System page and FN switch page rows (138 entries), regenerated 2026-11-15.
+# the System page and FN switch page rows, regenerated 2026-11-15.
 # Original A3 snapshot: 32 entries delivered 2026-11-15 (thread
 # T-01a1dff8-f4eb-73ca-8e1a-4a4cd923cd8a, based on origin/main 3e41a1f).
 # Extensions: Settings Display page, the System/FN-switch volume rows, the
@@ -17,7 +17,6 @@
 无预览
 暂无最近记录
 空文件夹
-光盘 %i
 返回
 打开
 继续
@@ -32,8 +31,6 @@ FN 开关
 FN 开关设置
 按键分配
 自定义按键功能
-游戏内
-MinArch 的游戏内设置
 网络
 蓝牙
 关于

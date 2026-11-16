@@ -4836,18 +4836,9 @@ void PWR_powerOff(int reboot)
 
 		char *msg;
 		if (HAS_POWER_BUTTON || HAS_POWEROFF_BUTTON)
-		{
-			if (exists(AUTO_RESUME_PATH))
-				msg = (char *)"Quicksave created,\npowering off";
-			else if (reboot > 0)
-				msg = (char *)"Rebooting";
-			else
-				msg = (char *)"Powering off";
-		}
+			msg = reboot > 0 ? (char *)"Rebooting" : (char *)"Powering off";
 		else
-		{
-			msg = exists(AUTO_RESUME_PATH) ? (char *)"Quicksave created,\npower off now" : (char *)"Power off now";
-		}
+			msg = (char *)"Power off now";
 
 		// LOG_info("PWR_powerOff %s (%ix%i)\n", gfx.screen, gfx.screen->w, gfx.screen->h);
 

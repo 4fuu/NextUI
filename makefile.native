@@ -30,16 +30,7 @@ clean:
 	cd workspace && make clean
 	
 build: 
-	COMPILE_CORES=$(COMPILE_CORES) cd workspace && make
-
-build-cores: 
-    COMPILE_CORES=$(COMPILE_CORES) cd workspace && make cores
+	cd workspace && make
 
 libmsettings:
 	cd workspace/$(PLATFORM)/libmsettings && make
-
-build-core:
-ifndef CORE
-	$(error CORE is not set)
-endif
-	COMPILE_CORES=$(COMPILE_CORES) CORE=$(CORE) cd workspace && make core
