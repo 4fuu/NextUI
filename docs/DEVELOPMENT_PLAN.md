@@ -1339,15 +1339,19 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   transaction directory and backup outside `setup_paths` (:211) that never
   touches `.system` or `.tmp_update`; extend the request/result in
   `update_transaction.h:27-63`; turn the `test_updater.py:854` refusal test
-  into a positive plus negative pair. Verification, all host-doable: after
+  into a positive plus negative pair. Verification, all host-doable and scoped
+  to this round: after
   install the target root gains only `Tools/<platform>/<App>.pak/` with
   permissions preserved (tree diff, modeled on `expect_unchanged`); out-of-root
-  and traversal paths are refused before any write; an old version over a new
-  one needs an explicit switch; after a SIGKILL at each stage `recover`
-  restores the previous version or completes with `.system` unchanged; an
-  uninstall removes only that application directory and can be restored from
-  backup; the new `tests/makefile` target sits on its own line to avoid a
-  conflict with PR #36's lines. The then-still-source-free second step is an
+  and traversal paths are refused before any write; after a SIGKILL at each
+  stage `recover`
+  restores the previous version or completes with `.system` unchanged; the new
+  `tests/makefile` target sits on its own line to avoid a
+  conflict with PR #36's lines. The app root, the app id to directory mapping,
+  and downgrade protection are engineering contracts the implementation
+  verifies against the existing code, not acceptance items this schedule
+  blocks on a user decision; an old version over a new one needing an explicit
+  switch is part of that contract check, not a separate user gate. The then-still-source-free second step is an
   "install from a local file" surface (settings page or launcher page) that
   runs stage plus install only on a user-provided local `.pakz`, choosing no
   store source, touching no network, and using no production key.
@@ -1366,14 +1370,19 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   owner's instruction, the engineering path facts the research listed as
   "owner decisions" are checked against the existing contracts first, and only
   a real product preference pauses the corresponding part.
-- Owner decisions needed (engineering does not default these): (1) keep the
-  boot `unzip -o` path in parallel or replace it with the verified install;
-  (2) whether the app install root is exactly `Tools/<platform>/<App>.pak`
-  and whether the app id maps to the directory name; (3) whether app updates
-  refuse downgrades the same way; (4) whether app signing reuses the system
-  production key (U5 key custody is still undecided); (5) whether the
-  third-party Pak Store build-time download stays as-is until the owner
-  authorizes a fork and index.
+- Out of this round's scope (recorded so the audit's suggestions are not all
+  read as this round's acceptance): uninstall (removing only that application
+  directory and restoring it from backup), any UI surface, and store source
+  selection. Uninstall belongs to a later task, not to F6's acceptance.
+- Product choices that stay open, all currently status quo and none blocking
+  the local CLI closed loop: whether the production source key is provisioned
+  and whether app signing may reuse the system production key (U5 key custody
+  is still undecided); whether the boot `unzip -o` path is eventually replaced
+  by the verified install; and whether the third-party Pak Store build-time
+  download changes before the owner authorizes a fork and index. The app root,
+  the app id to directory mapping, and downgrade protection are engineering
+  contracts to verify against the existing code, not items to block on a user
+  decision.
 - Audit evidence at HEAD `3a0b048`: updater 355 items all pass (177 + 55 + 67
   + 56, including "ok install rejects app package"); pak_manifest 550,
   app_state 937, app_capabilities 178, device_gate 1229, and the devserv
