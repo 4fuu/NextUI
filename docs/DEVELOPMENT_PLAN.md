@@ -8,7 +8,7 @@ history; its top section mirrors the current schedule in this file.
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
   rule): `5de96d2` (merge of PR #29, the I9 settings abnormal-data fixes;
   fetched 2026-11-16). Docs-only main heads do not move this baseline; the last
-  docs-only tip was `07bdf4c` (merge of PR #25). Landing points on
+  docs-only tip was `8e4f744` (merge of PR #28). Landing points on
   main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
@@ -102,26 +102,32 @@ Rules:
   About/hints i18n slice (PR #20, `6a98573`); the settings Network/Bluetooth
   i18n slice (PR #23, `5698908`); the settings Assignments i18n slice (PR #26,
   `e2ca971`); the U7 boot payload sync (PR #24, `dc4bef0`); the I9 settings
-  abnormal-data fixes (PR #29, `5de96d2`); and the U4 update
+  abnormal-data fixes (PR #29, `5de96d2`); this schedule file (PR #28,
+  `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #27 (U8 transactional
-  update package build, head `b61ff1f`, CI green on that head per gh with the
-  source reporting six of six, B1-B3 fixes and follow-ups pushed at the head
-  with the `5de96d20` makefile conflict resolved by a normal merge, awaiting
-  independent review, open) and this schedule file's own update (PR #28). PR #29
+  update package build, head `c6b5e6f`, OPEN and mergeable per gh; the
+  independent review failed the previous head `b61ff1f` on the last B1 residue
+  -- the shared resource tree was missing from the archive -- which is now
+  fixed at this head, and the head still is a normal merge of `origin/main`
+  `5de96d20` with no rebase/force; it awaits the incremental independent
+  review and is not merged) and PR #30 (I4 follow-up: the zh entry for the
+  About page's "Unknown" fallback, branch `i18n/unknown-fallback`, head
+  `015b57b`, OPEN and mergeable per gh, not merged). This schedule file's own
+  update travels as PR #31. PR #29
   (I9 settings abnormal-data fault tolerance, final head `acf1d3f`) merged into
   main as `5de96d208ae122b421e5110592b8d670e74bcd5b` with the merge owner
-  confirming an independent review PASS; on that merge commit Feature checks and
-  Development/Desktop are success per gh while the full CI run was in progress
-  at the last check (not recorded as passing). PR #24 (U7 boot payload sync,
+  confirming an independent review PASS and the full post-merge CI green on
+  that merge commit; on it Feature checks and
+  Development/Desktop are success per gh. PR #24 (U7 boot payload sync,
   final head `95b601a`) merged into main as
   `dc4bef086f651b3369618b80218da004a8b9e71f` after review PASS (114 ok / 0
   failed). PR #23 (I4 settings Network/Bluetooth translation, head
   `bd2a40c`) merged into main as
   `5698908b44e8a0b09275440d5ff8bb7483e12239`; PR #26 (I4 settings Assignments
   translation, head `531d13e`) merged into main as
-  `e2ca9716b569ce16f9a605026e118f7c6a92eb05`; this schedule file's update
-  PR #25 merged as `07bdf4c` (docs-only). This schedule file's updates merged
+  `e2ca9716b569ce16f9a605026e118f7c6a92eb05`; this schedule file's updates
+  PR #25 and PR #28 merged as `07bdf4c` and `8e4f744` (both docs-only). This schedule file's updates merged
   into main as
   PR #12 `3ae1ddf`, PR #16 `0385b21`, PR #18 `471de2c`, PR #19 `3380fe4`, PR #21
   `c9230cf`, and PR #22 `6594dce`. The runtime line (I1) merged into main as
@@ -679,8 +685,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   schema cases.
 - Docs wording note (non-blocking): `UPDATES.md` still says "two boot scripts"
   although `nextupd-recover.sh` is sourced; the PR body is precise and the
-  wording correction rides this schedule's open docs PR #28, not the frozen
-  head.
+  wording correction rides a docs update rather than the frozen head and remains
+  open.
 - Delivered: signed-package-driven `.system` plus optional `.tmp_update` sync,
   the independent recovery tool published first, `.tmp_update.bak` rollback, a
   separate v1-compatible boot journal, legacy system-only packages untouched,
@@ -731,21 +737,46 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U8 — Transactional system update package build (packaging side of U7)
 - Owner thread: https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa
   (transactional update package; the packaging side of U7's scope).
-- Status: B1-B3 fixes and follow-ups pushed at a new head; awaiting independent
-  review; not merged. PR #27
+- Status: the last B1 residue fixed at a new head; awaiting the incremental
+  independent review; not merged. PR #27
   (https://github.com/4fuu/NextUI/pull/27, branch `feature/updater-update-package`),
-  head `b61ff1f6c4940d5551dda7b8407363ba556117d6` (supersedes
+  head `c6b5e6f3425e135f21cd50d16674765f538cbd7b` (supersedes
+  `b61ff1f6c4940d5551dda7b8407363ba556117d6`,
   `8ffea67cb78548ed3562671ebee74367022b8831` and
   `3b406c6da2becb1379199944bdb9ec50520d70e2`; it is a normal merge of
   `origin/main` `5de96d20`, the PR #29 settings crash fixes — no rebase, no
   force), OPEN and mergeable per gh. CI at this head is six of six green per the
   source (Host tests push and PR, build-linux, build-macos, tg5040 target build
-  push and PR); gh shows Feature checks (push and pull_request) and
+  push and PR), Host tests logging 124 passed, 0 failed, 0 skipped; gh shows
+  Feature checks (push and pull_request) and
   Development/Desktop success on that head.
 - The `5de96d20` merge conflict was only the `.PHONY` and `test:` list lines:
   both now contain `test-settings` and `test-update-package`, with the two
   target bodies separate and unchanged. No PR #29 settings/menu/version code
   was touched (`git diff origin/main -- workspace/` is empty).
+- The `b61ff1f` independent review FAIL (2026-11-16, relayed by the merge
+  owner): B1 critical residue -- the script packaged only
+  `.system/<platform>/` and missed the shared `.system/res` (fonts, icons,
+  effects; `RES_PATH` in defines.h). Install replaces the whole `.system`, so a
+  real install would have deleted the device res from 68 files to 0, and the
+  suite's 110 passed / 0 failed at that head was a false positive because the
+  test input had no res. A source self-test being all green does not cover an
+  independent review FAIL. Fixed at the head above: the shared resource tree now
+  ships. The script stages `build/SYSTEM/res` (the res directory beside the
+  platform directories; `--res-dir` / `UPDATE_RES_DIR` override) into
+  `.system/res`; a missing or empty resource tree fails the run; `UPDATE_RES=0`
+  (`--no-res`) is the only opt-out. The tests now copy the repository's real
+  `skeleton/SYSTEM/res` (68 files), assert `.system/res/font3.ttf` in every
+  archive, and assert after every install that the live `.system/res` is the
+  packaged tree with the previous tree in `.system.bak`; disabling the res
+  staging makes the suite fail on exactly those assertions, so the coverage is
+  real. Also fixed at this head: an empty platform directory no longer yields an
+  archive with only `version.txt` (the emptiness check now looks at
+  `.system/<platform>`), and the make recipe quotes its path variables so a
+  spaced `UPDATE_OUT_DIR` works. Documented policy items (no code change):
+  `commits.txt` is not carried by the transactional archive; the bootstrap's
+  `NextUI-<date>-<n>` `version.txt` versus nextupd's `vX.Y.Z` is a release-time
+  item; outputs are replaced per run rather than atomically.
 - The `38b8cdc` independent review FAIL (B1/B2/B3 below) is addressed at this
   head: B1 the platform's system content is staged at `.system/<platform>/`
   (device layout), so `.system/<platform>/paks/MinUI.pak/launch.sh` and
@@ -761,23 +792,28 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   plain file name; symlinks leaving the build tree refused (the h700 `cp -RL`
   dereference is kept); `UPDATE_KEY_ID` alone errors.
 - Dependency resolved: PR #24 is merged, so the boot install lifecycles
-  (tg5040, h700, and the make target) now run and pass — 110 passed, 0 failed,
-  0 skipped; ASan/UBSan the same; `make -C tests test` green (177 + 55 + 67 +
-  56 pre-existing).
+  (tg5040, h700, and the make target) now run and pass — 124 passed, 0 failed,
+  0 skipped at the current head (the 110 passed / 0 failed / 0 skipped at
+  `b61ff1f` predates the res coverage fix); ASan/UBSan the same;
+  `make -C tests test` green (177 + 55 + 67 + 56 pre-existing).
 - Delivered: `make update-package PLATFORM=... UPDATE_VERSION=...` plus
-  `scripts/package-update.sh`, packaging exactly `.system/` and the optional
-  `.tmp_update/` boot payload into `nextui-system-<platform>.zip` with its
+  `scripts/package-update.sh`, packaging the platform system tree at
+  `.system/<platform>/`, the shared `.system/res` resource tree, and the
+  optional `.tmp_update/` boot payload into `nextui-system-<platform>.zip` with its
   `nextui-update-v1` manifest and detached signature;
   `tests/update_package_test.py` wired into `make -C tests test` (target
   `test-update-package`); `UPDATE-PACKAGING.md` documents the contract. The
   bootstrap `MinUI.zip` built by `make package` is unchanged and still carries
   `Tools/`.
-- Evidence (host only, no device) at `b61ff1f`: `make -C tests test` green —
+- Evidence (host only, no device) at `c6b5e6f`: `make -C tests test` green —
   nextupd 355 passed, 0 failed (177 updater + 55 feed + 67 boot-sync + 56 boot
   recovery; the 67 is PR #24's boot-sync suite, already on main), the settings
   crash tests pass ("settings version tests passed", "settings menu tests
-  passed"), and update-package 110 passed, 0 failed, 0 skipped; the CI Host
-  tests job logged the same counts. Earlier-head evidence kept for the record:
+  passed"), and update-package 124 passed, 0 failed, 0 skipped; ASan/UBSan the
+  same; the CI Host tests job logged the same counts. The 110 passed / 0 failed
+  / 0 skipped recorded at `b61ff1f` is superseded and was a false positive for
+  the res coverage (see the review FAIL above). Earlier-head evidence kept for
+  the record:
   at `8ffea67` the update-package suite was 110 passed, 0 failed, 0 skipped with
   the tg5040, h700, and make-target boot install lifecycles; at `38b8cdc` the
   suite was 61 passed, 0 failed, 2 skipped on main and 73 passed, 0 failed, 0
@@ -793,7 +829,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   merges, not mixed into a release.
 - Not delivered: production release source, feed configuration, production
   signing key, any device install or release publication.
-- Next: independent review at the new head, then the merge owner decides. The
+- Next: the incremental independent review at the new head, then the merge owner
+  decides. The
   `UPDATES.md` cross-reference is left to the updater thread to avoid a
   conflict with its in-flight edit.
 
@@ -808,9 +845,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   merged as `5de96d208ae122b421e5110592b8d670e74bcd5b`, with the merge owner
   confirming the merge and an independent review PASS. All six CI checks were
   green on the merged head; on the merge commit `5de96d2`, Feature checks and
-  Development/Desktop are success per gh while the full CI run was still in
-  progress at the last check — the main-only workflows are the merge owner's to
-  monitor and are not recorded as passing here.
+  Development/Desktop are success per gh and the merge owner has confirmed the
+  full post-merge CI is green on that merge commit.
 - Reproduced first on unmodified main: About with a missing
   `.system/version.txt` segfaults at `menu.cpp:756` (gdb-confirmed); a
   `version.txt` with a trailing newline renders a missing-glyph box (font3
@@ -829,8 +865,13 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Not delivered: no device runs (this orb has no Docker), so the device
   evidence is the CI tg5040 build plus the desktop verification, which does
   not speak for real hardware. "Unknown" stays a plain literal per the merge
-  owner's call; I4 adds the zh entry (`Unknown` to the Chinese string) on a
-  fresh branch now that the fix has merged, as a small follow-up.
+  owner's call; the zh entry (`Unknown` to the Chinese string) is I4's small
+  follow-up, now open as PR #30 (branch `i18n/unknown-fallback`): at head
+  `9c3bec2` it was only a lazy entry not wired to TR, the merge owner asked for
+  safe wiring plus actual zh rendering on the same branch, the head is now
+  `015b57b` (gh-checked; the wiring fix's content and review are not yet
+  reported by the source or the reviewer), fixture 242 is retained, and it is
+  not merged.
 - Scope: fix the settings crashes and corruption cases found in abnormal
   data — the missing-version crash, the trailing-newline missing glyphs, and
   the empty-timezone abort — with host regression coverage; no translation
@@ -840,8 +881,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Delivery/verification: host tests reproduce each abnormal case before the
   fix and pass after; English output unchanged; real-machine behavior stays
   with V1.
-- Next: I4's small follow-up for the zh entry; the I9 line closes with the
-  device-side behavior staying in V1.
+- Next: I4's small follow-up for the zh entry (PR #30, open, not merged); the
+  I9 line closes with the device-side behavior staying in V1.
 
 #### U9 — System update install UI (settings surface)
 - Owner thread: https://ampcode.com/threads/T-01a1e400-3b99-7794-9cf1-ad8cb5433bbc
@@ -1035,15 +1076,17 @@ as they happen; nothing is reported as passing without a run.
 
 - This file is on `main`: PR #2 merged as `59a63e6`, updated by PR #9
   (`3ecefd5`), PR #10 (`b28b126`), PR #12 (`3ae1ddf`), PR #16 (`0385b21`), PR #18
-  (`471de2c`), PR #19 (`3380fe4`), PR #21 (`c9230cf`), PR #22 (`6594dce`), and
-  PR #25 (`07bdf4c`). Later schedule updates branch from `origin/main` and open
+  (`471de2c`), PR #19 (`3380fe4`), PR #21 (`c9230cf`), PR #22 (`6594dce`),
+  PR #25 (`07bdf4c`), and PR #28 (`8e4f744`). Later schedule updates branch
+  from `origin/main` and open
   a pull request into `main`; the CI/merge owner merges after checks pass. This
   thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because real tasks changed (the transactional update packaging slice
-  delivered as PR #27 and the settings Assignments slice opened as PR #26), not
-  because a docs head moved. The previous schedule pull request (PR #25) is
+  because real tasks changed (PR #27's last B1 residue fixed at head `c6b5e6f`
+  after an independent review FAIL, PR #30 opened for the zh "Unknown" entry,
+  and PR #29's post-merge CI confirmed green by the merge owner), not
+  because a docs head moved. The previous schedule pull request (PR #28) is
   merged, so this update travels on a new branch.
 - The current update travels on a new branch cut from `origin/main` @
-  `07bdf4c` (earlier schedule branches merged as `3ae1ddf`, `0385b21`,
-  `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, and `07bdf4c`).
+  `8e4f744` (earlier schedule branches merged as `3ae1ddf`, `0385b21`,
+  `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and `8e4f744`).
