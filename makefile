@@ -34,13 +34,14 @@ RELEASE_BASE=NextUI-$(RELEASE_TIME)$(RELEASE_BETA)
 RELEASE_DOT:=$(shell find ./releases/. -regex ".*/${RELEASE_BASE}-[0-9]+-base\.zip" | wc -l | sed 's/ //g')
 RELEASE_NAME ?= $(RELEASE_BASE)-$(RELEASE_DOT)
 
-# Extra paks to ship. The system update feed is not bundled here: this repo has
-# no default release source, and the third-party updater pak is no longer
-# referenced by default.
-VENDOR_DEST := ./build/VENDOR/Tools
-PACKAGE_URL_MAPPINGS := \
-	"https://github.com/UncleJunVIP/nextui-pak-store/releases/latest/download/Pak.Store.pakz nextui.pak_store.pakz"
-	# add more URLs as needed
+# No vendored packages are downloaded or preinstalled. The build ships only what
+# this repository produces: the third-party Pak Store download that used to be
+# staged into the base package was removed, so a fresh card carries no
+# preinstalled store. A store can still be installed later as an ordinary
+# Tools/<platform> pak, which the launcher discovers like any other app. The one
+# .pakz the base package still carries is the tg5040 Bluetooth upgrade pak
+# staged by workspace/tg5040/platform/makefile.copy, which the boot installer
+# extracts; it is named explicitly so no store pakz can ride in behind a glob.
 
 ###########################################################
 
@@ -195,22 +196,12 @@ package: tidy
 	cd ./build/PAYLOAD && zip -r MinUI.zip .system .tmp_update Tools
 	mv ./build/PAYLOAD/MinUI.zip ./build/BASE
 
-	# Fetch, rename, and stage vendored packages
-	mkdir -p $(VENDOR_DEST)
-	@for entry in $(PACKAGE_URL_MAPPINGS); do \
-		url=$$(echo $$entry | awk '{print $$1}'); \
-		target=$$(echo $$entry | awk '{print $$2}'); \
-		echo "Downloading $$url → $(VENDOR_DEST)/$$target"; \
-		curl -Ls -o "$(VENDOR_DEST)/$$target" "$$url"; \
-	done
-
-	# Move renamed .pakz files into base folder
+	# Stage the base folder contents
 	mkdir -p ./build/BASE
-	mv $(VENDOR_DEST)/* ./build/BASE/
 	
 	# TODO: can I just add everything in BASE to zip?
 	# cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves miyoo miyoo354 trimui rg35xx rg35xxplus gkdpixel miyoo355 magicx em_ui.sh MinUI.zip README.txt
-	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves Shaders Overlays trimui h700 em_ui.sh MinUI.zip *.pakz README.txt
+	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves Shaders Overlays trimui h700 em_ui.sh MinUI.zip nextui.upgrade_bluez.tg5040.pakz README.txt
 	cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-extras.zip Bios Roms Saves Overlays Tools README.txt
 
 	# compound zip (brew install libzip needed) 

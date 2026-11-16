@@ -6,6 +6,7 @@
 #include "update_feed.h"
 #include "update_signature.h"
 #include "update_transaction.h"
+#include "update_app.h"
 #include "update_zip.h"
 #include "sha256_lite.h"
 
@@ -38,6 +39,7 @@ typedef struct
     const char* staged_dir;
     const char* target_root;
     const char* feed;
+    const char* app_id;
     int timeout_seconds;
     int quiet;
     int integrity_only;
@@ -62,7 +64,7 @@ static void usage(FILE* out)
             "  feed      check a configured update feed; write nothing\n"
             "  fetch     check a feed, download, verify, and stage a system update\n"
             "  stage     verify and publish a package into a staging directory\n"
-            "  install   apply a staged system package to an explicit target root\n"
+            "  install   apply a staged system or app package to an explicit target root\n"
             "  recover   resolve an interrupted install in an explicit target root\n"
             "  manifest  build a canonical manifest from a package\n"
             "\n"
@@ -90,7 +92,7 @@ static void usage(FILE* out)
             "  --platform <platform> --system-version <vX.Y.Z> [--json]\n"
             "\n"
             "recover:\n"
-            "  --target-root <dir> [--rollback] [--json]\n"
+            "  --target-root <dir> [--app <id>] [--rollback] [--json]\n"
             "\n"
             "manifest:\n"
             "  --package <file> --id <id> --kind <system|app> --version <vX.Y.Z>\n"
@@ -99,11 +101,15 @@ static void usage(FILE* out)
             "check without --integrity-only fails when no signature and trusted key are\n"
             "provided. stage and fetch always require both. SHA-256 detects damage; it\n"
             "does not establish who produced a manifest. install writes only inside an\n"
-            "explicit --target-root that already contains .system; there is no default root\n"
-            "and no boot or launch activation. recover is the offline arbitration entry\n"
-            "point. feed and fetch have no built-in release source; without --feed or\n"
-            "NEXTUI_UPDATE_FEED they report feed_unconfigured. fetch stages only and never\n"
-            "installs.\n");
+            "explicit --target-root; a system package requires an existing .system and an\n"
+            "app package lands in Tools/<platform>/<id>.pak/ from its signed id. There is no\n"
+            "default root and no boot or launch activation. recover is the offline\n"
+            "arbitration entry point: a plain recover resolves a pending system transaction\n"
+            "and then a pending app transaction; --rollback rolls back the system only; and\n"
+            "--app <id> targets one application (--app <id> --rollback rolls that app back\n"
+            "and never touches .system). feed and fetch have no built-in release source;\n"
+            "without --feed or NEXTUI_UPDATE_FEED they report feed_unconfigured. fetch\n"
+            "stages only and never installs.\n");
 }
 
 static const char* path_basename(const char* path)
@@ -1854,12 +1860,20 @@ static int run_install(const Options* options)
         upd_manifest_free(&verified.manifest);
         return code;
     }
-    if (!upd_install_execute(&request, &result, &error))
     {
-        target_lock_release(&target_lock);
-        code = report_error(&error, options->json);
-        upd_manifest_free(&verified.manifest);
-        return code;
+        /* A signed app package installs through its own independent
+         * transaction; a system package keeps the unchanged system path. */
+        int installed = strcmp(verified.manifest.kind, "app") == 0
+                            ? upd_app_install_execute(&request, &result, &error)
+                            : upd_install_execute(&request, &result, &error);
+
+        if (!installed)
+        {
+            target_lock_release(&target_lock);
+            code = report_error(&error, options->json);
+            upd_manifest_free(&verified.manifest);
+            return code;
+        }
     }
     target_lock_release(&target_lock);
     print_transaction_result(options, &result, verified.manifest.id, options->target_root,
@@ -1873,11 +1887,58 @@ static int run_recover(const Options* options)
     UpdTransactionResult result;
     UpdError error;
     TargetLock target_lock;
+    char system_state[PATH_MAX];
+    struct stat status;
+    int have_system_state;
+    int ok;
 
     upd_error_clear(&error);
     if (!target_lock_acquire(options->target_root, &target_lock, &error))
         return report_error(&error, options->json);
-    if (!upd_install_recover(options->target_root, options->rollback, &result, &error))
+
+    if (options->app_id != NULL)
+    {
+        /* Explicit app route: resolve or roll back one app by id. It never
+         * reads or writes the system transaction, so it cannot roll back
+         * .system even when a system record is present. */
+        ok = upd_app_install_recover_id(options->target_root, options->app_id,
+                                        options->rollback, &result, &error);
+    }
+    else if (options->rollback)
+    {
+        /* --rollback without --app is the system rollback, unchanged and
+         * system-only. App rollback is reached only through --app <id>. */
+        ok = upd_install_recover(options->target_root, 1, &result, &error);
+    }
+    else
+    {
+        /* Plain recover: arbitrate a pending system transaction first, then a
+         * pending app transaction. A terminal (committed/rolled_back) system
+         * record resolves to nothing_to_recover and does not block the app. */
+        have_system_state =
+            snprintf(system_state, sizeof system_state, "%s/.nextupd-txn",
+                     options->target_root) < (int)sizeof system_state
+            && stat(system_state, &status) == 0 && S_ISDIR(status.st_mode);
+        if (have_system_state)
+        {
+            ok = upd_install_recover(options->target_root, 0, &result, &error);
+            if (ok && strcmp(result.outcome, "nothing_to_recover") == 0
+                && upd_app_txn_present(options->target_root))
+                ok = upd_app_install_recover(options->target_root, 0, &result, &error);
+        }
+        else if (upd_app_txn_present(options->target_root))
+        {
+            ok = upd_app_install_recover(options->target_root, 0, &result, &error);
+        }
+        else
+        {
+            upd_transaction_result_init(&result);
+            snprintf(result.outcome, sizeof result.outcome, "%s", "nothing_to_recover");
+            snprintf(result.state, sizeof result.state, "%s", "none");
+            ok = 1;
+        }
+    }
+    if (!ok)
     {
         target_lock_release(&target_lock);
         return report_error(&error, options->json);
@@ -1931,6 +1992,7 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         else if (strcmp(argument, "--out") == 0) target = &options->out;
         else if (strcmp(argument, "--staged-dir") == 0) target = &options->staged_dir;
         else if (strcmp(argument, "--target-root") == 0) target = &options->target_root;
+        else if (strcmp(argument, "--app") == 0) target = &options->app_id;
         else if (strcmp(argument, "--timeout") == 0)
         {
             if (i + 1 >= argc || argv[i + 1][0] == '\0')
@@ -2019,6 +2081,11 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         fprintf(stderr, "nextupd: recover needs --target-root\n");
         return 0;
     }
+    if (options->app_id != NULL && strcmp(command, "recover") != 0)
+    {
+        fprintf(stderr, "nextupd: --app is only valid for recover\n");
+        return 0;
+    }
     if ((strcmp(command, "feed") == 0 || strcmp(command, "fetch") == 0)
         && (options->package != NULL || options->manifest != NULL
             || options->signature != NULL || options->id != NULL
@@ -2100,7 +2167,7 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
             || options->min_system != NULL || options->out != NULL
             || options->integrity_only || options->replace))
     {
-        fprintf(stderr, "nextupd: recover accepts only --target-root, --rollback and --json\n");
+        fprintf(stderr, "nextupd: recover accepts only --target-root, --app, --rollback and --json\n");
         return 0;
     }
     return 1;

@@ -104,6 +104,21 @@ test: test-update-package-atomic
 test-update-package-atomic:
 	./run_update_package_atomic_test.sh
 
+# Removal of the built-in third-party Pak Store: the build must not download or
+# preinstall it, the base package must carry no .pakz, the launcher must keep
+# only generic Tools discovery, and an existing user-installed store pak must
+# stay an ordinary app. Declared on its own lines rather than added to the
+# .PHONY and test lists above, so this hunk never collides with another thread
+# editing those lines.
+.PHONY: test-pak-store-preinstall test-pak-store-entry
+test: test-pak-store-preinstall test-pak-store-entry
+
+test-pak-store-preinstall:
+	./run_pak_store_preinstall_test.sh
+
+test-pak-store-entry:
+	../workspace/all/common/tests/run_pak_store_entry_test.sh
+
 # Localization module tests (LedControl pak + boot splash wiring). They are
 # self-contained: the two shell tests only need the host SDL headers the other
 # host tests already use; the render proofs additionally build and drive the
@@ -135,6 +150,15 @@ test-led-render:
 
 test-show2-render:
 	../workspace/all/show2/tests/run_show2_render_proof.sh
+
+# Local signed application install/update/recovery (the independent app
+# transaction in update_app.c). Declared on its own lines rather than added to
+# the .PHONY and test lists above, so this hunk never collides with another
+# thread editing those lines. The app suite also runs inside test-updater via
+# nextupd/tests/run_tests.sh, so `make test` already covers it.
+.PHONY: test-app-install
+test-app-install:
+	../workspace/all/nextupd/tests/run_app_install_test.sh
 
 clean:
 	rm -f $(TEST_BIN)

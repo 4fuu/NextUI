@@ -29,6 +29,7 @@ SOURCES = \
 	update_manifest.c \
 	update_signature.c \
 	update_transaction.c \
+	update_app.c \
 	update_util.c \
 	update_zip.c \
 	../common/json_lite.c \

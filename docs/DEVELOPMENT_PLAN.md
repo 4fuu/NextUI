@@ -1526,7 +1526,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   store, switching the store index source, and authorizing own store
   repositories are not goals (a removed requirement is a scope change, never
   development completion), and local application install (F6) is not cancelled
-  by this.
+  by this. This section supersedes the older "F4 — Pak Store single-sourcing"
+  entry that main's copy of this file still carries (PR #38's commit `052a72b`
+  updated that entry's status to note the removal); because building an own
+  store is not a goal, that entry is not carried in this schedule.
 - Scope: remove the original third-party Pak Store launcher entry
   (`nextui.c:544-552`, `727-729`) and the build-time download
   (`makefile:36-42`, UncleJunVIP/nextui-pak-store to `nextui.pak_store.pakz`),

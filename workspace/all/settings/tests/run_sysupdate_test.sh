@@ -26,6 +26,7 @@ NU=workspace/all/nextupd
     -I"$NU" -Iworkspace/all/common \
     "$NU/nextupd.c" "$NU/update_download.c" "$NU/update_feed.c" \
     "$NU/update_manifest.c" "$NU/update_signature.c" "$NU/update_transaction.c" \
+    "$NU/update_app.c" \
     "$NU/update_util.c" "$NU/update_zip.c" \
     workspace/all/common/json_lite.c workspace/all/common/sha256_lite.c \
     "$build_dir/tweetnacl.o" \

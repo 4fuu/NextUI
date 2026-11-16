@@ -668,9 +668,9 @@ static void addPakEntries(Array* entries, const char* path) {
 static Array* getApps(void) {
 	Array* entries = Array_new();
 
-	// Tools/$PLATFORM is the canonical app install root (Pak Store and .pakz
-	// both land there). It is not a game-only folder, so show-tools no longer
-	// hides installed apps.
+	// Tools/$PLATFORM is the canonical app install root: installed apps and
+	// their .pakz payloads both land there. It is not a game-only folder, so
+	// show-tools no longer hides installed apps.
 	if (!simple_mode) {
 		char tools_path[256];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
@@ -727,10 +727,6 @@ static Array* getQuickToggles(void) {
 	Entry *settings = entryFromPakName("Settings");
 	if (settings)
 		Array_push(entries, settings);
-
-	Entry *store = entryFromPakName("Pak Store");
-	if (store)
-		Array_push(entries, store);
 
 	// quick actions
 	if(WIFI_supported())
@@ -2548,8 +2544,6 @@ int main (int argc, char *argv[]) {
 							asset = ASSET_POWEROFF;
 						else if (!strcmp(item->name,"Settings"))
 							asset = ASSET_SETTINGS;
-						else if (!strcmp(item->name,"Pak Store"))
-							asset = ASSET_STORE;
 
 						SDL_Rect rect;
 						GFX_assetRect(asset, &rect);
