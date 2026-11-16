@@ -5,10 +5,13 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/integration/batch7` @ `684260d` (merge of PR #3
-  `ci/feature-checks`; fetched 2026-11-16). The earlier baseline `de69781` is an
-  ancestor. PR #5 (`integration/batch7` -> `main`, head `684260d`) is open with
-  checks running and is not merged.
+- Baseline: `origin/main` @ `3a50fe8` (merge of PR #1
+  `runtime-fn-actions`; fetched 2026-11-16). Earlier landing points on main:
+  PR #5 (`201526c`, batch7 line @ `684260d`), this schedule file (PR #2,
+  `59a63e6`), the updater staging module (PR #7, `bdab39e`), the LED/boot
+  localization (PR #4, `dea1f2d`), the display/audio backend module (PR #6,
+  `b506dbd`), and the runtime line (PR #1, `3a50fe8`); `de69781` is an ancestor
+  of all of them. Later updates branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -53,36 +56,46 @@ Rules:
   does not reorder verified code.
 - Status is upgraded only by executed evidence: a CI run that has not run is
   never reported as passing, and a review that has not concluded is not a PASS.
+- A requirement the owner removes is a scope change, not development
+  completion; when the task denominator changes, the scope change is stated
+  explicitly instead of silently dropping the item.
 
 ## Progress snapshot (kept on separate axes)
 
-- Pushed to `integration/batch7` (host-level): UTF-8 layout fixes (A1); FN
-  action kinds `home`/`overlay` with index fallback (A2); i18n table of 138 zh
-  keys with `lang=` and the Appearance Language item (A3, partial coverage);
-  Noto Sans SC subset font3.ttf (A4); show2 embedded CJK font (A5, partial:
-  boot.sh text still hardcoded English); Apostrophe `AP_VERSION` macros (A6);
-  pak manifest scan (B1); pak-scan launcher root (B2); app state slots and
-  `nextstate` (B3); `saves` capability gating (B4); shared overlay module (B5);
-  devserv/nextdev permission core (C1); LED app-profile lease (C2); session
-  snapshot/restore (C3). Baseline head `684260d` additionally merges PR #3
-  (CI feature checks plus two fixes it exposed: host-test cleanup failure
-  handling and a `PATH_MAX` buffer for `realpath` in devserv).
-- Host-done, unpushed: the i18n branches (I4/I5) only.
-  `runtime-fn-actions` (I1) is pushed as draft PR #1 at head `b46227ac`, and
-  `feature/updater-manifest` (I6) is pushed to origin at head `8afab34` with no
-  PR open yet.
-- CI infrastructure: PR #3 (`ci/feature-checks`) merged as `684260d` adds the
-  Feature checks workflow (`.github/workflows/test.yaml`), which runs the host
-  test suite and a real tg5040 cross-compile on every branch push and pull
-  request; packaging and attestation remain main-only (ci.yaml/release.yaml).
-  Per the CI/merge owner, PR #3's own runs passed (host tests, tg5040, desktop
-  macOS/Linux). PR #5 (`integration/batch7` -> `main`) is open with Feature
-  checks running and is not merged.
-- Target compile: tg5040 passes on batch7; the runtime branch
-  (`be88c2028196d5249e8819adba07bcd4e7fc7a4c`) has a formal PASS from the
-  toolchain thread (own verification, not cloud CI); `feature/updater-manifest`
-  tg5040 build was completed by its own thread; the i18n branches are pending;
-  tg5050/h700 have no batch7 build evidence.
+- On `main` now (host-level): the batch7 line A1-C3 (UTF-8 layout fixes, FN
+  action kinds `home`/`overlay`, i18n table of 138 zh keys, font3.ttf, show2
+  embedded CJK font, Apostrophe `AP_VERSION` macros, pak manifest scan,
+  pak-scan launcher root, app state slots and `nextstate`, `saves` capability
+  gating, shared overlay module, devserv/nextdev permission core, LED
+  app-profile lease, session snapshot/restore); PR #3's Feature checks
+  workflow plus the two fixes it exposed (host-test cleanup failure handling,
+  `PATH_MAX` for `realpath` in devserv); the updater
+  manifest/signature/staging module (PR #7, `bdab39e`); the LED and boot
+  localization (PR #4, `dea1f2d`); the display/audio backend module (PR #6,
+  `b506dbd`); and this schedule file (PR #2, `59a63e6`).
+- Host-done, unpushed: the settings i18n branch (I4, `i18n/settings-pages`)
+  only. The runtime line (I1) merged into main as `3a50fe8`; the updater
+  staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
+  and the display/audio backend module (PR #6, `b506dbd`) are on main as well.
+- CI infrastructure: the Feature checks workflow
+  (`.github/workflows/test.yaml`) runs the host test suite and a real tg5040
+  cross-compile on every branch push and pull request; packaging and
+  attestation remain main-only (ci.yaml/release.yaml). Verified runs: PR #3
+  (host, tg5040, desktop macOS/Linux per the CI/merge owner), PR #4 head
+  `b1ca4b5` (Feature checks push and pull_request, Development/Desktop:
+  success), PR #6 head `1c539cf` (Host tests, build-linux, build-macos, tg5040
+  target build: success), PR #1 combo `ae4309f` (Feature checks and
+  Development/Desktop: success per the source; it predates `b506dbd`). Main
+  landings: `201526c` full-platform packaging success and `bdab39e` success;
+  `dea1f2d` and `b506dbd` runs were still in progress at the last check — a run
+  that has not finished is never recorded as passing. Main @ `3a50fe8` has its
+  full-platform runs (Development/Desktop, Feature checks, CI) still in
+  progress at the last check.
+- Target compile: tg5040 passes on batch7 and now also through the Feature
+  checks workflow on main and on feature branches; the runtime branch's
+  `be88c2028...` commit has a formal PASS from the toolchain thread (own
+  verification, not cloud CI); the settings i18n branch is pending; tg5050/h700
+  have no batch7 build evidence.
 - Real-machine acceptance: none for batch7 work. The only device evidence on
   record is the early branch `batch2-1` (`ee0eee7`), where tests T1-T9 passed
   and T10 is partial (HOME unmapped, a source-side gap now tracked as I7); it
@@ -92,42 +105,33 @@ Rules:
 
 ### I1 — Runtime FN actions, app exit, Clock adapter, default-allow policy
 - Owner thread: https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
-- State: pushed to origin. Branch `runtime-fn-actions`; remote HEAD (verified
-  against origin and PR #1 headRefOid, 2026-11-16) is
-  `b46227ac47591b9f3650b9f455d84a66996d9710` "Keep librt out of macOS desktop
-  links" (7 commits, based on `de69781`), which sits on top of
-  `be88c2028196d5249e8819adba07bcd4e7fc7a4c` "Allow installed apps to use
-  implemented capabilities by default" (6 commits; the commit the toolchain
-  PASS in I2 covers). Delivered as draft PR #1
-  (https://github.com/4fuu/NextUI/pull/1) into `integration/batch7` @
-  `de69781`; PR state OPEN and mergeable. Source-thread host self-test reported
-  green; the toolchain thread confirmed the `be88c2028...` tree with a formal
-  PASS (I2). Review (I3) is in progress with no conclusion yet. Not merged; the
-  merge decision belongs to the CI/merge owner after real CI and review pass.
-  No status is upgraded without executed evidence.
+- State: merged into main. PR #1 (`runtime-fn-actions` -> `main`) merged as
+  `3a50fe8`; final head `739595450e774b032e6c37f54dc5ee8e19f4b43d`, tree
+  `8ee56a41` (per the CI/merge owner). The independent review (I3) returned a
+  formal PASS with no must-fix items; HOME/js0 remains OPEN and N1/N2 are
+  recorded as residual risks. That head's Feature checks were all green (Host
+  tests, build-linux, build-macos, tg5040 target build). Main @ `3a50fe8` has
+  its full-platform runs still in progress at the last check, so no pass is
+  recorded for the merge itself.
 - Covers: C4 exit/force-exit path (never removes `/tmp/nextui_exec`), B6 Clock
-  as the reference adapted pak, and the install-default-highest-permission
-  policy (legacy grant store only behind `--require-grants`).
-- Not covered: HOME key mapping. `be88c20`'s SDL joystick path does not make
-  HOME work; the old SDL-only implementation is not HOME-complete. See I7.
+  as the reference adapted pak, the install-default-highest-permission
+  policy (legacy grant store only behind `--require-grants`), the HOME mapping
+  fix (I7), and the display/audio devserv wiring (R1/R2) together with race
+  tests.
+- Not covered: real-machine verification. The HOME/js0 gap is recorded as OPEN
+  by the review (the mapping fix `3e66705` is in, device behavior unverified),
+  and N1/N2 remain residual risks.
 - Depends on: nothing beyond the baseline.
 - Delivery/verification: source-thread self-test reported green (host suite,
-  desktop build); independent review checks still pending — keymon forwards FN
-  without grabbing app input; late requests rejected by session generation;
-  adapted HOME drawn only by the app; one exit per FN2 press; parent
-  supervision SIGTERM/1500 ms/SIGKILL and C2/C3 restore; no arbitrary client
-  PID accepted; no killing of new sessions, other apps, or the desktop. Formal
-  PASS reports from I2/I3 are outstanding.
-- Next: PR #1 CI to finish and I3 to conclude; then the CI/merge owner decides
-  the merge. CI status on PR #1 (2026-11-16): the `be88c2028...` head failed
-  Development/Desktop on macOS (`devserv.elf` link: `library 'rt' not found`;
-  `build-linux` succeeded; the baseline devserv makefile does not link `-lrt`,
-  so the runtime branch introduced it); the source thread's fix `b46227ac`
-  "Keep librt out of macOS desktop links" is the current head and its
-  Development/Desktop run completed with success (macOS and Linux). The device
-  CI run on `b46227ac` is still in progress (the `be88c2028...` device CI run
-  completed with success). Each increment is verified on its own; the HOME gap
-  is handled as I7 on a separate increment.
+  desktop build); the toolchain thread confirmed the `be88c2028...` tree with a
+  formal PASS (I2); the independent review (I3) returned a formal PASS with no
+  must-fix items, recording HOME/js0 as OPEN and N1/N2 as residual risks; the
+  final head's Feature checks were all green. Main @ `3a50fe8` full-platform
+  runs were still in progress at the last check.
+- Next: residual risks stay on the record (HOME/js0 OPEN, N1/N2); real-machine
+  behavior for the runtime line and the R1/R2 backends is verified in the V1
+  batch. The earlier macOS `-lrt` failure is fixed by `b46227ac`, and the HOME
+  mapping fix (`3e66705`) shipped in the same PR #1.
 
 ### I2 — Toolchain target compile of the runtime branch
 - Owner: retained toolchain-target thread (tg5040 cross-build).
@@ -175,8 +179,15 @@ Rules:
 
 ### I5 — LedControl and boot text i18n
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-ed1c-779c-965c-e559b98248b0
-- State: branch `localization-ledcontrol-boot` on `de69781`; plan settled, zero
-  commits.
+- State: merged into main. Branch `localization-ledcontrol-boot`, head
+  `b1ca4b5`, delivered as PR #4 (https://github.com/4fuu/NextUI/pull/4) and
+  merged as `dea1f2d`. Contents: a 41-entry LED table, `boot_strings.sh` shared
+  by the three install boot.sh scripts, and four module tests in the host
+  suite. Verified CI on `b1ca4b5`: Feature checks (push and pull_request) and
+  Development/Desktop all success.
+- Scope limits (must not be read as full translation): host rendering only —
+  not real-machine boot acceptance; `common/api.c` overlay hints and the Remove
+  Loading pak's "Done" remain English.
 - Owns: LedControl pak sources, boot text wiring, a dedicated `led_i18n`
   module so it does not write the shared `i18n.c` concurrently with I4.
 - Depends on: baseline; I4 coordination.
@@ -185,21 +196,20 @@ Rules:
   with offline SDL_ttf render evidence, `boot.sh` zh/en selection wired to
   `lang=` with host fixture tests (never executing install steps), English
   regression proof, `sh -n` syntax checks.
-- Next: implement LedControl table, then boot wiring; this also completes the
-  A5 remainder.
+- Next: the remaining English surfaces (overlay hints, Remove Loading "Done")
+  go to the owners of those files; this completes the A5 boot-text remainder
+  at host level.
 
 ### I6 — Update package manifest, signature, staging, and check
 - Owner thread: https://ampcode.com/threads/T-01a1e2bf-a7b9-75e8-9b44-92cc3fa42296
-- State: pushed to origin. Branch `feature/updater-manifest` (based on
-  `de69781`), head `8afab34` "Build nextupd and run its host tests in CI" =
-  `8dc1275` (manifest verification and safe staging, 45 host tests, fixed
-  fixtures, vendored TweetNaCl) + `29b04da` (contract docs: `UPDATES.md`, module
-  README) + the CI/merge owner's integration commit wiring nextupd into the
-  desktop/device builds and `tests/makefile`, with the 45 tests in the unified
-  entry. The CI/merge owner received and verified the source bundle (sha256
-  63e30747...) before pushing. No PR open yet and no CI runs yet: the branch
-  predates the Feature checks workflow, and the old workflows only run on
-  `pull_request`.
+- State: merged into main. Branch `feature/updater-manifest`, head `8afab34`
+  "Build nextupd and run its host tests in CI" = `8dc1275` (manifest
+  verification and safe staging, 45 host tests, fixed fixtures, vendored
+  TweetNaCl) + `29b04da` (contract docs: `UPDATES.md`, module README) + the
+  CI/merge owner's integration commit wiring nextupd into the desktop/device
+  builds and `tests/makefile`, with the 45 tests in the unified entry. The
+  CI/merge owner verified the source bundle (sha256 63e30747...) before
+  pushing; delivered as PR #7 and merged into main as `bdab39e`.
 - Depends on: baseline.
 - Delivery/verification: self-test 45 passed / 0 failed plain and under
   ASan/UBSan; the thread itself cross-built `nextupd.elf` for tg5040 (real
@@ -208,15 +218,17 @@ Rules:
   is not a signature; staging is crash-safe (`.part`, marker last, fsync, space
   pre-check). Still not the full update chain: no install, no startup
   arbitration, no rollback, no feed, no source switch.
-- Next: open a PR for `feature/updater-manifest` (the Feature checks workflow
-  then runs host tests and a real tg5040 cross-compile on it), then hand the
-  manifest/check format family to U1. Staging and check completion is not
-  update-chain completion: install, startup arbitration, and rollback remain
-  separate tasks below.
+- Next: hand the manifest/check format family to U1. Merging the staging work
+  does not complete the update chain: install, startup arbitration, and
+  rollback remain separate tasks below.
 
 ### I7 — HOME input mapping fix (new task after `be88c20`)
 - Owner thread: https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
-- State: investigating, no commit yet (branch head still `be88c20`).
+- State: fix shipped in PR #1 (merged as `3a50fe8`). Commit `3e66705` "Map the
+  real HOME key and wire the desktop overlay" is part of final head `73959545`.
+  Real-machine status stays unverified: no further physical key presses are
+  scheduled (owner decision), and the review records HOME/js0 as OPEN, so the
+  fix waits for the V1 batch or a replay fixture on device.
 - Evidence (ADB thread, batch2-1 `ee0eee7`): `/dev/input/event3` records five
   complete `KEY_HOMEPAGE` (172) press/release events, but `js0` exports only 11
   buttons (0-10) and HOME never appears as a button event. `platform.h` expects
@@ -230,9 +242,26 @@ Rules:
 - Delivery/verification: minimal fix to the existing evdev to inputd/SDL
   mapping with a replayable input fixture; no exclusive-grab reader and no
   duplicate triggers; host fixture tests, desktop build, tg5040 cross-compile.
-- Next: fix commit, then evidence in the V1 batch. Physical key re-tests are
-  not rescheduled (owner decision); HOME real-machine status stays unverified
-  until the fixed build runs on device.
+- Next: evidence in the V1 batch; real-machine status stays unverified until
+  the fixed build runs on device.
+
+### I8 — Remove the built-in emulator and its entry
+- Owner thread: https://ampcode.com/threads/T-01a1e307-1d43-738e-b40a-56417f8ba038
+- State: dispatched to its own orb thread (workspace preparing), no commit yet.
+- Scope (owner decision, 2026-11-16): the product no longer ships the built-in
+  emulator or its entry; remove the emulator-specific implementation, default
+  packaging/build, and menu entry references. Boundaries: user SD-card ROMs and
+  saves are untouched, no device operations, the general desktop and the code
+  shared by applications, state saving, the overlay, fonts, or device control
+  stay; no blind deletion by `game`/`emu` keywords.
+- Depends on: `origin/main`.
+- Delivery/verification: the desktop menu no longer shows an emulator entry,
+  packages no longer carry the built-in emulator, host regression tests and the
+  tg5040 build still pass, with the exact SHA/PR and evidence reported.
+- Next: PR after completion; emulator-specific CI/core build cleanup waits for
+  the removal thread's handoff and is coordinated with the CI/merge owner, who
+  merges after checks pass. This schedule no longer treats minarch or cores as
+  development goals or acceptance prerequisites.
 
 ## Backlog, in priority order
 
@@ -244,35 +273,44 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 #### R1 — Display backend (brightness, color temperature)
 - Owner thread: https://ampcode.com/threads/T-01a1e2d5-d596-70f5-87bb-4925f7d2f420
-  (P1 backend thread; interface coordination with the I1 thread).
-- Status: dispatched to its own orb thread (workspace preparing), no commit
-  yet.
-- Ownership: the new `device_backend_display_audio` module and its tests are
-  exclusive to the P1 thread; it does not concurrently edit the runtime
-  devserv/keymon/launch mainline and instead hands minimal routing/build
-  wiring patches to the runtime thread for integration (interface first,
-  mainline untouched, patch delivery). The retained toolchain target-build
-  thread can be reused.
-- Depends on: C1/C3 pushed baseline; I1 interface agreement.
-- Delivery/verification: `display.brightness` and `display.colortemp` served
-  through the existing msettings paths with range validation; illegal
-  parameters are not written; no invented sysfs control and no false hardware
-  success; unimplemented stays honestly `unavailable`; host tests with the fake
-  backend plus a unit-testable device-path seam; desktop build and tests green;
-  tg5040 cross-compile.
-- Next: R2 (same module), then real-machine batch V1.
+  (P1 backend thread).
+- Status: module merged into main — keep separate from the runtime wiring.
+  PR #6 (`backend-display-audio`), head `1c539cf`, merged as `b506dbd`; its
+  four checks passed (Host tests, build-linux, build-macos, tg5040 target
+  build). The delivery is the module, its tests, and its docs only; no devserv
+  wiring (per the agreed split).
+- Delivered: `display.get`, `display.brightness` 0..10, `display.colortemp`
+  0..40, served through the existing msettings paths; illegal parameters are
+  rejected before any write; the value is read back after a write and failure
+  never reports success; a successful change marks the C3 session dirty so
+  normal-exit restore runs.
+- Honest degradation: desktop display stays `unavailable`; responses carry
+  `verified:"settings","hardware_ack":false` — a void setter cannot prove the
+  physical effect, so no physical brightness claim is made.
+- Next: the devserv wiring shipped inside PR #1 (merged as `3a50fe8`, final
+  head `73959545`, review PASS with HOME/js0 OPEN); real-machine behavior in
+  V1.
 
 #### R2 — Audio backend (volume, sink, mute where the switch exists)
 - Owner thread: same P1 backend thread (T-01a1e2d5), shared module with R1.
-- Status: dispatched with R1 (own orb thread, workspace preparing), no commit
-  yet.
-- Depends on: R1 seam.
-- Delivery/verification: volume and speaker/Bluetooth/USB routing served
-  through the existing msettings/tinyalsa paths; mute honest per platform;
-  successful changes mark the session dirty so normal-exit restore runs;
-  partial failure and unsupported platforms degrade honestly; same host/target
-  gates as R1.
-- Next: R3.
+- Status: module merged into main together with R1 (PR #6, `b506dbd`).
+- Delivered: `audio.volume` get/set 0..20, `audio.volume setmute` 0..1, and
+  `audio.sink` default/bluetooth/usbdac 0..2 through the existing msettings
+  paths, with the same write guards, read-back, and dirty-marking rules as R1
+  (mute included in restore).
+- Honest degradation: desktop audio stays `unavailable`; h700 mute stays
+  `unavailable`; a mute profile override rejects writes; the same
+  `verified:"settings","hardware_ack":false` honesty applies.
+- Evidence: 280 dedicated checks; the full `make -C tests test` exits 0
+  (including the updater 45/45 and session E2E); desktop build exits 0; a
+  desktop devserv wired by hand returns `unavailable` for authorized calls.
+  The toolchain thread's tg5040 cross-build at `ee10cab` (wiring reference
+  branch `backend-display-audio-wiring@6534829`, which differs from the merged
+  source only in `devserv.c` and `devserv/makefile`) produced an AArch64
+  `devserv.elf` (142,104 B, sha256 10b402f3..., NEEDED libmsettings.so) and
+  packaged successfully — compile/link evidence only, no real machine.
+- Next: the runtime combo's wiring shipped inside PR #1 (merged as `3a50fe8`);
+  real-machine acceptance in V1.
 
 #### R3 — Rumble backend (input.rumble)
 - Owner: new backend thread.
@@ -357,15 +395,13 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 ### P3 — Full UI translation remainder
 
-#### T1 — minarch fixed text
-- Owner: new translation thread (Step5Medium capacity); independent queue item.
-- Status: queued; starts only when a Step execution slot frees up (Space
-  instruction, 2026-11-16). Roughly 700 in-game menu strings remain hardcoded.
-- Depends on: I4/I5 key coordination so the shared table is not written
-  concurrently.
-- Delivery/verification: fixed menu text wrapped and translated with generic
-  application terminology; host tests and desktop build; zh/en screenshots.
-- Next: external-pak display-name coverage decision.
+#### T1 — minarch fixed text (cancelled by the owner)
+- Owner thread: https://ampcode.com/threads/T-01a1e303-9b65-765c-b8d1-da4565666cd7
+  (stopped and archived, 2026-11-16).
+- Status: cancelled, not completed. 4fu decided the built-in emulator is not
+  needed, so its content and entry are removed instead (see I8). A removed
+  requirement is a scope change, never development completion; the roughly 700
+  hardcoded in-game strings leave the denominator together with the emulator.
 
 #### T2 — External pak internals
 - Owner: none in this repo.
@@ -486,6 +522,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1df89-7707-7413-b6d3-372e8208f333
 - P1 display/audio backend thread:
   https://ampcode.com/threads/T-01a1e2d5-d596-70f5-87bb-4925f7d2f420
+- Built-in emulator removal thread:
+  https://ampcode.com/threads/T-01a1e307-1d43-738e-b40a-56417f8ba038
 
 ## Maintenance
 
@@ -496,16 +534,13 @@ as they happen; nothing is reported as passing without a run.
 
 ## Delivery of this file
 
-- Branch `docs/development-plan`, originally based on `de69781`, now merged with
-  `origin/integration/batch7` @ `684260d` (merge commit, no history rewrite) so
-  the PR diff stays docs-only and the Feature checks workflow runs on it.
-  Pushed to origin and delivered as pull request #2
-  (https://github.com/4fuu/NextUI/pull/2) into `integration/batch7`.
-- CI on PR #2 (as of 2026-11-16): after merging the batch7 baseline, the
-  Feature checks workflow (`.github/workflows/test.yaml`) and
-  Development/Desktop are running on `2ec3468`; earlier Development/Desktop
-  runs completed with success. A job that has not finished is never recorded as
-  passing.
-- Handover: the CI/merge owner will retarget PR #2 to `main` after PR #5
-  (`integration/batch7` -> `main`) merges, and merge it after checks pass. This
-  thread performs no merges into main.
+- This file is on `main`: PR #2 (https://github.com/4fuu/NextUI/pull/2) was
+  retargeted to `main` and merged as `59a63e6`. Later schedule updates branch
+  from `origin/main` and open a pull request into `main`; the CI/merge owner
+  merges after checks pass. This thread performs no merges itself.
+- The current update travels on branch `docs/schedule-update` (merged with
+  `origin/main` @ `3a50fe8`, merge commit, no history rewrite) and is delivered
+  as pull request #9 (https://github.com/4fuu/NextUI/pull/9), head
+  `05778f1fd113ab2f5a848e4d80fdeedad7bdb1b0`, state OPEN and mergeable. Its
+  Feature checks and Development/Desktop runs were in progress at the last
+  check; a job that has not finished is never recorded as passing.
