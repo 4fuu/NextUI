@@ -1309,21 +1309,32 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Status: first head delivered and open; source-verified, awaiting the merge
   owner's independent verification, so this is not acceptance-complete. PR #37
   (https://github.com/4fuu/NextUI/pull/37, branch `app-install-transaction`),
-  head `00217d546b4194b79d91eaf9aac86d7e0ff66ba5` (supersedes
+  head `51ced40a6b83ecb703a30ec24a7e0abfb43e8e13` (supersedes
+  `00217d546b4194b79d91eaf9aac86d7e0ff66ba5` and
   `117bc578663cdff3a7ed2dc4807079f0b10473a1`, whose CI was green per gh), OPEN,
   MERGEABLE and CLEAN per gh; CI at this head is green per gh (Feature checks
-  push and pull_request, Development/Desktop), and the source reports 430
-  passed / 0 failed with the app suite at 74 and ASan/UBSan the same. It adds
+  push and pull_request, Development/Desktop), and the source reports 435
+  passed / 0 failed with the app suite at 79 and ASan/UBSan the same. It adds
   an independent `update_app.{h,c}` pair
   with zero changes to the system `update_transaction.c`/`.h`, signed local
   app install and update, and independent transaction recovery. Not merged; the
-  independent review result is not reported.
+  independent review result is not reported, so nothing is written as accepted.
 - Coexistence verified by the source (real nextupd A/B runs plus regression;
   awaiting the merge owner's independent verification, and not recorded as a
   defect): a terminal-state system `.nextupd-txn` record does not block the app
   recover in the same run; a non-terminal system record recovers first and the
   second recover handles the app; and `.system` is not rewritten by the app
-  recovery.
+  recovery. This plain auto-recover terminal coexistence finding is distinct
+  from the manual-rollback defect below, which was confirmed on `00217d5` and
+  fixed at `51ced40`.
+- Manual-rollback defect confirmed on `00217d5` and fixed at `51ced40`: an app
+  rollback first mistakenly rolled back the system, reproduced by the source.
+  The fix separates the rollback entry points -- `recover --rollback` is
+  system-dedicated, `recover --app <id> [--rollback]` is explicitly
+  app-dedicated, and plain `recover` keeps the original arbitration -- with
+  zero changes to the system transaction modules. A new regression with a real
+  system transaction plus an app backup asserts that an app rollback changes
+  neither the system tree nor the system transaction bytes.
 - Evidence boundary (recorded so the verification is not overstated): what the
   source added is a verbatim copy of the production algorithm as an independent
   C scanner plus install-output positive and negative controls -- not a real
