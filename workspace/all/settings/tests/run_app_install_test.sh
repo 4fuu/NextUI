@@ -101,5 +101,45 @@ text = open(path, encoding="utf-8").read().replace('"kind": "app"', '"kind": "sy
 open(path, "w", encoding="utf-8").write(text)
 EOF
 
+# A validly signed system package, staged the way the System Update path stages
+# one. This is the package a racing writer swaps into the staged directory the
+# page just produced: its signature, platform and min_system all check out, so
+# only the expected-kind boundary on install keeps it out of this entry.
+SYSTEM_SWAP="$build_dir/packages-system-swap"
+python3 workspace/all/settings/tests/make_app_package.py \
+    "$build_dir/nextupd" "$FIXTURES" "$SYSTEM_SWAP" \
+    --version v6.16.0 --kind system --min-system v6.0.0 >/dev/null
+"$build_dir/nextupd" stage --package "$SYSTEM_SWAP/Demo.zip" \
+    --manifest "$SYSTEM_SWAP/Demo.manifest.json" \
+    --signature "$SYSTEM_SWAP/Demo.manifest.sig" \
+    --trusted-key "$FIXTURES/test-public-key" --platform tg5040 \
+    --system-version v6.16.0 --staging-root "$build_dir/system-staging" \
+    --replace --json >/dev/null
+SYSTEM_STAGED="$build_dir/system-staging/nextui.system.tg5040-v6.16.0-tg5040"
+test -f "$SYSTEM_STAGED/staged.json" || { echo "system swap fixture not staged"; exit 1; }
+
+# The racing writer, as a tool: on the install step it replaces the staged
+# directory the page just produced with the staged system package above, then
+# runs the real tool with the arguments the page gave it. Nothing else about the
+# flow changes, so the page's own scan and the tool's re-verification both see a
+# perfectly valid system package.
+cat > "$build_dir/swap-staged-tool.sh" <<EOF
+#!/bin/sh
+if [ "\$1" = "install" ]; then
+    staged=""
+    previous=""
+    for argument in "\$@"; do
+        if [ "\$previous" = "--staged-dir" ]; then staged="\$argument"; fi
+        previous="\$argument"
+    done
+    if [ -n "\$staged" ]; then
+        rm -rf "\$staged"
+        cp -a "$SYSTEM_STAGED" "\$staged"
+    fi
+fi
+exec "$build_dir/nextupd" "\$@"
+EOF
+chmod +x "$build_dir/swap-staged-tool.sh"
+
 "$build_dir/appinstall_controller_test" "$build_dir/nextupd" "$FIXTURES/test-public-key" \
     "$build_dir"

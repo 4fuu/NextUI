@@ -33,6 +33,7 @@ typedef struct
     const char* staging_root;
     const char* id;
     const char* kind;
+    const char* expected_kind;
     const char* version;
     const char* min_system;
     const char* out;
@@ -70,7 +71,7 @@ static void usage(FILE* out)
             "\n"
             "check:\n"
             "  --package <file> --manifest <file> --platform <platform>\n"
-            "  [--signature <file> --trusted-key <file>] [--integrity-only]\n"
+            "  [--signature <file> --trusted-key <file>] [--integrity-only] [--expected-kind <kind>]\n"
             "  [--system-version <vX.Y.Z>] [--json]\n"
             "\n"
             "feed:\n"
@@ -86,10 +87,12 @@ static void usage(FILE* out)
             "  --package <file> --manifest <file> --signature <file>\n"
             "  --trusted-key <file> --platform <platform>\n"
             "  [--staging-root <dir>] [--replace] [--system-version <vX.Y.Z>] [--json]\n"
+            "  [--expected-kind <kind>]\n"
             "\n"
             "install:\n"
             "  --staged-dir <dir> --target-root <dir> --trusted-key <file>\n"
             "  --platform <platform> --system-version <vX.Y.Z> [--json]\n"
+            "  [--expected-kind <kind>]\n"
             "\n"
             "recover:\n"
             "  --target-root <dir> [--app <id>] [--rollback] [--json]\n"
@@ -109,7 +112,15 @@ static void usage(FILE* out)
             "--app <id> targets one application (--app <id> --rollback rolls that app back\n"
             "and never touches .system). feed and fetch have no built-in release source;\n"
             "without --feed or NEXTUI_UPDATE_FEED they report feed_unconfigured. fetch\n"
-            "stages only and never installs.\n");
+            "stages only and never installs.\n"
+            "\n"
+            "check, stage and install accept --expected-kind <app|system>. The manifest\n"
+            "that this invocation verified must declare that kind, so a caller that\n"
+            "installs applications only refuses a package whose verified kind is anything\n"
+            "else before it stages or applies anything. The comparison uses the manifest\n"
+            "bytes the signature just covered, never a second read of the same file, so a\n"
+            "package swapped in after a caller's own scan cannot pass as the kind that\n"
+            "caller expected. Omitting the flag leaves the routing behaviour unchanged.\n");
 }
 
 static const char* path_basename(const char* path)
@@ -354,6 +365,24 @@ static int verify_archive(const Options* options, const UpdManifest* manifest,
     return 1;
 }
 
+/* The expected-kind boundary. options->expected_kind is what the caller says it
+ * is about to route this package to; manifest->kind is what the signature over
+ * manifest->raw authorized. upd_manifest_load() has already rejected anything
+ * but system and app, so an empty kind cannot reach this comparison. */
+static int check_expected_kind(const Options* options, const UpdManifest* manifest,
+                               UpdError* error)
+{
+    if (options->expected_kind == NULL) return 1;
+    if (strcmp(manifest->kind, options->expected_kind) != 0)
+    {
+        upd_error_set(error, UPD_E_INVALID, "kind_mismatch",
+                      "verified manifest kind is %s, this caller installs %s only",
+                      manifest->kind, options->expected_kind);
+        return 0;
+    }
+    return 1;
+}
+
 static int verify_package(const Options* options, int require_signature,
                           VerifiedPackage* verified, UpdError* error)
 {
@@ -378,6 +407,12 @@ static int verify_package(const Options* options, int require_signature,
                       "check/stage requires --signature and --trusted-key");
         return 0;
     }
+    /* A caller that names the kind it is about to route to gets that promise
+     * checked here, against the manifest this invocation just verified, and not
+     * against a second read of the same file: a package swapped in between the
+     * caller's scan and this stage or install is refused before anything is
+     * staged or applied, so the caller's own scan is never the guarantee. */
+    if (!check_expected_kind(options, &verified->manifest, error)) return 0;
 
     platform = resolved_platform(options);
     if (platform == NULL || platform[0] == '\0')
@@ -1987,6 +2022,7 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         else if (strcmp(argument, "--feed") == 0) target = &options->feed;
         else if (strcmp(argument, "--id") == 0) target = &options->id;
         else if (strcmp(argument, "--kind") == 0) target = &options->kind;
+        else if (strcmp(argument, "--expected-kind") == 0) target = &options->expected_kind;
         else if (strcmp(argument, "--version") == 0) target = &options->version;
         else if (strcmp(argument, "--min-system") == 0) target = &options->min_system;
         else if (strcmp(argument, "--out") == 0) target = &options->out;
@@ -2084,6 +2120,21 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
     if (options->app_id != NULL && strcmp(command, "recover") != 0)
     {
         fprintf(stderr, "nextupd: --app is only valid for recover\n");
+        return 0;
+    }
+    if (options->expected_kind != NULL
+        && strcmp(options->expected_kind, "app") != 0
+        && strcmp(options->expected_kind, "system") != 0)
+    {
+        fprintf(stderr, "nextupd: --expected-kind must be app or system\n");
+        return 0;
+    }
+    if ((strcmp(command, "feed") == 0 || strcmp(command, "fetch") == 0
+         || strcmp(command, "manifest") == 0 || strcmp(command, "recover") == 0)
+        && options->expected_kind != NULL)
+    {
+        fprintf(stderr,
+                "nextupd: --expected-kind is only valid for check, stage and install\n");
         return 0;
     }
     if ((strcmp(command, "feed") == 0 || strcmp(command, "fetch") == 0)

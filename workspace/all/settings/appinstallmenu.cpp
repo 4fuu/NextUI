@@ -264,6 +264,10 @@ std::string Menu::describe(const Result &result) const
             return TR("The installed app version cannot be read.");
         if (result.reason == "not_an_app_package")
             return TR("This package is not an application package.");
+        // The tool's expected-kind boundary: the package it verified is not an
+        // application package, even though its signature is valid.
+        if (result.reason == "kind_mismatch")
+            return TR("This package is not an application package.");
         return TR("Install failed.");
     }
 }

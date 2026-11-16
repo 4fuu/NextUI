@@ -14,10 +14,14 @@
  * folder and picks it here; the controller runs the same `nextupd stage` and
  * `nextupd install` primitives the system update uses, so the manifest, the
  * detached Ed25519 signature, the per-file hashes and the ZIP safety checks are
- * the tool's, never a promise of this UI. The install itself is the independent
- * app transaction: it lands in `Tools/<platform>/<id>.pak/` under the explicit
- * target root, derived from the signed manifest id and the concrete platform, and
- * never touches `.system`, `.tmp_update`, or user data.
+ * the tool's, never a promise of this UI. Both calls carry `--expected-kind app`,
+ * so the tool refuses a package whose *verified* manifest kind is anything else
+ * before it stages or applies it: the folder scan is a listing, and the kind
+ * boundary is the tool's, on the manifest its own signature check covered. The
+ * install itself is the independent app transaction: it lands in
+ * `Tools/<platform>/<id>.pak/` under the explicit target root, derived from the
+ * signed manifest id and the concrete platform, and never touches `.system`,
+ * `.tmp_update`, or user data.
  *
  * The trusted public key follows the System Update contract exactly: it is a
  * path the app is configured with (in production the same
