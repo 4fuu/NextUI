@@ -22,6 +22,7 @@ import zipfile
 BIN = os.path.abspath(sys.argv[1])
 FIXTURES = os.path.abspath(sys.argv[2])
 WORK = os.path.abspath(sys.argv[3])
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 
 KEY_ID = "nextui-test-only-1"
 PLATFORM = "tg5040"
@@ -789,6 +790,41 @@ def test_missing_staging_and_only_tool():
         ok("a complete live boot plus the new system commits without staging")
 
 
+def test_boot_gate_without_system_txn():
+    target = make_target("boot-gate")
+    staged = build_staged("boot-gate-stage")
+    if not install_with_crash(target, staged, "boot_installed"):
+        return
+    if os.path.exists(os.path.join(target, ".nextupd-txn", "txn.json")):
+        fail("boot gate setup", "a system txn exists before the gate test")
+        return
+    if boot_journal(target) is None:
+        fail("boot gate setup", "the boot journal is missing")
+        return
+    # The real gate looks for .nextupd-txn, which now contains only the boot
+    # journal. Put the test tool and the shipped helper where it expects them.
+    platform_dir = os.path.join(target, ".tmp_update", PLATFORM)
+    shutil.copy(BIN, os.path.join(platform_dir, "nextupd.elf"))
+    os.chmod(os.path.join(platform_dir, "nextupd.elf"), 0o755)
+    shutil.copy(os.path.join(REPO, "skeleton", "BOOT", "common",
+                             "nextupd-recover.sh"),
+                os.path.join(target, ".tmp_update", "nextupd-recover.sh"))
+    log = os.path.join(target, ".userdata", PLATFORM, "logs", "install.txt")
+    script = ('. "$1/nextupd-recover.sh"; '
+              'nextupd_recover_boot "$2" "$1" "%s" "$3"') % PLATFORM
+    proc = run(["sh", "-c", script, "sh",
+                os.path.join(target, ".tmp_update"), target, log])
+    if proc.returncode != 0:
+        fail("real boot gate reaches orphan recovery", "helper failed", proc)
+    elif system_version(target) != OLD_VERSION or boot_generation(target) != "old":
+        fail("real boot gate reaches orphan recovery",
+             f"system {system_version(target)}, boot {boot_generation(target)}", proc)
+    elif boot_journal(target) is not None:
+        fail("real boot gate reaches orphan recovery", "boot journal remains", proc)
+    else:
+        ok("real boot gate recovers a boot journal without a system txn")
+
+
 def test_corruption():
     staged = build_staged("corruption-stage")
 
@@ -874,6 +910,7 @@ def main():
     test_unchanged_and_newer_boot()
     test_install_zero_write_refusals()
     test_crash_matrix()
+    test_boot_gate_without_system_txn()
     test_missing_staging_and_only_tool()
     test_corruption()
     test_legacy_record()
