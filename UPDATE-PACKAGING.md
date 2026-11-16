@@ -17,7 +17,7 @@ here.
 | Artifact | Roots | Built by | Purpose |
 | --- | --- | --- | --- |
 | Bootstrap `MinUI.zip` | `.system`, `.tmp_update`, `Tools` | `make package` | First install onto a stock or empty card, unpacked by the boot script's `unzip` |
-| Transactional archive | `.system` and optionally `.tmp_update` | `make update-package` | Signed update applied by `nextupd install` |
+| Transactional archive | `.system` (with `<platform>/`, `res/`, `version.txt`) and optionally `.tmp_update` | `make update-package` | Signed update applied by `nextupd install` |
 
 The bootstrap archive keeps its `Tools/` root and its behavior is unchanged.
 The transactional archive must not contain it: `nextupd install` refuses an
@@ -52,6 +52,8 @@ Inputs, all overridable through the matching `UPDATE_*` variables:
 | `UPDATE_VERSION` | — | `vX.Y.Z`; becomes the manifest `version` and `.system/version.txt` |
 | `UPDATE_MIN_SYSTEM` | — | optional `vX.Y.Z`; must not be newer than the version |
 | `UPDATE_SYSTEM_DIR` | `build/SYSTEM/<platform>` | the platform's system content, staged at `.system/<platform>/` |
+| `UPDATE_RES_DIR` | `build/SYSTEM/res` | the shared resource tree, staged at `.system/res` |
+| `UPDATE_RES` | `1` | `0` drops the shared resources (`--no-res`); the device keeps none from this package |
 | `UPDATE_BOOT` | `1` | `1` packages the boot payload too; `0` means system-only |
 | `UPDATE_BOOT_DIR` | `build/BOOT/.tmp_update` | the `.tmp_update` content, used unless `UPDATE_BOOT=0` |
 | `UPDATE_KEY`, `UPDATE_KEY_ID` | — | sign here; otherwise the manifest is left unsigned for the owner |
@@ -67,11 +69,20 @@ a missing boot payload with `UPDATE_BOOT=1` fails instead of falling back.
 The script enforces the verifier's rules at packaging time instead of shipping
 an archive that cannot install:
 
-- exactly the `.system/<platform>/` tree plus the optional `.tmp_update/`
-  root; no `Tools/`, no `Roms/`, `Saves/`, or any other extra root path, and
-  no user data. The platform directory is nested exactly as the device
-  unpacks it (`$SDCARD/.system/<platform>/`), because the boot scripts launch
+- exactly the `.system/<platform>/` tree, the shared `.system/res/` resources,
+  and the optional `.tmp_update/` root; no `Tools/`, no `Roms/`, `Saves/`, or
+  any other extra root path, and no user data. The platform directory is
+  nested exactly as the device unpacks it (`$SDCARD/.system/<platform>/`),
+  because the boot scripts launch
   `.system/<platform>/paks/MinUI.pak/launch.sh`
+- the shared resource tree ships by default: `install` replaces the whole
+  `.system`, so a package without `.system/res` would delete the device's
+  fonts, icons and effects (`RES_PATH` in `workspace/all/common/defines.h`).
+  A missing or empty resource tree fails the packaging run; `UPDATE_RES=0`
+  (`--no-res`) is the only way to leave it out
+- other shared files the bootstrap writes at the `.system` root
+  (`commits.txt`, which nothing reads at runtime) are not carried by the
+  transactional archive; `install` replaces them with this package's tree
 - `.system/version.txt` is written from `UPDATE_VERSION`, so the package, the
   manifest, and the installed version always agree. The bootstrap `MinUI.zip`
   keeps its own `NextUI-<date>-<n>` display format; only the transactional
@@ -115,8 +126,9 @@ NEXTUPD_BIN=/path/to/nextupd tests/run_update_package_test.sh
 It covers the archive shape (roots, forbidden roots, modes, `version.txt`,
 manifest and file hashes, tamper and rename rejection), the shared libraries,
 the script's refusals (incomplete or reserved boot payload, broken, absolute or
-escaping symlink, special file, empty system tree, bad identity, half key,
-name escape, `min_system` above the version), a system-only
+escaping symlink, special file, missing or empty shared resource tree, empty
+platform directory, empty system tree, bad identity, half key, name escape,
+`min_system` above the version), a system-only
 `check`/`stage`/`install`/`recover` cycle including downgrade refusal, an
 h700 tree whose `libSDL2` symlinks are dereferenced into regular files, the
 make target's default output installing end to end (boot payload included),
@@ -137,6 +149,13 @@ required.
 
 - The release source address and the production signing key (owner decisions).
   Nothing here publishes a release, configures a feed, or installs to a device.
+- Two release-time items this packaging work surfaces but does not decide:
+  the bootstrap `MinUI.zip` writes `.system/version.txt` as
+  `NextUI-<date>-<n>`, which `nextupd` rejects as a target version
+  (`target_version_missing`), so the first transactional update onto a
+  bootstrapped card needs a policy for that file; and outputs are replaced
+  per run rather than written atomically, so an interrupted run can leave a
+  partial archive behind (the next run replaces it).
 - Wiring the archive into `ci.yaml`/`release.yaml`. Those workflows belong to
   the CI owner; the `tg5040` build and package-content evidence they produce is
   recorded separately.

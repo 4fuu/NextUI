@@ -226,16 +226,20 @@ package: tidy
 #
 # Run `make special` first (the .tmp_update boot payload) and this before
 # `make package`, which moves build/SYSTEM away. The default is the full
-# archive: .system plus the signed .tmp_update boot payload, which installs now
-# that main carries the updater's signed boot-payload support. Set UPDATE_BOOT=0
-# for a system-only archive, which updates .system and leaves the live
-# .tmp_update payload untouched.
+# archive: .system/<platform>, the shared .system/res resources, and the signed
+# .tmp_update boot payload, which installs now that main carries the updater's
+# signed boot-payload support. UPDATE_BOOT=0 produces a system-only archive,
+# which updates .system and leaves the live .tmp_update payload untouched;
+# UPDATE_RES=0 drops the shared resources (the device then keeps none from this
+# package). `install` replaces the whole .system, so the shared tree ships by
+# default.
 #
-# UPDATE_MIN_SYSTEM, UPDATE_SYSTEM_DIR, UPDATE_BOOT_DIR and UPDATE_OUT_DIR are
-# optional. UPDATE_KEY/UPDATE_KEY_ID sign here, otherwise the manifest is left
-# unsigned for the release owner to sign the exact bytes later; never commit a
-# production key to this repo.
+# UPDATE_MIN_SYSTEM, UPDATE_SYSTEM_DIR, UPDATE_RES_DIR, UPDATE_BOOT_DIR and
+# UPDATE_OUT_DIR are optional. UPDATE_KEY/UPDATE_KEY_ID sign here, otherwise
+# the manifest is left unsigned for the release owner to sign the exact bytes
+# later; never commit a production key to this repo.
 UPDATE_BOOT ?= 1
+UPDATE_RES ?= 1
 .PHONY: update-package
 update-package:
 	@if [ -z "$(UPDATE_VERSION)" ]; then \
@@ -252,14 +256,16 @@ update-package:
 	fi
 	make -C workspace/all/nextupd PLATFORM=desktop
 	./scripts/package-update.sh \
-		--platform $(PLATFORM) \
-		--version $(UPDATE_VERSION) \
-		$(if $(UPDATE_MIN_SYSTEM),--min-system $(UPDATE_MIN_SYSTEM),) \
-		$(if $(UPDATE_SYSTEM_DIR),--system-dir $(UPDATE_SYSTEM_DIR),) \
-		$(if $(filter 1,$(UPDATE_BOOT)),--boot-dir $(if $(UPDATE_BOOT_DIR),$(UPDATE_BOOT_DIR),build/BOOT/.tmp_update) --require-boot,--no-boot) \
-		--out-dir $(if $(UPDATE_OUT_DIR),$(UPDATE_OUT_DIR),./releases) \
-		--name nextui-system-$(PLATFORM).zip \
-		$(if $(UPDATE_KEY),--key $(UPDATE_KEY) --key-id $(UPDATE_KEY_ID),)
+		--platform "$(PLATFORM)" \
+		--version "$(UPDATE_VERSION)" \
+		$(if $(UPDATE_MIN_SYSTEM),--min-system "$(UPDATE_MIN_SYSTEM)",) \
+		$(if $(UPDATE_SYSTEM_DIR),--system-dir "$(UPDATE_SYSTEM_DIR)",) \
+		$(if $(UPDATE_RES_DIR),--res-dir "$(UPDATE_RES_DIR)",) \
+		$(if $(filter 1,$(UPDATE_RES)),,--no-res) \
+		$(if $(filter 1,$(UPDATE_BOOT)),--boot-dir "$(if $(UPDATE_BOOT_DIR),$(UPDATE_BOOT_DIR),build/BOOT/.tmp_update)" --require-boot,--no-boot) \
+		--out-dir "$(if $(UPDATE_OUT_DIR),$(UPDATE_OUT_DIR),./releases)" \
+		--name "nextui-system-$(PLATFORM).zip" \
+		$(if $(UPDATE_KEY),--key "$(UPDATE_KEY)" --key-id "$(UPDATE_KEY_ID)",)
 
 ###########################################################
 

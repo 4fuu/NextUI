@@ -1,15 +1,22 @@
 #!/bin/sh
 # Build a transactional system update archive from a build tree.
 #
-# The archive carries exactly the two roots the installer applies:
+# The archive carries exactly the applied roots:
 #
 #   .system/<platform>/   the platform's system tree, staged exactly as the
 #                         device unpacks it ($SDCARD/.system/<platform>/)
+#   .system/res/          the shared resource tree (fonts, icons, effects),
+#                         staged from the res directory beside the platform
+#                         directories in the build tree
 #   .system/version.txt   (re)written from --version so the package always
 #                         matches its manifest
 #   .tmp_update/          the optional boot payload: recovery tool, boot
 #                         scripts and their support files, refreshed by a
 #                         verified install
+#
+# `install` replaces the whole .system tree, so a package without .system/res
+# would delete the device's fonts and icons: the shared tree is staged by
+# default and --no-res is the only way to leave it out.
 #
 # Nothing else is packaged: no Tools/, no Roms/Saves, no extra root paths. The
 # bootstrap MinUI.zip built by `make package` also carries Tools/ and is a
@@ -38,6 +45,8 @@ platform=
 version=
 min_system=
 system_dir=
+res_dir=
+no_res=0
 boot_dir=
 out_dir=releases
 name=
@@ -51,18 +60,21 @@ require_boot=0
 usage() {
     cat <<'EOF'
 usage: package-update.sh --platform <tg5040|tg5050|h700|desktop> --version vX.Y.Z
-                         [--min-system vX.Y.Z] [--system-dir DIR] [--boot-dir DIR]
-                         [--no-boot] [--require-boot] [--out-dir DIR] [--name NAME.zip]
+                         [--min-system vX.Y.Z] [--system-dir DIR] [--res-dir DIR]
+                         [--no-res] [--boot-dir DIR] [--no-boot] [--require-boot]
+                         [--out-dir DIR] [--name NAME.zip]
                          [--nextupd PATH] [--sign-script PATH]
                          [--key KEY.pem] [--key-id ID]
 
 --system-dir is the platform's system content itself (default
 build/SYSTEM/<platform>); it is staged at .system/<platform>/ exactly as the
 device unpacks it ($SDCARD/.system/<platform>/), and .system/version.txt is
-written from --version. --boot-dir is the .tmp_update content itself (default
-build/BOOT/.tmp_update, created by `make special`). A missing or empty
---boot-dir produces a system-only archive unless --require-boot is set;
---no-boot forces a system-only archive.
+written from --version. --res-dir is the shared resource tree staged at
+.system/res (default: the res directory beside the platform directories, i.e.
+build/SYSTEM/res); --no-res leaves it out. --boot-dir is the .tmp_update
+content itself (default build/BOOT/.tmp_update, created by `make special`); a
+missing or empty --boot-dir produces a system-only archive unless
+--require-boot is set, and --no-boot forces a system-only archive.
 EOF
 }
 
@@ -77,6 +89,8 @@ while [ "$#" -gt 0 ]; do
         --version) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; version=$2; shift 2 ;;
         --min-system) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; min_system=$2; shift 2 ;;
         --system-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; system_dir=$2; shift 2 ;;
+        --res-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; res_dir=$2; shift 2 ;;
+        --no-res) no_res=1; shift ;;
         --boot-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; boot_dir=$2; shift 2 ;;
         --no-boot) no_boot=1; shift ;;
         --require-boot) require_boot=1; shift ;;
@@ -128,6 +142,11 @@ fi
 
 [ -n "$system_dir" ] || system_dir="build/SYSTEM/$platform"
 [ -d "$system_dir" ] || fail "system directory $system_dir does not exist; build it first (and run this before 'make package', which moves build/SYSTEM away)" 69
+# The shared resource tree sits beside the platform directories in the build
+# tree (build/SYSTEM/res). install replaces the whole .system, so it must ship.
+if [ -z "$res_dir" ]; then
+    res_dir="$(dirname "$system_dir")/res"
+fi
 [ -n "$boot_dir" ] || boot_dir="build/BOOT/.tmp_update"
 [ -n "$name" ] || name="nextui-system-$platform.zip"
 case "$name" in
@@ -205,6 +224,17 @@ stage_tree "$system_dir" "$staging/payload/.system/$platform"
 # the archive's .system/version.txt and the installed version must agree.
 printf '%s\n' "$version" > "$staging/payload/.system/version.txt"
 
+# The shared resource tree. `install` replaces the whole .system, so a package
+# without .system/res would delete the device's fonts, icons and effects;
+# --no-res is the only way to leave it out.
+if [ "$no_res" = 0 ]; then
+    if [ -d "$res_dir" ] && [ -n "$(find "$res_dir" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+        stage_tree "$res_dir" "$staging/payload/.system/res"
+    else
+        fail "shared resource tree $res_dir is missing or empty; pass --no-res to package without it" 69
+    fi
+fi
+
 if [ "$include_boot" = 1 ]; then
     stage_tree "$boot_dir" "$staging/payload/.tmp_update"
     # Executable modes are part of the signed contract: the boot tool and the
@@ -254,8 +284,8 @@ if [ -n "$pruned" ]; then
     printf '%s\n' "$pruned" | sed -e 's/^  *//' -e "s|^$staging/payload/||" -e '/^$/d' | sed 's/^/  /'
 fi
 
-[ -n "$(find "$staging/payload/.system" -mindepth 1 -print -quit 2>/dev/null)" ] \
-    || fail "system directory $system_dir is empty" 69
+[ -n "$(find "$staging/payload/.system/$platform" -mindepth 1 -print -quit 2>/dev/null)" ] \
+    || fail "system directory $system_dir staged nothing under .system/$platform" 69
 
 case "$out_dir" in
     /*) absolute_out=$out_dir ;;

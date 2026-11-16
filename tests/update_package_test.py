@@ -10,11 +10,15 @@ key: signing uses the committed test-only Ed25519 seed under
 `workspace/all/nextupd/tests/fixtures`.
 
 Coverage:
-  - the archive contains exactly the applied roots (.system/<platform> and the
-    optional .tmp_update) and no Tools/, Roms/, Saves/ or other extra root path
+  - the archive contains exactly the applied roots (.system/<platform>, the
+    shared .system/res, and the optional .tmp_update) and no Tools/, Roms/,
+    Saves/ or other extra root path
   - the installed tree keeps the device layout (.system/<platform>/bin/nextui.elf
     and paks/MinUI.pak/launch.sh exist after install), which is what the boot
     scripts launch
+  - the shared resource tree ships and survives install: the live
+    .system/res/font3.ttf is the packaged file and the previous tree lands in
+    .system.bak, because install replaces the whole .system
   - .system/version.txt, the manifest version, the archive hash and the file
     hashes agree, and a tampered or renamed archive is rejected
   - the boot payload carries the signed contract files with executable modes,
@@ -22,9 +26,9 @@ Coverage:
   - a system-only package installs end to end and leaves .tmp_update untouched
   - the old bootstrap shape (with Tools/) fails `install` with unexpected_path
     and writes nothing to the applied trees
-  - the make target's default output (.system plus the .tmp_update boot
-    payload) installs end to end; UPDATE_BOOT=0 produces the system-only
-    archive, which leaves the live .tmp_update untouched
+  - the make target's default output (.system/<platform>, .system/res and the
+    .tmp_update boot payload) installs end to end; UPDATE_BOOT=0 produces the
+    system-only archive and UPDATE_RES=0 drops the shared resources
   - rebuilds into the same directory replace their outputs (no stale archive
     entries, no stale signature), and paths with spaces work
   - a package carrying .tmp_update installs and recovers end to end, for both
@@ -51,6 +55,9 @@ PACKAGE_SCRIPT = os.path.join(REPO, "scripts", "package-update.sh")
 SIGN_SCRIPT = os.path.join(REPO, "workspace", "all", "nextupd", "scripts", "sign-manifest.sh")
 FIXTURES = os.path.join(REPO, "workspace", "all", "nextupd", "tests", "fixtures")
 SEED_HEX = os.path.join(FIXTURES, "test-ed25519-seed.hex")
+# The repository's real shared resource tree: install replaces the whole
+# .system, so the packaging tests stage the real fonts and icons.
+REAL_RES = os.path.join(REPO, "skeleton", "SYSTEM", "res")
 
 KEY_ID = "nextui-test-only-1"
 PLATFORM = "tg5040"
@@ -199,12 +206,15 @@ def make_key():
 # --------------------------------------------------------- synthetic trees ----
 
 
-def build_source_tree(name="build"):
+def build_source_tree(name="build", res="real"):
     """A device-shaped build tree with decoys next to the packaged roots.
 
     The decoys (Tools/, Roms/, Saves/) sit beside the two input directories the
     way the real build tree lays them out; only the .system content and the
-    .tmp_update content may reach the archive.
+    .tmp_update content may reach the archive. `res` selects the shared
+    resource tree staged beside the platform directory: "real" copies the
+    repository's skeleton/SYSTEM/res, "tiny" writes a stand-in, None writes
+    nothing.
     """
     root = fresh(name)
     system = os.path.join(root, "SYSTEM", PLATFORM)
@@ -236,7 +246,18 @@ def build_source_tree(name="build"):
                b"#!/bin/sh\nexit 0\n", 0o755)
     write_file(os.path.join(root, "Roms", "game.gba"), b"rom decoy")
     write_file(os.path.join(root, "Saves", "game.srm"), b"save decoy")
-    return system, boot
+
+    # The shared resource tree sits beside the platform directories, exactly
+    # like build/SYSTEM/res in a real build.
+    shared = os.path.join(root, "SYSTEM", "res")
+    if res == "real":
+        if not os.path.isdir(REAL_RES):
+            fail("source tree", "the repository's %s is missing" % REAL_RES)
+        shutil.copytree(REAL_RES, shared)
+    elif res == "tiny":
+        write_file(os.path.join(shared, "font3.ttf"), b"tiny font stand-in\n", 0o644)
+        write_file(os.path.join(shared, "logo.png"), b"tiny png\n", 0o644)
+    return system, boot, shared
 
 
 def package_args(system, out_dir, boot=None, version=VERSION, name=None, key=None,
@@ -272,13 +293,21 @@ def staged_dir(staging_root, platform=PLATFORM):
     return os.path.join(staging_root, matches[0])
 
 
-def make_target(name, version=PREVIOUS_VERSION, boot=True, platform=PLATFORM):
+def make_target(name, version=PREVIOUS_VERSION, boot=True, platform=PLATFORM,
+                old_res=True):
     """An isolated target root: an older installed system plus a live payload."""
     target = fresh(name)
     write_file(os.path.join(target, ".system", platform, "bin", "nextui.elf"),
                b"old nextui\n", 0o755)
     write_file(os.path.join(target, ".system", "version.txt"), version + "\n")
     write_file(os.path.join(target, ".userdata", platform, "logs", "install.txt"), b"")
+    if old_res:
+        # A live shared resource tree, so an install that drops .system/res
+        # (whole-tree replace) is visible instead of silently deleting fonts.
+        write_file(os.path.join(target, ".system", "res", "old-marker.txt"),
+                   b"old res\n", 0o644)
+        write_file(os.path.join(target, ".system", "res", "font3.ttf"),
+                   b"old font3\n", 0o644)
     if boot:
         write_file(os.path.join(target, ".tmp_update", "updater"), b"old updater\n", 0o755)
         write_file(os.path.join(target, ".tmp_update", "nextupd-recover.sh"),
@@ -308,6 +337,31 @@ def tree_state(root):
                 entries.append((relative, sha256_file(path),
                                 os.stat(path).st_mode & 0o7777))
     return entries
+
+
+def assert_installed_res(name, target, archive, label):
+    """After an install the live .system/res is the packaged resource tree.
+
+    install replaces the whole .system, so a package without .system/res would
+    silently delete the device's fonts and icons; the previous tree must end up
+    in .system.bak instead.
+    """
+    with zipfile.ZipFile(archive) as handle:
+        expected = handle.read(".system/res/font3.ttf")
+    live = os.path.join(target, ".system", "res", "font3.ttf")
+    if not os.path.isfile(live) or open(live, "rb").read() != expected:
+        fail(name, "the live .system/res/font3.ttf is not the packaged one")
+        return False
+    if os.path.exists(os.path.join(target, ".system", "res", "old-marker.txt")):
+        fail(name, "the live .system/res still holds the previous tree")
+        return False
+    backup = os.path.join(target, ".system.bak", "res", "old-marker.txt")
+    if not os.path.isfile(backup) or open(backup, "rb").read() != b"old res\n":
+        fail(name, ".system.bak does not hold the previous resource tree")
+        return False
+    ok("%s: live .system/res is the packaged tree, previous tree in .system.bak"
+       % label)
+    return True
 
 
 def check_args(package, manifest, signature, public_key, platform=PLATFORM,
@@ -402,6 +456,13 @@ def assert_archive_shape(name, archive, expect_boot, platform=PLATFORM):
             return None
     ok("%s: shared libsamplerate and libz survive packaging" % name)
 
+    # The shared resource tree ships: install replaces the whole .system, so a
+    # package without .system/res would delete the device's fonts and icons.
+    if ".system/res/font3.ttf" not in content:
+        fail(name, "shared resource tree .system/res is missing from the archive")
+        return None
+    ok("%s: shared .system/res resources ship" % name)
+
     # Device shape: the boot scripts look for the launcher under
     # .system/<platform>/paks/MinUI.pak/launch.sh.
     for relative in ("bin/nextui.elf", "paks/MinUI.pak/launch.sh"):
@@ -472,7 +533,7 @@ def assert_manifest_matches(name, archive, manifest_path, content, platform=PLAT
 
 
 def test_packaging(key_pem, public_key):
-    system, boot = build_source_tree()
+    system, boot, shared = build_source_tree()
     out_dir = fresh("out-boot")
     archive = os.path.join(out_dir, "nextui-system-%s.zip" % PLATFORM)
     manifest = os.path.join(out_dir, "nextui-system-%s.manifest.json" % PLATFORM)
@@ -544,9 +605,22 @@ def test_packaging(key_pem, public_key):
            run([BIN, "check", "--package", unsigned, "--manifest", unsigned_manifest,
                 "--platform", PLATFORM, "--integrity-only"]), 0)
 
+    # --no-res is the explicit opt-out; the archive then carries no res and
+    # install would leave the device without this package's resources.
+    no_res_dir = fresh("out-no-res")
+    no_res = os.path.join(no_res_dir, "nextui-system-%s.zip" % PLATFORM)
+    proc = run(package_args(system, no_res_dir, boot=boot, extra=["--no-res"]))
+    if not expect("package without res", proc, 0):
+        return
+    names = [info.filename for info in zip_entries(no_res)]
+    if any(name.startswith(".system/res/") for name in names):
+        fail("package without res", "the archive carries .system/res anyway")
+    else:
+        ok("package without res: no .system/res entries")
+
 
 def test_system_only_package(key_pem, public_key):
-    system, boot = build_source_tree(name="build-system-only")
+    system, boot, shared = build_source_tree(name="build-system-only")
     out_dir = fresh("out-system-only")
     archive = os.path.join(out_dir, "nextui-system-%s.zip" % PLATFORM)
     manifest = os.path.join(out_dir, "nextui-system-%s.manifest.json" % PLATFORM)
@@ -612,6 +686,7 @@ def test_system_only_end_to_end(archive, manifest, signature):
         fail("install system-only", ".system.bak does not hold the previous tree")
     else:
         ok("install system-only: .system.bak holds the previous tree")
+    assert_installed_res("install system-only", target, archive, "install system-only")
 
     # A system-only package must leave the live boot payload byte-untouched.
     if tree_state(os.path.join(target, ".tmp_update")) != before_boot:
@@ -642,7 +717,7 @@ def test_system_only_end_to_end(archive, manifest, signature):
 
 
 def test_downgrade_refused(key_pem, public_key):
-    system, boot = build_source_tree(name="build-older")
+    system, boot, shared = build_source_tree(name="build-older")
     out_dir = fresh("out-older")
     archive = os.path.join(out_dir, "nextui-system-%s.zip" % PLATFORM)
     manifest = os.path.join(out_dir, "nextui-system-%s.manifest.json" % PLATFORM)
@@ -805,6 +880,8 @@ def test_boot_end_to_end(archive, manifest, signature, platform=PLATFORM,
                  % (platform, relative))
             return
     ok("install %s package: .system/%s keeps the device layout" % (label, platform))
+    assert_installed_res("install %s package" % label, target, archive,
+                         "install %s package" % label)
 
     with zipfile.ZipFile(archive) as handle:
         expected = {info.filename: handle.read(info.filename)
@@ -884,6 +961,13 @@ def test_h700_symlink_tree(key_pem, public_key):
         os.path.join(system, "paks", "MinUI.pak", "launch.sh"),
         b"#!/bin/sh\nexec ./nextui.elf\n", 0o755)
 
+    # The shared resource tree beside the platform directory, like the real
+    # build tree (build/SYSTEM/res).
+    if not os.path.isdir(REAL_RES):
+        fail("h700 source tree", "the repository's %s is missing" % REAL_RES)
+        return None
+    shutil.copytree(REAL_RES, os.path.join(root, "SYSTEM", "res"))
+
     boot = os.path.join(root, "BOOT", ".tmp_update")
     write_file(os.path.join(boot, "updater"), b"#!/bin/sh\n# updater\n", 0o755)
     write_file(os.path.join(boot, "nextupd-recover.sh"), b"# recover helper\n", 0o644)
@@ -935,7 +1019,7 @@ def test_h700_symlink_tree(key_pem, public_key):
 
 def test_script_refusals():
     """The packaging script fails closed on inputs that cannot ship."""
-    system, boot = build_source_tree(name="build-refusals")
+    system, boot, _ = build_source_tree(name="build-refusals", res=None)
     out_dir = fresh("out-refusals")
 
     def run_script(name, extra_setup=None, args=()):
@@ -943,12 +1027,28 @@ def test_script_refusals():
         source = os.path.join(directory, "SYSTEM", PLATFORM)
         boot_dir = os.path.join(directory, "BOOT", ".tmp_update")
         shutil.copytree(system, source)
+        # A stand-in shared resource tree: these cases fail at or before the
+        # point where res content would matter, and the full tree is copied by
+        # the positive tests.
+        write_file(os.path.join(directory, "SYSTEM", "res", "font3.ttf"),
+                   b"tiny font stand-in\n", 0o644)
         shutil.copytree(boot, boot_dir)
         if extra_setup is not None:
             extra_setup(source, boot_dir)
         proc = run(package_args(source, directory, boot=boot_dir, extra=args))
         archive = os.path.join(directory, "nextui-system-%s.zip" % PLATFORM)
         return proc, archive
+
+    def drop_res(source, boot_dir):
+        shutil.rmtree(os.path.join(os.path.dirname(source), "res"))
+
+    def empty_platform(source, boot_dir):
+        for entry in os.listdir(source):
+            path = os.path.join(source, entry)
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
 
     def drop_tool(source, boot_dir):
         os.remove(os.path.join(boot_dir, PLATFORM, "nextupd.elf"))
@@ -983,6 +1083,8 @@ def test_script_refusals():
         ("absolute-link", add_absolute_link, None),
         ("escaping-link", add_escaping_link, None),
         ("fifo", add_fifo, None),
+        ("missing-res", drop_res, None),
+        ("empty-platform", empty_platform, None),
         ("empty-system", empty_system, None),
     ):
         proc, archive = run_script(name, setup)
@@ -1024,7 +1126,7 @@ def test_make_target(key_pem, public_key):
     produces the system-only archive, which leaves the live .tmp_update
     payload untouched.
     """
-    system, boot = build_source_tree(name="build-make")
+    system, boot, shared = build_source_tree(name="build-make")
     releases = os.path.join(fresh("make-target"), "releases")
     base = ["make", "-C", REPO, "update-package",
             "PLATFORM=" + PLATFORM,
@@ -1082,10 +1184,22 @@ def test_make_target(key_pem, public_key):
             return
     ok("make target system-only installs: .system/%s keeps the device layout"
        % PLATFORM)
+    assert_installed_res("make target system-only installs", target, archive,
+                         "make target system-only installs")
     if tree_state(os.path.join(target, ".tmp_update")) != before_boot:
         fail("make target system-only installs", ".tmp_update changed")
     else:
         ok("make target system-only installs: .tmp_update untouched")
+
+    # UPDATE_RES=0 drops the shared tree; the archive then carries no res.
+    proc = run(base + ["UPDATE_RES=0"], env={"MAKEFLAGS": ""})
+    if not expect("make target without res", proc, 0):
+        return
+    names = [info.filename for info in zip_entries(archive)]
+    if any(name.startswith(".system/res/") for name in names):
+        fail("make target without res", "the archive carries .system/res anyway")
+    else:
+        ok("make target without res: no .system/res entries")
 
     # A missing boot payload with UPDATE_BOOT=1 must fail loudly, not fall
     # back to a system-only archive. Make reports its own exit 2 here.
@@ -1102,7 +1216,7 @@ def test_rebuild_residue(key_pem, public_key):
     signature = os.path.join(out_dir, "nextui-system-%s.manifest.sig" % PLATFORM)
     stale = ".system/%s/removed-later.txt" % PLATFORM
 
-    system_a, boot_a = build_source_tree(name="build-rebuild-a")
+    system_a, boot_a, shared_a = build_source_tree(name="build-rebuild-a")
     write_file(os.path.join(system_a, "removed-later.txt"), b"stale entry\n")
     proc = run(package_args(system_a, out_dir, boot=boot_a, key=key_pem))
     if not expect("rebuild first run", proc, 0):
@@ -1116,7 +1230,7 @@ def test_rebuild_residue(key_pem, public_key):
     ok("rebuild first run: signed archive with the file the rebuild drops")
 
     # Same output names, unsigned, newer version, one file fewer.
-    system_b, boot_b = build_source_tree(name="build-rebuild-b")
+    system_b, boot_b, shared_b = build_source_tree(name="build-rebuild-b")
     proc = run(package_args(system_b, out_dir, boot=boot_b, version="v6.17.0"))
     if not expect("rebuild second run", proc, 0):
         return
@@ -1145,7 +1259,7 @@ def test_spaced_paths(key_pem, public_key):
     """Output paths with spaces work end to end."""
     out_dir = os.path.join(WORK, "out dir with spaces")
     os.makedirs(out_dir, exist_ok=True)
-    system, boot = build_source_tree(name="build-spaces")
+    system, boot, shared = build_source_tree(name="build-spaces")
     proc = run(package_args(system, out_dir, boot=boot, key=key_pem))
     if not expect("package into a path with spaces", proc, 0):
         return
@@ -1173,7 +1287,7 @@ def main():
     test_bootstrap_refused(PUBLIC_KEY)
     # The boot-payload lifecycle needs the archive with .tmp_update; rebuild it
     # here so the system-only test above stays independent.
-    system, boot = build_source_tree(name="build-boot-e2e")
+    system, boot, shared = build_source_tree(name="build-boot-e2e")
     out_dir = fresh("out-boot-e2e")
     proc = run(package_args(system, out_dir, boot=boot, key=key_pem))
     if proc.returncode == 0:
