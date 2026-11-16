@@ -619,7 +619,10 @@ Brick Pro 2.5 V ceiling.
 - devserv never runs `GFX_init()`, which is where `api.c` calls
   `PLAT_initPlatform()`. The backend runs that detection before its first
   write, because without it `PLAT_setRumble` would apply the non-Brick-Pro
-  3.3 V ceiling on a Brick Pro.
+  3.3 V ceiling on a Brick Pro. The detection reads `$DEVICE`, which
+  `MinUI.pak/launch.sh` exports and `nextui_devserv_start` therefore passes on;
+  a `devserv` started by hand outside that environment would not detect a Brick
+  Pro, and this service cannot detect the model by itself.
 - A rumble call never marks the C3 session haptics field dirty: that field is
   the user's haptics on/off preference owned by the config store, not the motor
   strength, so no snapshot/restore of it happens here.
