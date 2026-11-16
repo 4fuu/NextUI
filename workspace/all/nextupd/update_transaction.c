@@ -340,6 +340,23 @@ static int fsync_tree(const char* path, int depth, UpdError* error)
     return result;
 }
 
+static int sync_root_and_state(const UpdPaths* paths, UpdError* error)
+{
+    if (!upd_fsync_dir(paths->root))
+    {
+        upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->root,
+                      strerror(errno));
+        return 0;
+    }
+    if (!upd_fsync_dir(paths->state_dir))
+    {
+        upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->state_dir,
+                      strerror(errno));
+        return 0;
+    }
+    return 1;
+}
+
 static int storage_free_bytes(const char* root, uint64_t* free_bytes, UpdError* error)
 {
     struct statvfs status;
@@ -1108,12 +1125,7 @@ static int rollback_precommit(const UpdPaths* paths, TxnRecord* record,
                               paths->backup, strerror(errno));
                 return 0;
             }
-            if (!upd_fsync_dir(paths->root))
-            {
-                upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s",
-                              paths->root, strerror(errno));
-                return 0;
-            }
+            if (!sync_root_and_state(paths, error)) return 0;
         }
         else
         {
@@ -1207,12 +1219,7 @@ static int complete_rollback(const UpdPaths* paths, TxnRecord* record,
                           strerror(errno));
             return 0;
         }
-        if (!upd_fsync_dir(paths->root))
-        {
-            upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->root,
-                          strerror(errno));
-            return 0;
-        }
+        if (!sync_root_and_state(paths, error)) return 0;
         if (!restore_live_from_backup(paths, record, error)) return 0;
         remove_tree_quiet(paths->failed);
     }
@@ -1301,12 +1308,7 @@ static int rollback_installed(const UpdPaths* paths, TxnRecord* record,
                       strerror(errno));
         return 0;
     }
-    if (!upd_fsync_dir(paths->root))
-    {
-        upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->root,
-                      strerror(errno));
-        return 0;
-    }
+    if (!sync_root_and_state(paths, error)) return 0;
     test_crash_phase("rollback_moved");
     if (!restore_live_from_backup(paths, record, error)) return 0;
     remove_tree_quiet(paths->failed);
@@ -1550,12 +1552,7 @@ static int commit_candidate(const UpdPaths* paths, TxnRecord* record,
                           strerror(errno));
             return 0;
         }
-        if (!upd_fsync_dir(paths->root))
-        {
-            upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->root,
-                          strerror(errno));
-            return 0;
-        }
+        if (!sync_root_and_state(paths, error)) return 0;
     }
     test_crash_phase("backup_evicted");
     snprintf(record->state, sizeof record->state, "%s", TXN_STATE_BACKING_UP);
@@ -1593,12 +1590,7 @@ static int commit_candidate(const UpdPaths* paths, TxnRecord* record,
                       strerror(errno));
         return 0;
     }
-    if (!upd_fsync_dir(paths->root))
-    {
-        upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->root,
-                      strerror(errno));
-        return 0;
-    }
+    if (!sync_root_and_state(paths, error)) return 0;
     test_crash_phase("installed_live");
     snprintf(record->state, sizeof record->state, "%s", TXN_STATE_INSTALLED);
     if (!write_txn(paths, record, error)) return 0;
