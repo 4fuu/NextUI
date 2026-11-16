@@ -172,5 +172,24 @@ test-playtime-removal:
 test-app-install:
 	../workspace/all/nextupd/tests/run_app_install_test.sh
 
+# "Install from file" settings surface for the local app transaction: the SDL-free
+# controller (stage + install through the real tool), the page (render, freeze and
+# unusable-package regressions), and the real launcher discovering and starting an
+# installed app. Declared on its own lines rather than added to the .PHONY and
+# test lists above, so this hunk never collides with another thread editing those
+# lines. The controller test is host-only; the other two need the desktop SDL
+# build dependencies.
+.PHONY: test-app-install-ui test-app-install-menu test-app-install-launch
+test: test-app-install-ui test-app-install-menu test-app-install-launch
+
+test-app-install-ui:
+	../workspace/all/settings/tests/run_app_install_test.sh
+
+test-app-install-menu:
+	../workspace/all/settings/tests/run_app_install_menu_test.sh
+
+test-app-install-launch:
+	../workspace/all/common/tests/run_app_install_launch_test.sh
+
 clean:
 	rm -f $(TEST_BIN)

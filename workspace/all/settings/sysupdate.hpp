@@ -6,6 +6,8 @@
 #include <functional>
 #include <atomic>
 
+#include "toolrunner.hpp"
+
 /*
  * System Update controller: process model and the running-settings-vs-.system
  * safety contract.
@@ -80,10 +82,10 @@ struct Result {
     int exit_code = 0;              // nextupd exit code, -1 if it never ran
 };
 
-// Reads and trims a .system version file. Returns "" when missing or empty. Kept
-// here (not in the About page helper) so the controller and its tests stay
-// self-contained and free of the SDL/version.hpp dependency.
-std::string readSystemVersion(const std::string& version_path);
+// Reads and trims a .system version file. Returns "" when missing or empty.
+// Lives in toolrunner.hpp so the controller, the application install controller
+// and their tests share one reader and stay free of the SDL/version.hpp
+// dependency.
 
 // SDL-free update controller. It shells out to the nextupd tool with an explicit
 // argv (never a shell string), parses its --json output, and maps every outcome to
@@ -113,9 +115,6 @@ public:
     // the tool path; no shell is involved. Returns the process exit code, or -1
     // if it could not be spawned.
     int runTool(const std::vector<std::string>& argv, std::string& stdout_text);
-
-    // Exposed for tests: parse a flat nextupd JSON object into key/value strings.
-    static bool parseResultJson(const std::string& text, std::map<std::string, std::string>& out);
 
 private:
     Config config_;

@@ -395,6 +395,40 @@ descriptor cross-check), then routes `kind: app` to an independent transaction.
 The system `nextui-install-txn-v1` contract, `.system`, `.system.bak`, and the
 `.tmp_update` boot payload are never read or written by an app install.
 
+### The "Install from file" settings page
+
+Settings carries a user entry for this path. It is a presentation layer over the
+same tool: it lists the signed packages in one app-controlled folder, runs
+`stage` and then `install` for the picked one on a worker thread, and reports
+progress and every real failure in the page's Status row. It never blocks the
+menu frame behind an overlay, and a second tap cannot start a second install
+(the page's input lock plus the tool's own target lock).
+
+- The package folder is `<target-root>/.tmp_update/packages`. A package is the
+  archive plus its two sidecars, named after the archive:
+  `Demo.pakz`, `Demo.manifest.json`, `Demo.manifest.sig`. A package missing a
+  sidecar is listed with the reason and is not handed to the tool, because
+  `stage` requires all three paths.
+- The staging root is `<target-root>/.tmp_update/staging`, the target root is
+  the SD card, and the platform is the running `PLATFORM`. None of them come from
+  user input or package data.
+- The trusted public key follows the System Update contract exactly: a path the
+  app is configured with (`NEXTUI_UPDATE_TRUSTED_KEY`), with no key built in.
+  Without one the page reports that no trusted key is configured and installs
+  nothing. Production key custody stays with the owner.
+- The page installs application packages only. A manifest sidecar declaring any
+  other `kind` is refused before the tool runs, so the system transaction is not
+  reachable through a package the user picked in this page. Residual, stated
+  rather than hidden: the sidecars are ordinary files, so a writer that swaps a
+  validly signed system manifest in after the page's scan and before `stage` opens
+  it could still reach `install`, which routes by the verified kind. The complete
+  fix is an expected-kind flag on the tool itself. There is no uninstall, no
+  permission product and no online catalog.
+- After a committed install the app is an ordinary `Tools/<platform>` pak: the
+  launcher discovers and launches it like any other app, and the user returns to
+  the desktop to start it. The page shows each package's signed id and version in
+  the selected row's description line; the row itself carries the file name.
+
 Destination policy:
 
 - The destination is always `Tools/<platform>/<id>.pak/` under the explicit
@@ -636,6 +670,30 @@ Fixed fixtures are in `workspace/all/nextupd/tests/fixtures/`. The private test
 seed is committed only to make signatures reproducible; it is not a production
 key and must never be used to sign a release.
 
+The settings surface has its own host tests:
+
+```sh
+workspace/all/settings/tests/run_app_install_test.sh      # SDL-free controller
+workspace/all/settings/tests/run_app_install_menu_test.sh # page render + freeze
+workspace/all/common/tests/run_app_install_launch_test.sh # real launcher install+launch
+```
+
+The controller test drives the real `nextupd` tool against isolated roots: the
+folder scan, a full stage+install, same-version and downgrade refusals, a
+signature that no longer verifies, a manifest changed after signing, a
+wrong-device package, a `min_system` refusal, a missing tool, the production tool
+path with and without the packaged `.tmp_update/<platform>/nextupd.elf`, an
+unconfigured key, and the single-flight guard. The menu test renders the real page
+and proves a finished operation is consumed and input unlocks instead of freezing,
+that a rescan keeps the row order and the layout, and that every status the page
+shows fits the smallest h700 row in both languages. The launcher test installs a
+signed package with the real tool through the production tool path
+(`.tmp_update/<platform>/nextupd.elf`) and the production package folder, then
+compiles the real launcher against that root and requires it to discover the
+installed app and to start it by running the command it queues. None of them touch
+`/mnt/SDCARD`, a device, a feed, or a production key, and none of them prove
+real-device behavior.
+
 ## Current limits
 
 - ZIP64 is rejected; the current release archives are below 4 GiB.
@@ -664,8 +722,9 @@ key and must never be used to sign a release.
 - HTTPS downloads delegate to the system `curl` with TLS verification enabled.
   If `curl` is absent, the result is `transport_unavailable`; there is no
   insecure fallback. Plain HTTP is supported for local/LAN feeds and fixtures.
-- `fetch` does not install. The install UI is not part of this module;
-  `feed`/`check` output is available for a later UI.
+- `fetch` does not install. This module has no UI of its own; the settings pages
+  (System Update, and "Install from file" for a local application package) are
+  thin controllers over these commands.
 - A hard power loss during download may leave a hidden
   `.nextupd-incoming-*` directory. It has no `staged.json`, so it is never
   treated as a ready package; controlled failures remove it.
