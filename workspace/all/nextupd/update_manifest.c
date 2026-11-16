@@ -12,6 +12,9 @@
 #define MANIFEST_SCHEMA "nextui-update-v1"
 #define MANIFEST_KIND_SYSTEM "system"
 #define MANIFEST_KIND_APP "app"
+#define BOOT_PREFIX ".tmp_update/"
+#define BOOT_STAMP_PATH ".tmp_update/.nextupd-boot.json"
+#define BOOT_STAGING_PREFIX ".tmp_update/staging/"
 
 typedef struct
 {
@@ -855,6 +858,114 @@ int upd_manifest_check_min_system(const UpdManifest* manifest, const char* syste
         upd_error_set(error, UPD_E_PLATFORM, "system_too_old",
                       "package requires %s, current system is %s", manifest->min_system,
                       system_version);
+        return 0;
+    }
+    return 1;
+}
+
+int upd_boot_required_tool(const char* platform, char* out, size_t out_size)
+{
+    int length;
+
+    if (platform == NULL || platform[0] == '\0' || out == NULL || out_size == 0) return 0;
+    length = snprintf(out, out_size, ".tmp_update/%s/nextupd.elf", platform);
+    return length > 0 && (size_t)length < out_size;
+}
+
+static int boot_path_is(const UpdFile* file, const char* path)
+{
+    return strcmp(file->path, path) == 0;
+}
+
+int upd_manifest_has_boot(const UpdManifest* manifest)
+{
+    size_t i;
+
+    if (manifest == NULL) return 0;
+    for (i = 0; i < manifest->file_count; i++)
+        if (strncmp(manifest->files[i].path, BOOT_PREFIX, strlen(BOOT_PREFIX)) == 0)
+            return 1;
+    return 0;
+}
+
+int upd_manifest_boot_bytes(const UpdManifest* manifest, uint64_t* bytes)
+{
+    size_t i;
+
+    if (manifest == NULL || bytes == NULL) return 0;
+    *bytes = 0;
+    for (i = 0; i < manifest->file_count; i++)
+    {
+        const UpdFile* file = &manifest->files[i];
+        if (strncmp(file->path, BOOT_PREFIX, strlen(BOOT_PREFIX)) != 0) continue;
+        if (*bytes > UPD_MAX_TOTAL_BYTES - file->size) return 0;
+        *bytes += file->size;
+    }
+    return 1;
+}
+
+int upd_manifest_check_boot(const UpdManifest* manifest, UpdError* error)
+{
+    char platform_script[UPD_MAX_REL_PATH + 1];
+    char tool_path[UPD_MAX_REL_PATH + 1];
+    int has_updater = 0;
+    int has_helper = 0;
+    int has_platform = 0;
+    int has_tool = 0;
+    size_t i;
+
+    if (manifest == NULL) return 0;
+    if (!upd_manifest_has_boot(manifest)) return 1;
+
+    if (strcmp(manifest->kind, MANIFEST_KIND_SYSTEM) != 0)
+    {
+        upd_error_set(error, UPD_E_INVALID, "boot_not_system",
+                      "only a system package may carry .tmp_update/");
+        return 0;
+    }
+    if (!upd_is_known_platform(manifest->platform)
+        || strcmp(manifest->platform, "universal") == 0)
+    {
+        upd_error_set(error, UPD_E_INVALID, "invalid_platform",
+                      "boot payload has no concrete platform");
+        return 0;
+    }
+    if (snprintf(platform_script, sizeof platform_script, ".tmp_update/%s.sh",
+                 manifest->platform) >= (int)sizeof platform_script
+        || !upd_boot_required_tool(manifest->platform, tool_path, sizeof tool_path))
+    {
+        upd_error_set(error, UPD_E_USAGE, "path_too_long", "boot payload path is too long");
+        return 0;
+    }
+
+    for (i = 0; i < manifest->file_count; i++)
+    {
+        const UpdFile* file = &manifest->files[i];
+        size_t prefix_length = strlen(BOOT_PREFIX);
+
+        if (strncmp(file->path, BOOT_PREFIX, prefix_length) != 0) continue;
+        if (file->path[prefix_length] == '\0'
+            || strncmp(file->path, BOOT_STAGING_PREFIX, strlen(BOOT_STAGING_PREFIX)) == 0
+            || boot_path_is(file, BOOT_STAMP_PATH))
+        {
+            upd_error_set(error, UPD_E_INVALID, "reserved_boot_path",
+                          "package uses a reserved boot path: %s", file->path);
+            return 0;
+        }
+        if (boot_path_is(file, ".tmp_update/updater")) has_updater = 1;
+        if (boot_path_is(file, ".tmp_update/nextupd-recover.sh")) has_helper = 1;
+        if (boot_path_is(file, platform_script)) has_platform = 1;
+        if (boot_path_is(file, tool_path)) has_tool = 1;
+    }
+    if (!has_updater || !has_helper || !has_platform || !has_tool)
+    {
+        upd_error_set(error,
+                      UPD_E_MISSING, "boot_payload_incomplete",
+                      "boot payload is missing %s%s%s%s",
+                      has_updater ? "" : ".tmp_update/updater ",
+                      has_helper ? "" : ".tmp_update/nextupd-recover.sh ",
+                      has_platform ? "" : platform_script,
+                      has_tool ? "" : (has_platform ? tool_path : ""));
         return 0;
     }
     return 1;

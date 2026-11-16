@@ -49,5 +49,10 @@ UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
 
 ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \
 UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
+    python3 test_boot_sync.py "$build_dir/nextupd" "$(pwd)/fixtures" \
+        "$build_dir/boot-sync-work"
+
+ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \
+UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
     python3 test_boot_recovery.py "$build_dir/nextupd" "$(pwd)/fixtures" \
         "$build_dir/boot-work" "$(cd ../../../.. && pwd)"

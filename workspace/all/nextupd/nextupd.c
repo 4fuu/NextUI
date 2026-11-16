@@ -244,6 +244,15 @@ static int verify_archive(const Options* options, const UpdManifest* manifest,
     uint64_t archive_size = 0;
     uint64_t file_size = 0;
     size_t i;
+    char tool_path[UPD_MAX_REL_PATH + 1] = "";
+
+    if (manifest->kind[0] != '\0' && strcmp(manifest->kind, "system") == 0
+        && upd_manifest_has_boot(manifest)
+        && !upd_boot_required_tool(manifest->platform, tool_path, sizeof tool_path))
+    {
+        upd_error_set(error, UPD_E_USAGE, "path_too_long", "boot tool path is too long");
+        return 0;
+    }
 
     if (strcmp(path_basename(options->package), manifest->archive_name) != 0)
     {
@@ -289,6 +298,15 @@ static int verify_archive(const Options* options, const UpdManifest* manifest,
         {
             upd_error_set(error, UPD_E_MISSING, "missing_file",
                           "manifest file is missing from archive: %s",
+                          manifest->files[i].path);
+            upd_zip_close(&zip);
+            return 0;
+        }
+        if (strcmp(manifest->files[i].path, tool_path) == 0
+            && (entry->mode & 0111u) == 0)
+        {
+            upd_error_set(error, UPD_E_INVALID, "boot_tool_not_executable",
+                          "%s has no executable permission in the archive",
                           manifest->files[i].path);
             upd_zip_close(&zip);
             return 0;
@@ -371,6 +389,7 @@ static int verify_package(const Options* options, int require_signature,
     }
     system_version = resolved_system_version(options);
     if (!upd_manifest_check_min_system(&verified->manifest, system_version, error)) return 0;
+    if (!upd_manifest_check_boot(&verified->manifest, error)) return 0;
     return verify_archive(options, &verified->manifest, error);
 }
 
@@ -378,6 +397,14 @@ static void print_check_result(const Options* options, const VerifiedPackage* ve
 {
     char sha[UPD_SHA256_HEX];
     const char* platform = resolved_platform(options);
+    uint64_t boot_bytes = 0;
+    size_t boot_files = 0;
+    size_t i;
+
+    for (i = 0; i < verified->manifest.file_count; i++)
+        if (strncmp(verified->manifest.files[i].path, ".tmp_update/", 12) == 0)
+            boot_files++;
+    (void)upd_manifest_boot_bytes(&verified->manifest, &boot_bytes);
 
     upd_hex_encode(verified->manifest.archive_sha256, UPD_SHA256_BYTES, sha);
     if (!verified->signature_verified)
@@ -399,10 +426,13 @@ static void print_check_result(const Options* options, const VerifiedPackage* ve
         print_json_string(verified->manifest.archive_name);
         fprintf(stdout,
                 ",\"archive_size\":%llu,\"archive_sha256\":\"%s\",\"files\":%zu,"
-                "\"bytes\":%llu,\"signature_verified\":%s,\"signature_key_id\":",
+                "\"bytes\":%llu,\"boot_payload\":%s,\"boot_files\":%zu,"
+                "\"boot_bytes\":%llu,\"signature_verified\":%s,\"signature_key_id\":",
                 (unsigned long long)verified->manifest.archive_size, sha,
                 verified->manifest.file_count,
                 (unsigned long long)verified->manifest.total_bytes,
+                boot_files > 0 ? "true" : "false", boot_files,
+                (unsigned long long)boot_bytes,
                 verified->signature_verified ? "true" : "false");
         print_json_string(verified->key_id);
         fputs("}\n", stdout);
@@ -416,6 +446,9 @@ static void print_check_result(const Options* options, const VerifiedPackage* ve
            (unsigned long long)verified->manifest.archive_size, sha);
     printf("files: %zu (%llu bytes) verified\n", verified->manifest.file_count,
            (unsigned long long)verified->manifest.total_bytes);
+    if (boot_files > 0)
+        printf("boot payload: %zu files (%llu bytes)\n", boot_files,
+               (unsigned long long)boot_bytes);
     if (verified->signature_verified)
         printf("signature: verified (key %s)\n", verified->key_id);
     else
@@ -1655,6 +1688,18 @@ static void print_transaction_result(const Options* options,
         print_json_string(result->version);
         fputs(",\"previous_version\":", stdout);
         print_json_string(result->previous_version);
+        fputs(",\"boot_outcome\":", stdout);
+        print_json_string(result->boot_outcome);
+        if (result->boot_version[0] != '\0')
+        {
+            fputs(",\"boot_version\":", stdout);
+            print_json_string(result->boot_version);
+        }
+        if (result->previous_boot_version[0] != '\0')
+        {
+            fputs(",\"previous_boot_version\":", stdout);
+            print_json_string(result->previous_boot_version);
+        }
         if (id != NULL)
         {
             fputs(",\"id\":", stdout);
@@ -1679,6 +1724,10 @@ static void print_transaction_result(const Options* options,
         printf("version: %s\n", result->version);
     if (result->previous_version[0] != '\0')
         printf("previous: %s\n", result->previous_version);
+    if (result->boot_outcome[0] != '\0')
+        printf("boot: %s", result->boot_outcome);
+    if (result->boot_version[0] != '\0') printf(" %s", result->boot_version);
+    if (result->boot_outcome[0] != '\0') printf("\n");
     if (target_root != NULL) printf("target: %s\n", target_root);
     if (staged_dir != NULL) printf("staged: %s\n", staged_dir);
 }
