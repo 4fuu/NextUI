@@ -92,6 +92,18 @@ test-updater:
 test-update-package:
 	./run_update_package_test.sh
 
+# Atomic-output and legacy-version regressions for the same packaging script:
+# the commit marker, build-failure preservation of the previous set, unsigned
+# reruns dropping a stale signature, interrupted-publish self-heal, and the
+# legacy bootstrap version text being refused. Declared on its own lines rather
+# than added to the .PHONY and test lists above, so this hunk never collides
+# with another thread editing those lines.
+.PHONY: test-update-package-atomic
+test: test-update-package-atomic
+
+test-update-package-atomic:
+	./run_update_package_atomic_test.sh
+
 # Localization module tests (LedControl pak + boot splash wiring). They are
 # self-contained: the two shell tests only need the host SDL headers the other
 # host tests already use; the render proofs additionally build and drive the
