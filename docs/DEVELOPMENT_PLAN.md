@@ -1314,7 +1314,17 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `117bc578663cdff3a7ed2dc4807079f0b10473a1`, whose CI was green per gh), OPEN,
   MERGEABLE and CLEAN per gh; CI at this head is green per gh (Feature checks
   push and pull_request, Development/Desktop), and the source reports 435
-  passed / 0 failed with the app suite at 79 and ASan/UBSan the same. It adds
+  passed / 0 failed with the app suite at 79 and ASan/UBSan the same. The
+  independent review FAILED this head (merge owner, 2026-11-16 15:31; a review
+  FAIL outranks a green source CI): an install whose target is `universal` is
+  accepted, yet the transaction is then not recoverable and the launcher does
+  not scan it; a committed app record stays permanently pending, and after the
+  user deletes the app a plain `recover` reports `state_invalid` and can make
+  boot refuse to start; and the fsync target directory is suspected to be
+  wrongly set to root, pending the source's verification. The merge owner has
+  sent the fix to the source directly. This is a separate defect from the
+  manual-rollback one above and from the earlier auto-coexistence assumption.
+  Not merged. It adds
   an independent `update_app.{h,c}` pair
   with zero changes to the system `update_transaction.c`/`.h`, signed local
   app install and update, and independent transaction recovery. Not merged; the
@@ -1469,9 +1479,11 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   (https://github.com/4fuu/NextUI/pull/38, branch `remove/pak-store-preinstall`,
   "Remove the built-in third-party Pak Store download and entry"), head
   `595a7442ed075b24cf5de6d011ff46620c4a0c04`, base main, OPEN and MERGEABLE per
-  gh with mergeStateStatus UNSTABLE; CI at that head is in progress at the last
-  check (Feature checks push and pull_request, Development/Desktop), so nothing
-  is recorded as passing on it. The owner answered the Space's removal question
+  gh. The independent review FAILED this head (merge owner, 2026-11-16 15:31):
+  removing `*.pakz` also drops the necessary
+  `nextui.upgrade_bluez.tg5040.pakz`, which the real packaging run proved; the
+  source is fixing it with an explicit bluez keep plus positive and negative
+  tests. Not merged. The owner answered the Space's removal question
   directly: remove it, no need to install it in the machine. Building an own
   store, switching the store index source, and authorizing own store
   repositories are not goals (a removed requirement is a scope change, never
@@ -1685,8 +1697,16 @@ as they happen; nothing is reported as passing without a run.
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
-- The current update travels on the branch `docs/schedule-update-11` cut from
-  `origin/main` @ `8e4f744` (earlier schedule branches merged as `3ae1ddf`,
+- Branch identity evidence (2026-11-16, verified against the remote, because a
+  stale reading named `c04c69d`): `git ls-remote origin docs/schedule-update-11`
+  and `gh pr view 31` both report the branch and PR #31 head at
+  `ada6f27a43ef2871a5bce7789af63b055643a2a1`, with `c04c69d` and `71da5af`
+  confirmed ancestors of it (`git merge-base --is-ancestor`), so every update
+  did reach PR #31; no other pull request was created or closed over the stale
+  reading. The branch is normally merged with current `origin/main` so it does
+  not drift.
+- The current update travels on the branch `docs/schedule-update-11` (earlier
+  schedule branches merged as `3ae1ddf`,
   `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
   `8e4f744`). Its pull request is PR #31; while that pull request stays open,
   later real changes fold into it instead of opening another one, which is why
