@@ -6,8 +6,9 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `1b73667` (merge of PR #40, the RetroAchievements dead-cluster
-  cleanup; below it PR #39 the gametime/stale-package cleanup `d72565a`, PR
+  rule): `cb622fa` (merge of PR #41, the local-file app install settings page;
+  below it PR #40 the RetroAchievements dead-cluster
+  cleanup `1b73667`, PR #39 the gametime/stale-package cleanup `d72565a`, PR
   #37 the local signed app install/update/recovery backend `4c5398f`, PR #38
   the third-party Pak Store removal `1f737c9`, then PR #36 the atomic
   update-package output and the
@@ -127,7 +128,8 @@ Rules:
   `b3dcae4`); the local signed app install/update/recovery backend (PR #37,
   `4c5398f`); the third-party Pak Store download and entry removal (PR #38,
   `1f737c9`); the gametime/stale-package cleanup (PR #39, `d72565a`); the
-  RetroAchievements dead-cluster cleanup (PR #40, `1b73667`);
+  RetroAchievements dead-cluster cleanup (PR #40, `1b73667`); the local-file
+  app install settings page (PR #41, `cb622fa`);
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
@@ -328,17 +330,16 @@ Rules:
   unreachable for that race. The merge owner independently confirmed the real
   launcher test compiles the real `nextui.c` and executes `launch.sh`, so the
   production-path host evidence is owner-verified; device boot and rendering
-  remain unverified. The fix is with the source; a new exact head follows for
-  CI plus an independent re-review. The fix head is delivered 2026-11-16 as
-  `8ae60476393ef3c3dad22720a3091775c8b0c094` on the same branch, OPEN,
-  MERGEABLE and CLEAN per gh, with CI at the exact head green per gh (Feature
-  checks push and pull_request with Host tests at 634 passed / 0 failed per
-  the run log and the tg5040 target build; Development/Desktop with
-  build-linux and build-macos); source-claimed fixes cover all four blockers
-  with old-logic-failure regressions (the zh total moves to 27 with the
-  fixture 288 to 291), and the residual SD swap race stays honestly recorded
-  without any unreachability or staged-kind-gate claim; awaiting the merge
-  owner's independent re-review; not merged.
+  remain unverified. The fix head
+  `8ae60476393ef3c3dad22720a3091775c8b0c094` passed the merge owner's
+  independent re-review on the exact head, and PR #41 merged into main as
+  `cb622fa4a95ee53cef58ad5d392ad50f354df192` (2026-11-16T19:05:42Z per gh);
+  the FAIL at `7418cf5` stays as history. Post-merge on `cb622fa`: Feature
+  checks and Development/Desktop are success per gh while the full CI run is
+  in progress through the existing subscription (not recorded as passing until
+  it finishes). Device behavior is not verified. Dispatched the same day for
+  the residual swap race: thread T-01a1e5c2 (recorded as F6c), with no head
+  yet. Open at this check: only this schedule's own PR #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1451,37 +1452,44 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   either a staged-kind check or an honestly recorded boundary. The merge owner
   has sent the fix to the source directly; no defect is recorded for the
   existing Settings convention of having no page title.
-- Fix head delivered 2026-11-16 as `8ae60476393ef3c3dad22720a3091775c8b0c094`
-  on the same branch `feature/local-app-install-ui`, OPEN, MERGEABLE and CLEAN
-  per gh; CI at the exact head is green per gh (Feature checks push and
-  pull_request with Host tests at 634 passed / 0 failed per the run log and
-  the tg5040 target build; Development/Desktop with build-linux and
-  build-macos). Source-claimed fixes, each with an old-logic-failure
-  regression: `refreshItem` initialization and the construction order; a fixed
-  status/folder/packages/rescan order; the three zh strings plus their a4
-  lines, taking the new total to 27 and the fixture 288 to 291; and the
-  unconfigured-key state reworded to "No trusted key is configured." with
-  h700 600px reachable-state width tests in both languages. The source also
-  fixed the screenshot harness so it no longer crops the descriptions -- the
-  current images show the selected package's id/version -- and added
-  tool-path tests for both the with- and without-boot-payload cases.
-  Source-reported results, which are not acceptance: controller 58/0, the
-  four menu regressions, the real launcher 9/0, the full host suite with no
-  failures, and green CI at the exact head. The residual SD swap race is NOT
-  fixed: it is honestly recorded in UPDATES and in the code that a signed
-  system manifest could enter install, so this schedule does not claim
-  app-only unreachability for the race and does not claim a staged-kind gate
-  exists. Awaiting the merge owner's independent re-review; not merged; the
-  FAIL at `7418cf5` stays as history.
-- I10 mapping: PR #41's copy of this file records this slice as "I10 — Local
-  application install UI (settings surface)" with the same owner thread and
-  the same scope. It is the same task as F6b, not a second one; this schedule
-  keeps F6b as the single record, and when PR #41 merges the file-level
-  reconciliation folds the I10 entry into F6b instead of carrying both. The
-  source's I10 status line ("no pull request is merged yet, so nothing is
-  recorded as delivered") describes the source's own file state at its cut;
-  this schedule records the delivery by its own rule (head delivered,
-  awaiting independent review). Shared settings/i18n
+- Fix head merged 2026-11-16: PR #41 merged into main as
+  `cb622fa4a95ee53cef58ad5d392ad50f354df192` (2026-11-16T19:05:42Z per gh),
+  final head `8ae60476393ef3c3dad22720a3091775c8b0c094`. The merge owner
+  reports an independent re-review PASS on the exact head `8ae6047` (a
+  merge-owner review result, not the source's self-report), independently
+  confirming the four fixes: the construction initialization order; the row
+  order with old-logic-failure regressions; the missing zh entries and a4
+  fixture (291, with i18n/width/font checks); the small-screen 640x480 states
+  without overlap; and the footer showing the id/version. Exact-head evidence
+  per the merge owner: 6/6 checks, the full host suite with 0 failures,
+  controller 58, the menu regressions, the real launcher 9, and the desktop
+  build passing; gh also shows CI green at the exact head (Feature checks
+  push and pull_request with Host tests at 634 passed / 0 failed per the run
+  log and the tg5040 target build; Development/Desktop with build-linux and
+  build-macos). Post-merge on `cb622fa`: Feature checks and Development/Desktop
+  are success per gh while the full CI run is in progress through the existing
+  subscription (not recorded as passing until it finishes). The FAIL at
+  `7418cf5` stays as history. Device behavior is not verified.
+- F6c — swap-race hardening (dispatched 2026-11-16; stays open): the residual
+  scan-to-stage SD swap race recorded with the PR #41 FAIL is still unfixed,
+  so this item is not closed by the F6b merge. Dispatched to
+  https://ampcode.com/threads/T-01a1e5c2-0302-71cd-b14f-828546632bc9 (Step
+  Medium, an independent thread): backend expected-kind checks plus app UI
+  wiring that refuse a system package before the actual signature verification
+  and distribution, a real isolated-root swap regression, and System Update
+  backward compatibility; no permission product, no store, no production key
+  changes, and no device operation. Status: dispatched; no head delivered, so
+  nothing is recorded as done; the new head goes to the sole merge owner's
+  independent gate.
+- I10 mapping (reconciled at the merge): PR #41 merged into main as `cb622fa`,
+  which also landed main's copy of this file carrying the source's "I10 —
+  Local application install UI (settings surface)" entry. That entry is the
+  same task as F6b -- same owner thread, same scope -- not a second one; the
+  file-level reconciliation keeps F6b as the single record and replaces the
+  I10 entry with a pointer to F6b. The I10 status line ("no pull request is
+  merged yet, so nothing is recorded as delivered") described the source's own
+  file state at its cut and is now outdated because PR #41 has merged.
+  Shared settings/i18n
   hunks are coordinated with PR #40, and each pull request goes to the sole
   merge owner for independent review and merge.
 - Coexistence verified by the source (real nextupd A/B runs plus regression;
@@ -1903,6 +1911,8 @@ coordinates the root makefile with PR #38.
   https://ampcode.com/threads/T-01a1e400-3b99-7794-9cf1-ad8cb5433bbc
 - Local-file app install entry thread (F6b):
   https://ampcode.com/threads/T-01a1e517-15fd-710c-bb01-300ef858376b
+- Local install package-kind protection thread (F6c, the swap race):
+  https://ampcode.com/threads/T-01a1e5c2-0302-71cd-b14f-828546632bc9
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
   in once confirmed; ran the exact libsamplerate co-render regression on main
   `1d9aea2` with `a6-host-adapter` @
@@ -1948,7 +1958,10 @@ as they happen; nothing is reported as passing without a run.
   then FAILED the exact head `7418cf5` with four blockers and two non-blocking
   boundaries, which are recorded with priority over the green CI; the fix head
   `8ae6047` is now delivered with source-claimed fixes for all four blockers
-  and awaits an independent re-review),
+  and awaits an independent re-review; the re-review PASSed on the exact head
+  and PR #41 merged into main as `cb622fa`, moving the schedule baseline to
+  `cb622fa`, and the residual swap race is dispatched as F6c to thread
+  T-01a1e5c2),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
