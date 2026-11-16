@@ -198,7 +198,20 @@ def main() -> int:
         f"({len(skipped)} skipped for a newline), {len(lines)} fixture lines"
     )
 
+    # Self-guards. Without them an emptied table and an emptied fixture would
+    # compare 0 against 0 and report a pass, so the test would go green exactly
+    # when the thing it protects has been deleted.
     failures = 0
+    if not comparable:
+        print(f"FAIL: {table_path} yielded no comparable values")
+        failures += 1
+    if not lines:
+        print(f"FAIL: {fixture_path} yielded no value lines")
+        failures += 1
+    if declared is None:
+        print(f"FAIL: {fixture_path} has no '# ---- values (N) ----' header")
+        failures += 1
+
     for value, count in sorted(missing.items()):
         print(f"FAIL: in table, not in fixture ({count}x): {value}")
         failures += count
