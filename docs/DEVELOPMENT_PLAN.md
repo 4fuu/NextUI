@@ -6,9 +6,11 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `4c5398f` (merge of PR #37, the local signed app install/update/
-  recovery backend; below it PR #38 the third-party Pak Store removal
-  `1f737c9`, then PR #36 the atomic update-package output and the
+  rule): `1b73667` (merge of PR #40, the RetroAchievements dead-cluster
+  cleanup; below it PR #39 the gametime/stale-package cleanup `d72565a`, PR
+  #37 the local signed app install/update/recovery backend `4c5398f`, PR #38
+  the third-party Pak Store removal `1f737c9`, then PR #36 the atomic
+  update-package output and the
   locked legacy-version refusal, PR #33 the tg5040 update package
   content check, PR #35 the System Update page's zh follow-up, PR #32 the
   System Update install UI, PR #34 the Off/On labels slice and the in-repo
@@ -124,7 +126,8 @@ Rules:
   update-package output with the locked legacy-version refusal (PR #36,
   `b3dcae4`); the local signed app install/update/recovery backend (PR #37,
   `4c5398f`); the third-party Pak Store download and entry removal (PR #38,
-  `1f737c9`);
+  `1f737c9`); the gametime/stale-package cleanup (PR #39, `d72565a`); the
+  RetroAchievements dead-cluster cleanup (PR #40, `1b73667`);
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
@@ -287,18 +290,22 @@ Rules:
   PR #13 (built-in emulator removal, head `e1275e4`) merged into main as
   `1d9aea2` with its CI/release core cleanup (no core-matrix/build-core/Download
   Cores jobs remain).
-- Open at this check (2026-11-16, after the `4c5398f` merges of PR #37 and PR
-  #38): PR #39 (branch `clean/gametime-packaging-residue`, "Remove the game
-  play-time statistics service and stale package entries"), head `41d1a43`,
-  OPEN; CI at that head is green per gh (Feature checks push and pull_request,
-  Development/Desktop), but gh now reports the pull request CONFLICTING and
-  DIRTY because main moved under it, so it needs a normal merge of the latest
-  main -- the merge owner has notified the source by message; not merged. PR
-  #40 (branch `cleanup/remove-retroachievements-dead-code`, "Remove orphaned
-  RetroAchievements offline-sync dead cluster"), head `b0ce4d3`, OPEN,
-  MERGEABLE and CLEAN per gh; CI at that head is green per gh (Feature checks
-  push and pull_request, Development/Desktop); the independent review is in
-  progress per the merge owner; not merged.
+- Merged since the last check (2026-11-16, after the `4c5398f` merges of PR
+  #37 and PR #38): PR #39 (branch `clean/gametime-packaging-residue`, "Remove
+  the game play-time statistics service and stale package entries") merged
+  into main as `d72565a1be13d89ab09cf891d7e4aa80dbb616c1`
+  (2026-11-16T16:17:23Z per gh), final head `e807f35`; post-merge on
+  `d72565a`: Feature checks (Host tests 634 passed / 0 failed per the run log,
+  plus the tg5040 target build), Development/Desktop, and the full CI run are
+  all success per gh. PR #40 (branch
+  `cleanup/remove-retroachievements-dead-code`, "Remove orphaned
+  RetroAchievements offline-sync dead cluster") merged into main as
+  `1b736674332f2d4454341700c61c3c4874664597` (2026-11-16T16:21:39Z per gh),
+  final head `b0ce4d3`; post-merge on `1b73667`: Feature checks (Host tests
+  634 passed / 0 failed per the run log, plus the tg5040 target build),
+  Development/Desktop, and the full CI run are all success per gh. Open at
+  this check: only this schedule's own PR
+  #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1321,7 +1328,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   dispatched backend implementation thread
   https://ampcode.com/threads/T-01a1e4aa-91b9-766e-bc8d-71ea9189e7d4
   (Step Medium; dispatched 2026-11-16; first head delivered 2026-11-16 14:57
-  as PR #37, merged 2026-11-16), and the dispatched local-file install entry
+  as PR #37, merged 2026-11-16; its work is shipped and the thread is being
+  archived this round with its evidence and workspace retained), and the
+  dispatched local-file install entry
   thread https://ampcode.com/threads/T-01a1e517-15fd-710c-bb01-300ef858376b
   (Step Medium; dispatched 2026-11-16 on the real main `4c5398f`).
 - Status: merged into main; host-verified, not device-verified. PR #37
@@ -1354,9 +1363,13 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   discovery/launch evidence, with Chinese, real progress and error states, and
   isolated-root tests; no store, no uninstall, and no permission product; no
   production key misuse and no device operation. The entry work starts now and
-  does not wait for the production source key. Shared settings/i18n hunks are
-  coordinated with PR #40, and each pull request goes to the sole merge owner
-  for independent review and merge.
+  does not wait for the production source key. The merge owner has directly
+  notified the F6b thread to normal-merge the latest main (now `1b73667`)
+  before delivering, and the F6b work must not restore the RetroAchievements,
+  i18n, or store removals that PR #40, PR #34/#35/#30, and PR #38 landed. No
+  F6b head has been delivered to this schedule yet. Shared settings/i18n
+  hunks are coordinated with PR #40, and each pull request goes to the sole
+  merge owner for independent review and merge.
 - Coexistence verified by the source (real nextupd A/B runs plus regression;
   the head carrying it passed the merge owner's independent review and merged;
   the A/B result itself is recorded as source-verified, not as a defect): a
@@ -1516,10 +1529,11 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `nextui.upgrade_bluez.tg5040.pakz`, proven in a real packaging run. The fix
   keeps the bluez pak explicitly through the recipe instead of a `*.pakz`
   glob, with a seeded-bluez real `make package` positive/negative control and
-  a poisoned curl; an explicit independent-review PASS for `3086aa7` has not
-  been relayed to me, so the review evidence is recorded as the FAIL at
-  `595a744` plus the fix at `3086aa7` and the merge itself by the sole merge
-  owner, not as a reported PASS. Post-merge on `1f737c9`: Feature checks,
+  a poisoned curl; the merge owner reports (2026-11-16 16:30) verifying at the
+  exact head `3086aa7` the explicit bluez keep, the absence of the store
+  download and the `*.pakz` glob, and the synthetic real `make package`; the
+  earlier FAIL at `595a744` (bluez pakz dropped) stays recorded as history.
+  Post-merge on `1f737c9`: Feature checks,
   Development/Desktop, and the full CI run are success per gh. The owner
   answered the Space's removal question
   directly: remove it, no need to install it in the machine. Building an own
@@ -1585,7 +1599,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   option, not a delivery requirement.
 - Next: continuous with each task.
 
-### P6 — Modification debt (audited; both cleanup lines delivered, one under independent review)
+### P6 — Modification debt (audited; both cleanup lines merged into main)
 
 Source: the read-only audit thread
 https://ampcode.com/threads/T-01a1e4d0-21d1-72e8-a5d2-1440fe0eb44e at
@@ -1607,43 +1621,41 @@ coordinates the root makefile with PR #38.
 
 #### D1 — Delivered cleanup lines (A class, owner-approved)
 - Line 1 (thread https://ampcode.com/threads/T-01a1e4ec-a622-7652-94f9-0cb0ed58f4cc
-  , Step Medium, dispatched 2026-11-16): A1 the RetroAchievements dead cluster
+  , Step Medium, dispatched 2026-11-16; shipped, and the thread is being
+  archived this round with its evidence and workspace retained): A1 the
+  RetroAchievements dead cluster
   -- the `ra_*` code (about 3900 lines) plus `http.c` and `notification.c`,
   the 13 RA config fields (including a plaintext token), and the dead options
   table in `settings.cpp`, which have zero build entry, consumer, or test and
   are fully unsupported after PR #13 -- together with the nine dead i18n keys
   (A4, the emulator save formats) that the i18n and font tests still carry.
-  Status: delivered as PR #40 (https://github.com/4fuu/NextUI/pull/40, branch
-  `cleanup/remove-retroachievements-dead-code`, "Remove orphaned
-  RetroAchievements offline-sync dead cluster"), head `b0ce4d3`, base main,
-  OPEN, MERGEABLE and CLEAN per gh; CI at that head is green per gh (Feature
-  checks push and pull_request, Development/Desktop); the independent review
-  is in progress per the merge owner; not merged. Delivered, per the source:
-  15 files removed (12 `ra_*` files at about 3900 lines plus the dedicated
-  `http.c/h` and `notification.c/h`; 42 makefile references checked, zero
-  includes or symbol consumers outside the cluster, no test references, and
-  `nextupd`'s own `update_download` does not use `http.h`, so the generic
-  download path was not touched); the RA surface in `config.h`/`config.c` (the
-  `RA_SORT` enum, 12 RA fields including the plaintext `raPassword`/`raToken`,
-  the `CFG_DEFAULT_RA_*` defaults, getters/setters, and parse/save/serialize/
-  debug-dump paths, consumed only by the dead cluster); the two unused
-  settings tables `notify_duration` and `progress_duration`; and 12 dead i18n
-  keys with the a4 fixture dropping 276 to 264. Kept on purpose: the
-  `notify*` config fields, which still round-trip through config parsing and
-  saving and are not RA (removing them would change the user's config file
-  format, beyond this round); the a3-zh fixture, left frozen as the audit
-  snapshot because CI enforces the a4 multiset and rebuilding `font3.ttf` is
-  not needed; and the C-class capabilities. Old-config compatibility: the
-  config parser is a whitelist, so old `ra*` lines in `minuisettings.txt` are
-  ignored -- no migration and no user data is deleted. Correction to the
-  audit: the dead i18n keys measured 12, not 9 (6 save-format/instant-save/
-  extract-filename keys plus 6 Retroarch/Retroarch-ish/MinUI/Generic keys),
-  each grepped with zero live references across the repo, so 12 were removed.
-  Source-reported evidence: local `make -C tests test` all pass,
-  `make common PLATFORM=desktop` builds `nextui.elf` and `settings.elf`, and
-  CI Host tests, the tg5040 target build, and build-linux are green; a source
-  self-test is not acceptance, so this waits for the merge owner's
-  independent review.
+  Status: merged into main. PR #40 (https://github.com/4fuu/NextUI/pull/40,
+  branch `cleanup/remove-retroachievements-dead-code`, "Remove orphaned
+  RetroAchievements offline-sync dead cluster") merged into main as
+  `1b736674332f2d4454341700c61c3c4874664597` (2026-11-16T16:21:39Z per gh),
+  final head `b0ce4d380340ae2a9228bd498653524551ba2a16`. The merge owner
+  reports an independent review PASS with no blockers on the exact head
+  `b0ce4d3` (a merge-owner review result, not the source's self-report): the
+  diff is deletion-only (21 files, +6/-5845); zero live consumers were proven
+  by compiling each deleted translation unit and enumerating globals with
+  `nm` (69 exported symbols, 0 occurrences outside the cluster); a runtime
+  load of an old `minuisettings.txt` showed the orphan `ra*` keys are
+  harmlessly ignored; the i18n a4 fixture multiset is 264/264; `make -C tests
+  test` and `make setup && make common PLATFORM=desktop` both exit 0; and the
+  six checks were green on the exact head at merge time. Caveats recorded
+  with the PASS: no device or real-SD evidence; the tg5050/h700 builds and the
+  font verifier were not run; two stale comments still name `ra_util.h`; and
+  the pull request body carried numeric slips (15 vs 16 files, a4 +6 not +1).
+  Post-merge on `1b73667`: Feature checks (Host tests 634 passed / 0 failed
+  per the run log, plus the tg5040 target build), Development/Desktop, and the
+  full CI run are all success per gh.
+  Delivered, per the source: 15 cluster files removed (12 `ra_*` files at
+  about 3900 lines plus the dedicated `http.c/h` and `notification.c/h`), the
+  RA surface in `config.h`/`config.c`, the two unused settings tables
+  `notify_duration` and `progress_duration`, and 12 dead i18n keys with the
+  a4 fixture dropping 276 to 264. Kept on purpose: the `notify*` config
+  fields, the a3-zh fixture, and the C-class capabilities. Old-config
+  compatibility: the whitelist parser ignores old `ra*` lines.
 - Line 2 (thread https://ampcode.com/threads/T-01a1e4ec-b01e-73f4-ba3e-668ddd19ed1a
   , Step Medium, dispatched 2026-11-16): A2 Game Tracker / gametime -- the
   game-time statistics never fill because nothing calls `gametimectl start`,
@@ -1651,14 +1663,24 @@ coordinates the root makefile with PR #38.
   packaging still carry them -- together with A5 the `makefile:213` base zip
   stale entries (`Shaders/trimui/h700/em_ui.sh` do not exist and fail
   silently as warnings, while `Cheats` and `Palettes` are missed). Status:
-  delivered as PR #39 (https://github.com/4fuu/NextUI/pull/39, branch
+  merged into main. PR #39 (https://github.com/4fuu/NextUI/pull/39, branch
   `clean/gametime-packaging-residue`, "Remove the game play-time statistics
-  service and stale package entries"), head `41d1a43`, base main, OPEN; CI at
-  that head is green per gh (Feature checks push and pull_request,
-  Development/Desktop), but gh now reports the pull request CONFLICTING and
-  DIRTY because main moved under it with the PR #37 and PR #38 merges, so it
-  needs a normal merge of the latest main -- the merge owner has notified the
-  source by message; not merged. Delivered, per the source: the gametime
+  service and stale package entries") merged into main as
+  `d72565a1be13d89ab09cf891d7e4aa80dbb616c1` (2026-11-16T16:17:23Z per gh),
+  final head `e807f3598b0fd91ecca7d672750238a6143b8290`. The merge owner
+  reports the independent review PASS on the exact head `e807f35` (combined
+  host and desktop runs, six checks green on the exact head); the earlier
+  head `41d1a43` FAILED that review with two post-#38-landing blockers -- the
+  base-zip line still used the `*.pakz` glob that #38's merged test forbids,
+  and #39 removed `em_ui.sh` while #38's test still expected it. Both were
+  fixed after a normal merge of `origin/main` `4c5398f`: the root makefile
+  names `nextui.upgrade_bluez.tg5040.pakz` explicitly with no `*.pakz` and no
+  store, and #38's test tuple no longer requires `em_ui.sh`. Post-merge on
+  `d72565a`: Feature checks (Host tests 634 passed / 0 failed per the run
+  log, plus the tg5040 target build), Development/Desktop, and the full CI
+  run -- which runs `make setup`, builds tg5040/tg5050/h700, `make special`,
+  and `make package` -- are all success per gh, so the explicit bluez pak is
+  in the real base package. Delivered, per the source: the gametime
   service chain, the GameTracker preinstall, and their dedicated build and
   callers are removed, together with the stale
   `Shaders/trimui/h700/em_ui.sh` base-zip entries. Two audit misreadings are
@@ -1669,8 +1691,11 @@ coordinates the root makefile with PR #38.
   `/etc/init.d/runtrimui` `pic2fb` splash does not disappear when NextUI
   replaces `/usr/trimui/bin/runtrimui.sh`, so the one-time patch still has a
   use. The bluez pakz and the old boot path stay. Six new tests carry
-  old-tree negative controls; the source's own runs are not acceptance, so
-  the line waits for the merge owner's independent review and a serial merge.
+  old-tree negative controls.
+- Non-blocking follow-ups from this line, kept in the backlog and not counted
+  as functional undelivered (no separate schedule pull request): a synthetic
+  tree for the h700/bluez placeholder, a test branch for dead stderr, and a
+  tg5050 splash note.
 - Still not dispatched from the A class: A3 Remove Loading.pak -- an
   original-factory compatibility one-time hack whose "Done" string is
   untranslated -- stays unless it can be proven unnecessary. The PR #39
@@ -1695,14 +1720,12 @@ coordinates the root makefile with PR #38.
   kept; `Files.pak`, the h700 `curl`, `--require-grants`, and the HOOKS rom
   branch all stay.
 
-- Not done: neither line is merged. PR #40 waits on the merge owner's
-  independent review; PR #39 must first merge the latest main and land a
-  non-conflicting head. How much the third-party paks depend on the `Roms`
-  layout is still unknown.
-- Next: PR #40's independent review result, then PR #39's normal merge of the
-  latest main and a fresh head, then serial merges through the sole CI/merge
-  owner (the root makefile coordination was with PR #38, which has merged at
-  `1f737c9`); B1 and the version policy still wait on the user.
+- Not done: both cleanup lines are merged; the only remainders from this
+  section are the three non-blocking follow-ups listed above. How much the
+  third-party paks depend on the `Roms` layout is still unknown.
+- Next: B1 and the version policy still wait on the user; the A-class debt is
+  closed except for the recorded follow-ups, which ride the next real change
+  in the same files instead of a separate schedule pull request.
 
 ## Decisions superseded by this schedule
 
@@ -1798,7 +1821,11 @@ as they happen; nothing is reported as passing without a run.
   `1ca216e`; PR #38 merged into main as `1f737c9`; the two owner-approved
   cleanup lines delivered PR #39 (open, conflicting on the moved main) and PR
   #40 (open, under independent review); and the F6b local-file install entry
-  was dispatched to thread T-01a1e517),
+  was dispatched to thread T-01a1e517; both cleanup lines have since merged
+  -- PR #39 into main as `d72565a` (final head `e807f35`, independent review
+  PASS after the `41d1a43` FAIL was fixed) and PR #40 into main as `1b73667`
+  (final head `b0ce4d3`, independent review PASS), moving the schedule
+  baseline to `1b73667`),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
