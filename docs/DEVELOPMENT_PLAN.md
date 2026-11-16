@@ -1122,11 +1122,15 @@ as they happen; nothing is reported as passing without a run.
   a pull request into `main`; the CI/merge owner merges after checks pass. This
   thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because real tasks changed (PR #27's last B1 residue fixed at head `c6b5e6f`
-  after an independent review FAIL, PR #30 opened for the zh "Unknown" entry,
-  and PR #29's post-merge CI confirmed green by the merge owner), not
-  because a docs head moved. The previous schedule pull request (PR #28) is
-  merged, so this update travels on a new branch.
-- The current update travels on a new branch cut from `origin/main` @
-  `8e4f744` (earlier schedule branches merged as `3ae1ddf`, `0385b21`,
-  `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and `8e4f744`).
+  because real tasks changed (the U9 system update install UI delivered and
+  pushed as PR #32, PR #30's fallback `TR()` wiring plus the verified zh
+  render at head `a51da4b`, PR #27's last B1 residue fixed at head `c6b5e6f`
+  after an independent review FAIL, and PR #29's post-merge CI confirmed green
+  by the merge owner), not because a docs head moved. The previous schedule
+  pull request (PR #28) is merged, so this update travels on a new branch.
+- The current update travels on the branch `docs/schedule-update-11` cut from
+  `origin/main` @ `8e4f744` (earlier schedule branches merged as `3ae1ddf`,
+  `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
+  `8e4f744`). Its pull request is PR #31; while that pull request stays open,
+  later real changes fold into it instead of opening another one, which is why
+  the PR #32 and PR #30 `a51da4b` facts ride the same branch.
