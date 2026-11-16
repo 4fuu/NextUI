@@ -1274,6 +1274,18 @@ static int print_fetch_staged(const Options* options, const UpdManifest* manifes
     return 0;
 }
 
+static int staged_manifest_matches_verified(const UpdManifest* manifest,
+                                            const UpdStaged* staged)
+{
+    Sha256Lite context;
+    unsigned char digest[UPD_SHA256_BYTES];
+
+    sha256_lite_init(&context);
+    sha256_lite_update(&context, manifest->raw, manifest->raw_length);
+    sha256_lite_final(&context, digest);
+    return memcmp(digest, staged->manifest_sha256, UPD_SHA256_BYTES) == 0;
+}
+
 static int resolve_feed_source(const Options* options, char* out, size_t out_size,
                                UpdError* error)
 {
@@ -1530,7 +1542,8 @@ static int run_feed(const Options* options, int fetch)
     {
         if (upd_staged_load(stage_dir, &staged, &error)
             && upd_staged_verify(stage_dir, &staged, &verified.manifest, verified.key_id,
-                                 &error))
+                                 &error)
+            && staged_manifest_matches_verified(&verified.manifest, &staged))
         {
             result = print_fetch_staged(options, &verified.manifest, verified.key_id, root,
                                         stage_dir, staged_archive, staged_manifest,

@@ -191,6 +191,32 @@ def build_package(version, min_system, directory, key_der, key_id=KEY_ID):
     }
 
 
+def build_manifest_variant(package, directory, min_system, key_der, key_id=KEY_ID):
+    """Build a second validly signed manifest for the same archive bytes."""
+    os.makedirs(directory, exist_ok=True)
+    manifest = os.path.join(directory, "MinUI.manifest.json")
+    signature = os.path.join(directory, "MinUI.manifest.sig")
+    proc = run([
+        "manifest", "--package", package["package"],
+        "--id", f"nextui.system.{PLATFORM}", "--kind", "system",
+        "--version", package["version"], "--platform", PLATFORM,
+        "--min-system", min_system, "--out", manifest,
+    ])
+    if proc.returncode != 0:
+        raise RuntimeError(f"manifest variant failed: {proc.stdout}{proc.stderr}")
+    sign_manifest(manifest, signature, key_der, key_id)
+    return manifest, signature
+
+
+def replace_staged_manifest(stage, manifest, signature):
+    """Swap the staged manifest and keep staged.json internally consistent."""
+    shutil.copy2(manifest, os.path.join(stage, "manifest.json"))
+    shutil.copy2(signature, os.path.join(stage, "manifest.sig"))
+    descriptor = read_json(marker(stage))
+    descriptor["manifest_sha256"] = sha256_file(os.path.join(stage, "manifest.json"))
+    write_json(marker(stage), descriptor)
+
+
 def feed_entry(pkg, manifest_url, signature_url, archive_url, **overrides):
     entry = {
         "platform": PLATFORM,
@@ -655,6 +681,46 @@ def main():
             fail("reuse avoids a second package download", f"{before} -> {after}", None)
         else:
             ok("reuse avoids a second package download")
+
+        # A validly signed manifest for the same archive but a different
+        # min_system must not make the staged package count as the one just
+        # verified. Without the digest binding this returns already_staged.
+        alternate_manifest, alternate_signature = build_manifest_variant(
+            next_package, os.path.join(WORK, "pkg-next-alt"), "v5.0.0", key_der)
+        alternate_check = run([
+            "check", "--package", os.path.join(stage, "MinUI.zip"),
+            "--manifest", alternate_manifest, "--signature", alternate_signature,
+            "--trusted-key", FIXTURE_PUB, "--platform", PLATFORM,
+            "--system-version", "v6.0.0", "--json",
+        ])
+        expect("alternate manifest is validly signed", alternate_check, 0)
+        replace_staged_manifest(stage, alternate_manifest, alternate_signature)
+        before = REQUEST_COUNTS[package_request_path]
+        body = fetch("staged manifest must match the verified manifest",
+                     f"{BASE_URL}/feed.json", root, 0)
+        after = REQUEST_COUNTS[package_request_path]
+        if body is not None and body.get("result") != "staged":
+            fail("alternate staged manifest is not reused", body, None)
+        else:
+            ok("alternate staged manifest is not reused")
+        if after <= before:
+            fail("alternate staged manifest redownloads", f"{before} -> {after}", None)
+        else:
+            ok("alternate staged manifest redownloads")
+        staged_manifest = read_json(os.path.join(stage, "manifest.json"))
+        if staged_manifest.get("min_system") != "v6.0.0":
+            fail("re-staged manifest is the verified one",
+                 staged_manifest.get("min_system"), None)
+        else:
+            ok("re-staged manifest is the verified one")
+        check = run([
+            "check", "--package", os.path.join(stage, "MinUI.zip"),
+            "--manifest", os.path.join(stage, "manifest.json"),
+            "--signature", os.path.join(stage, "manifest.sig"),
+            "--trusted-key", FIXTURE_PUB, "--platform", PLATFORM,
+            "--system-version", "v6.0.0", "--json",
+        ])
+        expect("re-staged manifest passes the existing checker", check, 0)
 
         before = REQUEST_COUNTS[package_request_path]
         body = fetch("replace forces a fresh download", f"{BASE_URL}/feed.json", root, 0,
