@@ -1,0 +1,69 @@
+name: Feature checks
+
+# Fast validation for every feature branch, integration branch, and pull
+# request. Packaging, attestations, and release artifacts stay in ci.yaml and
+# release.yaml, which only run after changes land on main.
+on:
+  push:
+    branches:
+      - '**'
+  pull_request: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    name: Host tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install host test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config zip \
+            libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev \
+            libsamplerate0-dev libgl1-mesa-dev zlib1g-dev
+
+      - name: Run host tests
+        run: make -C tests test
+
+  tg5040-build:
+    name: tg5040 target build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    env:
+      PLATFORM: tg5040
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Setup
+        run: make setup
+
+      - name: Build tg5040 target
+        run: make build PLATFORM=tg5040
+
+      - name: Verify target binaries
+        run: |
+          find workspace -path '*/build/tg5040/*.elf' -type f -printf '%p %s bytes\n' | sort
+          test -f workspace/all/nextui/build/tg5040/nextui.elf
+          test -f workspace/all/settings/build/tg5040/settings.elf
+          test -f workspace/all/devserv/build/tg5040/devserv.elf
+          test -f workspace/all/nextdev/build/tg5040/nextdev.elf
+
+      - name: Upload target binaries
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: tg5040-target-${{ github.sha }}
+          path: workspace/**/build/tg5040/*.elf
+          if-no-files-found: error
+          retention-days: 7
