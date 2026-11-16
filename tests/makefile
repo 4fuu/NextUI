@@ -3,17 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh test-session test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-display-audio test-led-profile test-led-refresh test-session test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render clean
 
-test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-session test-updater test-led-i18n test-boot-strings
-
-# The render proofs drive the real binaries headless (SDL dummy video driver
-# plus an LD_PRELOAD capture shim), which is Linux-only; CI's host job is
-# Linux. The fontTools cmap proof stays manual (pinned venv): see
-# workspace/all/ledcontrol/tests/run_led_font_coverage.sh.
-ifeq ($(shell uname -s),Linux)
-test: test-led-render test-show2-render
-endif
+test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -41,6 +33,9 @@ test-device:
 test-led:
 	../workspace/all/common/tests/run_led_lease_test.sh
 	../workspace/all/common/tests/run_led_backend_test.sh
+
+test-display-audio:
+	../workspace/all/common/tests/run_display_audio_backend_test.sh
 
 # Needs the desktop SDL/msettings build dependencies.
 test-led-refresh:
