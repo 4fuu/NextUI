@@ -33,10 +33,20 @@ revokes anything; default-allow is independent of the session lifecycle.
 
 C4 has two processes on purpose:
 
-- **keymon observes and forwards.** It reads the same SDL joystick events the
-  app's `PAD_poll` reads (`JOY_L4`/`JOY_R4`/`JOY_MENU_ALT` on Brick Pro), applies
-  the stored `fn[123]action` value, and sends an `app-action` request. It never
-  signals a process and never puts a PID in a request.
+- **keymon observes and forwards FN1/FN2.** It reads the same SDL joystick
+  events the app's `PAD_poll` reads, applies the stored `fn[123]action` value,
+  and sends an `app-action` request. It never signals a process and never puts a
+  PID in a request. Brick Pro HOME is not a joystick button: the real js0 capture
+  exposes only buttons 0-10, so keymon does not forward a guessed `JOY_MENU_ALT`
+  index.
+- **the platform maps HOME from the kernel key state.** The TRIMUI Player1
+  keyboard/joystick node advertises `KEY_HOMEPAGE` (172) and SDL's evdev keyboard
+  backend skips that joystick-class device. `platform.c` opens the node that
+  advertises key 172 and polls `EVIOCGKEY`; it does not read, grab, or create a
+  second event stream. `PAD_setHomePressed()` edge-detects the state into
+  `BTN_HOME`/`BTN_FN3`, so a held HOME produces one press and one release. The
+  launcher and adapted apps both consume that platform key. This is source and
+  host-replay evidence; physical HOME remains a device-batch item.
 - **devserv records the request for one session.** A request carries the
   monotonic press time and may carry the generation id. A request from a previous
   session, or one whose press predates the active session, returns

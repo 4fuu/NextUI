@@ -537,6 +537,10 @@ extern PAD_Context pad;
 void PAD_setAnalog(int neg, int pos, int value, int repeat_at); // internal
 
 void PAD_reset(void);
+/* Inject the kernel KEY_HOMEPAGE state (tg5040 has no HOME joystick button).
+ * Edge-detected, so holding the key produces one press and one release. */
+void PAD_setHomePressed(int pressed);
+int PLAT_getHomeKeyPressed(void); /* 0 on platforms without a HOME key source */
 int PAD_anyJustPressed(void);
 int PAD_anyPressed(void);
 int PAD_anyJustReleased(void);

@@ -225,16 +225,16 @@ static void forward_fn_slot(int slot, unsigned long long at_ms) {
 	else if (kind == FN_ACTION_KIND_OVERLAY) send_app_action(FN_ACTION_OVERLAY, at_ms);
 }
 
-// This is the same SDL joystick index the app's PAD_poll sees (api.c maps
-// JOY_L4/JOY_R4/JOY_MENU_ALT to BTN_FN1/FN2/FN3). No raw evdev code and no
-// guessed js index is introduced here.
+// This is the same SDL joystick index the app's PAD_poll sees for FN1/FN2.
+// The real Brick Pro capture has no HOME button in js0 (only 0-10), so keymon
+// does not forward a guessed HOME index. The launcher/adapted app gets HOME
+// from the platform KEY_HOMEPAGE state query and opens the shared overlay.
 static void handle_joystick_button(int button, unsigned long long at_ms) {
 	int fn1 = is_brick ? JOY_L3 : JOY_L4;
 	int fn2 = is_brick ? JOY_R3 : JOY_R4;
 
 	if (button == fn1) forward_fn_slot(0, at_ms);
 	else if (button == fn2) forward_fn_slot(1, at_ms);
-	else if (button == JOY_MENU_ALT) forward_fn_slot(2, at_ms);
 }
 
 static pthread_t mute_pt;

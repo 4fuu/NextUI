@@ -3871,6 +3871,34 @@ void PAD_reset(void)
 	pad.just_released = BTN_NONE;
 	pad.just_repeated = BTN_NONE;
 }
+
+/*
+ * tg5040 exposes KEY_HOMEPAGE on event3, but SDL's evdev joystick class can
+ * hide that device from the keyboard backend and js0 has no HOME button. The
+ * platform layer queries EVIOCGKEY (state only, no read/grab) and feeds the
+ * boolean here. Edge detection keeps a held HOME from repeating every frame.
+ */
+static int home_key_down;
+void PAD_setHomePressed(int pressed)
+{
+	pressed = pressed ? 1 : 0;
+	if (pressed && !home_key_down)
+	{
+		pad.just_pressed |= BTN_HOME;
+		pad.just_repeated |= BTN_HOME;
+		pad.is_pressed |= BTN_HOME;
+		pad.repeat_at[BTN_ID_HOME] = SDL_GetTicks() + PAD_REPEAT_DELAY;
+	}
+	else if (!pressed && home_key_down)
+	{
+		pad.is_pressed &= ~BTN_HOME;
+		pad.just_repeated &= ~BTN_HOME;
+		pad.just_released |= BTN_HOME;
+	}
+	home_key_down = pressed;
+}
+FALLBACK_IMPLEMENTATION int PLAT_getHomeKeyPressed(void) { return 0; }
+
 FALLBACK_IMPLEMENTATION void PLAT_pollInput(void)
 {
 	// reset transient state
@@ -4305,6 +4333,10 @@ FALLBACK_IMPLEMENTATION void PLAT_pollInput(void)
 			pad.repeat_at[id] = tick + PAD_REPEAT_DELAY;
 		}
 	}
+
+	/* tg5040: KEY_HOMEPAGE has no SDL joystick button; inject its kernel state
+	 * after the SDL event stream. Other platforms return 0. */
+	PAD_setHomePressed(PLAT_getHomeKeyPressed());
 
 	if (lid.has_lid && PLAT_lidChanged(NULL))
 		pad.just_released |= BTN_SLEEP;
