@@ -101,10 +101,15 @@ Rules:
   supervision SIGTERM/1500 ms/SIGKILL and C2/C3 restore; no arbitrary client
   PID accepted; no killing of new sessions, other apps, or the desktop. Formal
   PASS reports from I2/I3 are outstanding.
-- Next: PR #1 CI to finish (as of 2026-11-16 the prepare and core-matrix jobs
-  pass while build-core and the desktop builds are still running) and I3 to
-  conclude; then the CI/merge owner decides the merge. The HOME gap is handled
-  as I7 on a separate increment.
+- Next: PR #1 CI to finish and I3 to conclude; then the CI/merge owner decides
+  the merge. CI status on PR #1 (2026-11-16): the Development/Desktop run
+  completed with failure — `build-macos` fails linking `devserv.elf` with
+  `ld: library 'rt' not found` (`build-linux` succeeds); the baseline
+  `workspace/all/devserv/makefile` does not link `-lrt`, so the runtime branch
+  introduced it, and the fix belongs to the runtime source thread. The CI
+  device run is still in progress (prepare and core-matrix pass; many
+  `build-core` jobs pass, some pending). The HOME gap is handled as I7 on a
+  separate increment.
 
 ### I2 — Toolchain target compile of the runtime branch
 - Owner: retained toolchain-target thread (tg5040 cross-build).
@@ -470,10 +475,11 @@ as they happen; nothing is reported as passing without a run.
   `de69781`, pushed to origin at commit
   `ea0a337cb7b305c9a59dfbe9ca81dd7a4ebea795` and delivered as pull request #2
   (https://github.com/4fuu/NextUI/pull/2) into `integration/batch7`.
-- CI on PR #2 (as of 2026-11-16): triggered and running — `prepare` and the
-  `core-matrix` jobs (tg5040/tg5050/h700) pass, while the `build-core` matrix
-  and the `build-macos`/`build-linux` desktop jobs are still pending; no
-  failures observed so far. A job that has not finished is never recorded as
-  passing.
+- CI on PR #2 (as of 2026-11-16): the Development/Desktop run for the first
+  commit (`ea0a337`) completed with success (macOS and Linux desktop builds
+  pass, confirming the baseline builds cleanly on macOS); the CI device run is
+  still in progress (prepare and core-matrix pass, build-core jobs pending);
+  the follow-up commit (`59e7ddb`) re-triggered both workflows. A job that has
+  not finished is never recorded as passing.
 - Merge into `integration/batch7` is performed by the CI/merge owner thread
   after real CI and review pass; no other thread merges main concurrently.
