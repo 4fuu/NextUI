@@ -31,10 +31,12 @@ REPO = os.path.abspath(sys.argv[1] if len(sys.argv) > 1
                        else os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 # This test names the removed artifacts to prove they are gone, so it cannot
-# scan itself for them.
+# scan itself, its runner, or the launcher regression test pair for them.
 SELF_FILES = (
     os.path.join(REPO, "tests", "pak_store_preinstall_test.py"),
     os.path.join(REPO, "tests", "run_pak_store_preinstall_test.sh"),
+    os.path.join(REPO, "workspace", "all", "nextui", "tests", "pak_store_entry_test.c"),
+    os.path.join(REPO, "workspace", "all", "common", "tests", "run_pak_store_entry_test.sh"),
 )
 
 FORBIDDEN_TOKENS = (
