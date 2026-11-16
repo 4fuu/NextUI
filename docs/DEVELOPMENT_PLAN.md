@@ -150,11 +150,11 @@ Rules:
   earlier checks; `1d9aea2` has full-platform CI success (run 43829493761, no
   core matrix), and the current code state on main, `4699226`, has full-platform
   CI success (Feature checks, Development/Desktop, CI). Main landings `e2ca971`
-  and the current tip `dc4bef0` (merge of PR #24) show: `e2ca971` has
-  full-platform CI success (Feature checks, Development/Desktop, CI all success
-  per gh); on `dc4bef0`, Feature checks and Development/Desktop are success per
-  gh while the full CI run 43852956464 was still in progress at the last check
-  — pending, not failed, and not recorded as passing. The docs-only landings
+  and the current tip `dc4bef0` (merge of PR #24) both have full-platform CI
+  success per gh: on `dc4bef0`, Feature checks, Development/Desktop, and the
+  full CI run 43852956464 (prepare success; build success including the
+  workflow's build/package/upload steps) all completed success, the last at
+  2026-11-16T11:01:09Z. The docs-only landings
   `c9230cf` and `6594dce` do not move the schedule baseline and their CI state
   is not tracked here.
   PR #13 (built-in emulator removal, head `e1275e4`) merged into main as
