@@ -124,8 +124,8 @@ static const I18nEntry zhTable[] = {
     {"BusyBox version not found.", "未找到 BusyBox 版本。"},
     // The About page's "NextUI version" row value, shown when .system/version.txt
     // is missing or empty. The literal lives in settings/version.cpp as
-    // VERSION_FALLBACK and is returned by readVersionText(); the key is here so
-    // the translation is ready the moment that value is routed through TR().
+    // VERSION_FALLBACK and is returned by readVersionText(); settings.cpp routes
+    // only that fallback through TR(), so a real version string is untouched.
     {"Unknown", "未知"},
     {"Stock OS changes detected.\n"
      "This may cause instability or issues.\n"
