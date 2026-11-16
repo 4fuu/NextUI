@@ -19,7 +19,6 @@ ifeq ($(PLATFORM), desktop)
 	cd ./$(PLATFORM)/libmsettings && make
 	cd ./$(PLATFORM) && make early # eg. other libs
 	cd ./all/nextui/ && make
-	cd ./all/minarch/ && make
 	#cd ./all/libbatmondb/ && make
 	#cd ./all/battery/ && make
 	cd ./all/clock/ && make
@@ -47,7 +46,6 @@ endif
 	cd ./$(PLATFORM) && make early # eg. other libs
 	cd ./$(PLATFORM)/keymon && make
 	cd ./all/nextui/ && make
-	cd ./all/minarch/ && make
 	cd ./all/battery/ && make
 	cd ./all/clock/ && make
 	cd ./all/libbatmondb/ && make
@@ -72,21 +70,7 @@ endif
 	cd ./all/audiomon && make all
 	cd ./all/show2/ && make
 endif
-ifdef COMPILE_CORES
-	make cores
-else
-	echo "skipping core build"
-endif
 	cd ./$(PLATFORM) && make
-
-cores:
-	cd ./$(PLATFORM)/cores && make
-
-core:
-ifndef CORE
-	$(error CORE is not set)
-endif
-	cd ./$(PLATFORM)/cores && make $(CORE)
 
 clean:
 ifneq ($(PLATFORM), desktop)
@@ -111,7 +95,6 @@ endif
 endif
 	cd ./$(PLATFORM)/libmsettings && make clean
 	cd ./all/nextui/ && make clean
-	cd ./all/minarch/ && make clean
 	cd ./all/battery/ && make clean
 	cd ./all/clock/ && make clean
 	cd ./all/libbatmondb/ && make clean

@@ -17,9 +17,4 @@ In general, just copy all the folders from this zip file to the root of your pri
 ----------------------------------------
 Updating
 
-This extras zip file is included with every release, regardless of whether its contents has changed or not. Refer to the release notes to see what, if anything, was added or changed and copy just the desired updated pak(s) to the corresponding device folder in the Emus or Tools folders (eg. /Emus/tg5040 or /Tools/tg5040)
-
-----------------------------------------
-Bios files
-
-You'll need to bring your own BIOS files for the emulator paks included in this zip file. Please refer to https://nextui.loveretro.games/usage/#required-bios for the correct file names and locations.
+This extras zip file is included with every release, regardless of whether its contents has changed or not. Refer to the release notes to see what, if anything, was added or changed and copy just the desired updated pak(s) to the corresponding device folder in the Tools folder (eg. /Tools/tg5040)

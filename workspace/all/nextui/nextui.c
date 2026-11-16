@@ -130,7 +130,6 @@ static char* Hash_get(Hash* self, char* key) {
 enum EntryType {
 	ENTRY_DIR,
 	ENTRY_PAK,
-	ENTRY_ROM,
 	ENTRY_DIP,
 };
 typedef struct Entry {
@@ -261,15 +260,13 @@ static int getIndexChar(char* str) {
 
 static void getUniqueName(Entry* entry, char* out_name) {
 	char* filename = strrchr(entry->path, '/')+1;
-	char emu_tag[256];
-	getEmuName(entry->path, emu_tag);
 
 	char *tmp;
 	strcpy(out_name, entry->name);
 	tmp = out_name + strlen(out_name);
 	strcpy(tmp, " (");
 	tmp = out_name + strlen(out_name);
-	strcpy(tmp, emu_tag);
+	strcpy(tmp, filename);
 	tmp = out_name + strlen(out_name);
 	strcpy(tmp, ")");
 }
@@ -386,10 +383,8 @@ static void Directory_index(Directory* self) {
 }
 
 static Array* getRoot(void);
-static Array* getRoms(void);
 static Array* getRecents(void);
 static Array* getCollection(char* path);
-static Array* getDiscs(char* path);
 static Array* getEntries(char* path);
 
 static Directory* Directory_new(char* path, int selected) {
@@ -405,14 +400,8 @@ static Directory* Directory_new(char* path, int selected) {
 	else if (exactMatch(path, FAUX_RECENT_PATH)) {
 		self->entries = getRecents();
 	}
-	else if (exactMatch(path, ROMS_PATH)) {
-		self->entries = getRoms();
-	}
 	else if (!exactMatch(path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, path) && suffixMatch(".txt", path)) {
 		self->entries = getCollection(path);
-	}
-	else if (suffixMatch(".m3u", path)) {
-		self->entries = getDiscs(path);
 	}
 	else {
 		self->entries = getEntries(path);
@@ -450,7 +439,6 @@ typedef struct Recent {
  // yiiikes
 static char* recent_alias = NULL;
 
-static int hasEmu(char* emu_name);
 static Recent* Recent_new(char* path, char* alias) {
 	Recent* self = malloc(sizeof(Recent));
 
@@ -460,17 +448,15 @@ static Recent* Recent_new(char* path, char* alias) {
 	self->path = strdup(path);
 	self->alias = alias ? strdup(alias) : NULL;
 
-	// Apps share the recents list with ROMs. A pak is available while its
-	// launch.sh still exists; everything else keeps the emulator lookup.
+	// Only paks are launchable now; anything else (eg. a leftover rom path)
+	// stays in the list but is shown as unavailable.
 	if (suffixMatch(".pak", sd_path)) {
 		char launch_path[256];
 		snprintf(launch_path, sizeof(launch_path), "%s/launch.sh", sd_path);
 		self->available = exists(launch_path);
 	}
 	else {
-		char emu_name[256];
-		getEmuName(sd_path, emu_name);
-		self->available = hasEmu(emu_name);
+		self->available = 0;
 	}
 	return self;
 }
@@ -503,18 +489,13 @@ static Array *quick; // EntryArray
 static Array *quickActions; // EntryArray
 
 static int quit = 0;
-static int can_resume = 0;
-static int should_resume = 0; // set to 1 on BTN_RESUME but only if can_resume==1
 static int pak_can_resume = 0; // B4: selected pak has declared saves + a valid B3 state
 static int should_resume_pak = 0; // set to 1 on BTN_RESUME but only if pak_can_resume==1
 static char pak_resume_cache_path[256]; // last inspected pak; avoids duplicate hashes on redraw/open
 static int pak_resume_cache_result = 0;
 static int pak_resume_cache_valid = 0;
-static int has_preview = 0;
 static int simple_mode = 0;
 static int switcher_selected = 0;
-static char slot_path[256];
-static char preview_path[256];
 static int animationdirection = 0;
 
 static int restore_depth = -1;
@@ -568,60 +549,7 @@ static Entry* entryFromPakName(char* pak_name)
 	if(exists(pak_path))
 		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
 
-	// Check in Emus
-	sprintf(pak_path, "%s/Emus/%s.pak", PAKS_PATH, pak_name);
-	if(exists(pak_path))
-		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
-
-	// Check in platform Emus
-	sprintf(pak_path, "%s/Emus/%s/%s.pak", SDCARD_PATH, PLATFORM, pak_name);
-	if(exists(pak_path))
-		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
-
 	return NULL;
-}
-
-static int hasEmu(char* emu_name) {
-	char pak_path[256];
-	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", PAKS_PATH, emu_name);
-	if (exists(pak_path)) return 1;
-
-	sprintf(pak_path, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
-	return exists(pak_path);
-}
-static int hasCue(char* dir_path, char* cue_path) { // NOTE: dir_path not rom_path
-	char* tmp = strrchr(dir_path, '/') + 1; // folder name
-	sprintf(cue_path, "%s/%s.cue", dir_path, tmp);
-	return exists(cue_path);
-}
-static int hasM3u(char* rom_path, char* m3u_path) { // NOTE: rom_path not dir_path
-	char* tmp;
-
-	strcpy(m3u_path, rom_path);
-	tmp = strrchr(m3u_path, '/') + 1;
-	tmp[0] = '\0';
-
-	// path to parent directory
-	char base_path[256];
-	strcpy(base_path, m3u_path);
-
-	tmp = strrchr(m3u_path, '/');
-	tmp[0] = '\0';
-
-	// get parent directory name
-	char dir_name[256];
-	tmp = strrchr(m3u_path, '/');
-	strcpy(dir_name, tmp);
-
-	// dir_name is also our m3u file name
-	tmp = m3u_path + strlen(m3u_path);
-	strcpy(tmp, dir_name);
-
-	// add extension
-	tmp = m3u_path + strlen(m3u_path);
-	strcpy(tmp, ".m3u");
-
-	return exists(m3u_path);
 }
 
 static int hasRecents(void) {
@@ -629,25 +557,6 @@ static int hasRecents(void) {
 	int has = 0;
 	RecentArray_free(recents);
 	recents = Array_new();
-
-	Array* parent_paths = Array_new();
-	if (exists(CHANGE_DISC_PATH)) {
-		char sd_path[256];
-		getFile(CHANGE_DISC_PATH, sd_path, 256);
-		if (exists(sd_path)) {
-			char* disc_path = sd_path + strlen(SDCARD_PATH); // makes path platform agnostic
-			Recent* recent = Recent_new(disc_path, NULL);
-			if (recent->available) has += 1;
-			Array_push(recents, recent);
-
-			char parent_path[256];
-			strcpy(parent_path, disc_path);
-			char* tmp = strrchr(parent_path, '/') + 1;
-			tmp[0] = '\0';
-			Array_push(parent_paths, strdup(parent_path));
-		}
-		unlink(CHANGE_DISC_PATH);
-	}
 
 	FILE *file = fopen(RECENT_PATH, "r"); // newest at top
 	if (file) {
@@ -671,27 +580,6 @@ static int hasRecents(void) {
 			sprintf(sd_path, "%s%s", SDCARD_PATH, path);
 			if (exists(sd_path)) {
 				if (recents->count<MAX_RECENTS) {
-					// this logic replaces an existing disc from a multi-disc game with the last used
-					char m3u_path[256];
-					if (!suffixMatch(".pak", sd_path) && hasM3u(sd_path, m3u_path)) { // TODO: this might tank launch speed
-						char parent_path[256];
-						strcpy(parent_path, path);
-						char* tmp = strrchr(parent_path, '/') + 1;
-						tmp[0] = '\0';
-
-						int found = 0;
-						for (int i=0; i<parent_paths->count; i++) {
-							char* path = parent_paths->items[i];
-							if (prefixMatch(path, parent_path)) {
-								found = 1;
-								break;
-							}
-						}
-						if (found) continue;
-
-						Array_push(parent_paths, strdup(parent_path));
-					}
-
 					// LOG_info("path:%s alias:%s\n", path, alias);
 
 					Recent* recent = Recent_new(path, alias);
@@ -705,7 +593,6 @@ static int hasRecents(void) {
 
 	saveRecents();
 
-	StringArray_free(parent_paths);
 	return has>0;
 }
 static int hasCollections(void) {
@@ -722,113 +609,10 @@ static int hasCollections(void) {
 	closedir(dh);
 	return has;
 }
-static int hasRoms(char* dir_name) {
-	int has = 0;
-	char emu_name[256];
-	char rom_path[256];
-
-	getEmuName(dir_name, emu_name);
-
-	// check for emu pak
-	if (!hasEmu(emu_name)) return has;
-
-	// check for at least one non-hidden file (we're going to assume it's a rom)
-	sprintf(rom_path, "%s/%s/", ROMS_PATH, dir_name);
-	DIR *dh = opendir(rom_path);
-	if (dh!=NULL) {
-		struct dirent *dp;
-		while((dp = readdir(dh)) != NULL) {
-			if (hide(dp->d_name)) continue;
-			has = 1;
-			break;
-		}
-		closedir(dh);
-	}
-	// if (!has) printf("No roms for %s!\n", dir_name);
-	return has;
-}
-
 static int hasTools(void) {
 	char tools_path[256];
     snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
 	return exists(tools_path);
-}
-
-static Array* getRoms()
-{
-	Array* entries = Array_new();
-    DIR* dh = opendir(ROMS_PATH);
-    if (dh) {
-        struct dirent* dp;
-        char full_path[256];
-        snprintf(full_path, sizeof(full_path), "%s/", ROMS_PATH);
-        char* tmp = full_path + strlen(full_path);
-
-        Array* emus = Array_new();
-        while ((dp = readdir(dh)) != NULL) {
-            if (hide(dp->d_name)) continue;
-            if (hasRoms(dp->d_name)) {
-                strcpy(tmp, dp->d_name);
-                Array_push(emus, Entry_new(full_path, ENTRY_DIR));
-            }
-        }
-        closedir(dh); // Ensure directory is closed immediately after use
-
-        EntryArray_sort(emus);
-        Entry* prev_entry = NULL;
-        for (int i = 0; i < emus->count; i++) {
-            Entry* entry = emus->items[i];
-            if (prev_entry && exactMatch(prev_entry->name, entry->name)) {
-                Entry_free(entry);
-                continue;
-            }
-            Array_push(entries, entry);
-            prev_entry = entry;
-        }
-        Array_free(emus); // Only frees container, entries now owns the items
-    }
-
-	// Handle mapping logic
-    char map_path[256];
-    snprintf(map_path, sizeof(map_path), "%s/map.txt", ROMS_PATH);
-    if (entries->count > 0 && exists(map_path)) {
-        FILE* file = fopen(map_path, "r");
-        if (file) {
-            Hash* map = Hash_new();
-            char line[256];
-
-            while (fgets(line, sizeof(line), file)) {
-                normalizeNewline(line);
-                trimTrailingNewlines(line);
-                if (strlen(line) == 0) continue; // Skip empty lines
-
-                char* tmp = strchr(line, '\t');
-                if (tmp) {
-                    *tmp = '\0';
-                    char* key = line;
-                    char* value = tmp + 1;
-                    Hash_set(map, key, strdup(value)); // Ensure strdup
-                }
-            }
-            fclose(file);
-
-            int resort = 0;
-            for (int i = 0; i < entries->count; i++) {
-                Entry* entry = entries->items[i];
-                char* filename = strrchr(entry->path, '/') + 1;
-                char* alias = Hash_get(map, filename);
-                if (alias) {
-                    free(entry->name);  // Free before overwriting
-                    entry->name = strdup(alias);
-                    resort = 1;
-                }
-            }
-            if (resort) EntryArray_sort(entries);
-            Hash_free(map);
-        }
-    }
-
-	return entries;
 }
 
 static Array* getCollections(void)
@@ -886,18 +670,12 @@ static Array* getApps(void) {
 
 	// Tools/$PLATFORM is the canonical app install root (Pak Store and .pakz
 	// both land there). It is not a game-only folder, so show-tools no longer
-	// hides installed apps. Emus are legacy paks and are still listed.
+	// hides installed apps.
 	if (!simple_mode) {
 		char tools_path[256];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
 		addPakEntries(entries, tools_path);
 	}
-
-	char emus_path[256];
-	snprintf(emus_path, sizeof(emus_path), "%s/Emus/%s", SDCARD_PATH, PLATFORM);
-	addPakEntries(entries, emus_path);
-	addPakEntries(entries, SDCARD_PATH "/Emus");
-	addPakEntries(entries, PAKS_PATH "/Emus"); // built-in emulator paks
 
 	EntryArray_sort(entries);
 
@@ -998,8 +776,8 @@ static Entry* entryFromRecent(Recent* recent)
 
 	char sd_path[256];
 	sprintf(sd_path, "%s%s", SDCARD_PATH, recent->path);
-	int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM; // ???
-	Entry* entry = Entry_new(sd_path, type);
+	if (!suffixMatch(".pak", sd_path)) return NULL; // roms are no longer launchable
+	Entry* entry = Entry_new(sd_path, ENTRY_PAK);
 	if (recent->alias) {
 		free(entry->name);
 		entry->name = strdup(recent->alias);
@@ -1030,85 +808,14 @@ static Array* getCollection(char* path) {
 
 			char sd_path[256];
 			sprintf(sd_path, "%s%s", SDCARD_PATH, line);
-			if (exists(sd_path)) {
-				int type = suffixMatch(".pak", sd_path) ? ENTRY_PAK : ENTRY_ROM; // ???
-				Array_push(entries, Entry_new(sd_path, type));
-
-				// char emu_name[256];
-				// getEmuName(sd_path, emu_name);
-				// if (hasEmu(emu_name)) {
-					// Array_push(entries, Entry_new(sd_path, ENTRY_ROM));
-				// }
+			if (exists(sd_path) && suffixMatch(".pak", sd_path)) {
+				Array_push(entries, Entry_new(sd_path, ENTRY_PAK));
 			}
 		}
 		fclose(file);
 	}
 	return entries;
 }
-static Array* getDiscs(char* path){
-
-	// TODO: does path have SDCARD_PATH prefix?
-
-	Array* entries = Array_new();
-
-	char base_path[256];
-	strcpy(base_path, path);
-	char* tmp = strrchr(base_path, '/') + 1;
-	tmp[0] = '\0';
-
-	// TODO: limit number of discs supported (to 9?)
-	FILE* file = fopen(path, "r");
-	if (file) {
-		char line[256];
-		int disc = 0;
-		while (fgets(line,256,file)!=NULL) {
-			normalizeNewline(line);
-			trimTrailingNewlines(line);
-			if (strlen(line)==0) continue; // skip empty lines
-
-			char disc_path[256];
-			sprintf(disc_path, "%s%s", base_path, line);
-
-			if (exists(disc_path)) {
-				disc += 1;
-				Entry* entry = Entry_new(disc_path, ENTRY_ROM);
-				free(entry->name);
-				char name[16];
-				snprintf(name, sizeof(name), TR("Disc %i"), disc);
-				entry->name = strdup(name);
-				Array_push(entries, entry);
-			}
-		}
-		fclose(file);
-	}
-	return entries;
-}
-static int getFirstDisc(char* m3u_path, char* disc_path) { // based on getDiscs() natch
-	int found = 0;
-
-	char base_path[256];
-	strcpy(base_path, m3u_path);
-	char* tmp = strrchr(base_path, '/') + 1;
-	tmp[0] = '\0';
-
-	FILE* file = fopen(m3u_path, "r");
-	if (file) {
-		char line[256];
-		while (fgets(line,256,file)!=NULL) {
-			normalizeNewline(line);
-			trimTrailingNewlines(line);
-			if (strlen(line)==0) continue; // skip empty lines
-
-			sprintf(disc_path, "%s%s", base_path, line);
-
-			if (exists(disc_path)) found = 1;
-			break;
-		}
-		fclose(file);
-	}
-	return found;
-}
-
 static void addEntries(Array* entries, char* path) {
 	DIR *dh = opendir(path);
 	if (dh!=NULL) {
@@ -1132,12 +839,7 @@ static void addEntries(Array* entries, char* path) {
 				}
 			}
 			else {
-				if (prefixMatch(COLLECTIONS_PATH, full_path)) {
-					type = ENTRY_DIR; // :shrug:
-				}
-				else {
-					type = ENTRY_ROM;
-				}
+				type = ENTRY_DIR; // files are only reachable inside Collections
 			}
 			// B1: read pak.json when present and record the installed version.
 			// Legacy launch.sh-only paks are untouched; the display name stays
@@ -1149,46 +851,10 @@ static void addEntries(Array* entries, char* path) {
 	}
 }
 
-static int isConsoleDir(char* path) {
-	char* tmp;
-	char parent_dir[256];
-	strcpy(parent_dir, path);
-	tmp = strrchr(parent_dir, '/');
-	tmp[0] = '\0';
-
-	return exactMatch(parent_dir, ROMS_PATH);
-}
-
 static Array* getEntries(char* path){
 	Array* entries = Array_new();
 
-	if (isConsoleDir(path)) { // top-level console folder, might collate
-		char collated_path[256];
-		strcpy(collated_path, path);
-		char* tmp = strrchr(collated_path, '(');
-		// 1 because we want to keep the opening parenthesis to avoid collating "Game Boy Color" and "Game Boy Advance" into "Game Boy"
-		// but conditional so we can continue to support a bare tag name as a folder name
-		if (tmp) tmp[1] = '\0';
-
-		DIR *dh = opendir(ROMS_PATH);
-		if (dh!=NULL) {
-			struct dirent *dp;
-			char full_path[256];
-			sprintf(full_path, "%s/", ROMS_PATH);
-			tmp = full_path + strlen(full_path);
-			// while loop so we can collate paths, see above
-			while((dp = readdir(dh)) != NULL) {
-				if (hide(dp->d_name)) continue;
-				if (dp->d_type!=DT_DIR) continue;
-				strcpy(tmp, dp->d_name);
-
-				if (!prefixMatch(collated_path, full_path)) continue;
-				addEntries(entries, full_path);
-			}
-			closedir(dh);
-		}
-	}
-	else addEntries(entries, path); // just a subfolder
+	addEntries(entries, path);
 
 	EntryArray_sort(entries);
 	return entries;
@@ -1239,56 +905,6 @@ static char* escapeSingleQuotes(char* str) {
 
 ///////////////////////////////////////
 
-static void readyResumePath(char* rom_path, int type) {
-	char* tmp;
-	can_resume = 0;
-	has_preview = 0;
-	char path[256];
-	strcpy(path, rom_path);
-
-	if (!prefixMatch(ROMS_PATH, path)) return;
-
-	char auto_path[256];
-	if (type==ENTRY_DIR) {
-		if (!hasCue(path, auto_path)) { // no cue?
-			tmp = strrchr(auto_path, '.') + 1; // extension
-			strcpy(tmp, "m3u"); // replace with m3u
-			if (!exists(auto_path)) return; // no m3u
-		}
-		strcpy(path, auto_path); // cue or m3u if one exists
-	}
-
-	if (!suffixMatch(".m3u", path)) {
-		char m3u_path[256];
-		if (hasM3u(path, m3u_path)) {
-			// change path to m3u path
-			strcpy(path, m3u_path);
-		}
-	}
-
-	char emu_name[256];
-	getEmuName(path, emu_name);
-
-	char rom_file[256];
-	tmp = strrchr(path, '/') + 1;
-	strcpy(rom_file, tmp);
-
-	sprintf(slot_path, "%s/.minui/%s/%s.txt", SHARED_USERDATA_PATH, emu_name, rom_file); // /.userdata/.minui/<EMU>/<romname>.ext.txt
-	can_resume = exists(slot_path);
-
-	// slot_path contains a single integer representing the last used slot
-	if (can_resume) {
-		char slot[16];
-		getFile(slot_path, slot, 16);
-		int s = atoi(slot);
-		sprintf(preview_path, "%s/.minui/%s/%s.%0d.bmp", SHARED_USERDATA_PATH, emu_name, rom_file, s); // /.userdata/.minui/<EMU>/<romname>.ext.<n>.bmp
-		has_preview = exists(preview_path);
-	}
-}
-static void readyResume(Entry* entry) {
-	readyResumePath(entry->path, entry->type);
-}
-
 // B4: pak resume is deliberately separate from the legacy ROM save slots.
 // A pak is resumable only when pak.json declares the exact "saves" capability
 // and B3 validates every payload file; a declaration alone is never enough.
@@ -1329,50 +945,11 @@ static void readyPakResume(Entry* entry) {
 }
 
 static void readyEntryResume(Entry* entry) {
-	readyResume(entry);
 	readyPakResume(entry);
 }
 
 static void saveLast(char* path);
 static void loadLast(void);
-
-static int autoResume(void) {
-	// NOTE: bypasses recents
-
-	if (!exists(AUTO_RESUME_PATH)) return 0;
-
-	char path[256];
-	getFile(AUTO_RESUME_PATH, path, 256);
-	unlink(AUTO_RESUME_PATH);
-	sync();
-
-	// make sure rom still exists
-	char sd_path[256];
-	sprintf(sd_path, "%s%s", SDCARD_PATH, path);
-	if (!exists(sd_path)) return 0;
-
-	// make sure emu still exists
-	char emu_name[256];
-	getEmuName(sd_path, emu_name);
-
-	char emu_path[256];
-	getEmuPath(emu_name, emu_path);
-
-	if (!exists(emu_path)) return 0;
-
-	// putFile(LAST_PATH, FAUX_RECENT_PATH); // saveLast() will crash here because top is NULL
-
-	char act[256];
-	sprintf(act, "gametimectl.elf start '%s'", escapeSingleQuotes(sd_path));
-	system(act);
-
-	char cmd[256];
-	// dont escape sd_path again because it was already escaped for gametimectl and function modifies input str aswell
-	sprintf(cmd, "'%s' '%s'", escapeSingleQuotes(emu_path), sd_path);
-	putInt(RESUME_SLOT_PATH, AUTO_RESUME_SLOT);
-	queueNext(cmd);
-	return 1;
-}
 
 static void openPakMode(char* path, AppLaunchMode mode) {
 	addRecent(path, NULL); // apps share the recents list with ROMs
@@ -1522,70 +1099,6 @@ static int runFnAction(int index) {
 	return fnActionDispatch(action, FN_ACTION_SCOPE_DESKTOP, &handlers)
 		   == FN_ACTION_DISPATCH_HANDLED;
 }
-static void openRom(char* path, char* last) {
-	LOG_info("openRom(%s,%s)\n", path, last);
-
-	char sd_path[256];
-	strcpy(sd_path, path);
-
-	char m3u_path[256];
-	int has_m3u = hasM3u(sd_path, m3u_path);
-
-	char recent_path[256];
-	strcpy(recent_path, has_m3u ? m3u_path : sd_path);
-
-	if (has_m3u && suffixMatch(".m3u", sd_path)) {
-		getFirstDisc(m3u_path, sd_path);
-	}
-
-	char emu_name[256];
-	getEmuName(sd_path, emu_name);
-
-	if (should_resume) {
-		char slot[16];
-		getFile(slot_path, slot, 16);
-		putFile(RESUME_SLOT_PATH, slot);
-		should_resume = 0;
-
-		if (has_m3u) {
-			char rom_file[256];
-			strcpy(rom_file, strrchr(m3u_path, '/') + 1);
-
-			// get disc for state
-			char disc_path_path[256];
-			sprintf(disc_path_path, "%s/.minui/%s/%s.%s.txt", SHARED_USERDATA_PATH, emu_name, rom_file, slot); // /.userdata/arm-480/.minui/<EMU>/<romname>.ext.0.txt
-
-			if (exists(disc_path_path)) {
-				// switch to disc path
-				char disc_path[256];
-				getFile(disc_path_path, disc_path, 256);
-				if (disc_path[0]=='/') strcpy(sd_path, disc_path); // absolute
-				else { // relative
-					strcpy(sd_path, m3u_path);
-					char* tmp = strrchr(sd_path, '/') + 1;
-					strcpy(tmp, disc_path);
-				}
-			}
-		}
-	}
-	else putInt(RESUME_SLOT_PATH,8); // resume hidden default state
-
-	char emu_path[256];
-	getEmuPath(emu_name, emu_path);
-
-	// NOTE: escapeSingleQuotes() modifies the passed string
-	// so we need to save the path before we call that
-	addRecent(recent_path, recent_alias); // yiiikes
-	saveLast(last==NULL ? sd_path : last);
-	char act[256];
-	sprintf(act, "gametimectl.elf start '%s'", escapeSingleQuotes(sd_path));
-	system(act);
-	char cmd[256];
-	// dont escape sd_path again because it was already escaped for gametimectl and function modifies input str aswell
-	sprintf(cmd, "'%s' '%s'", escapeSingleQuotes(emu_path), sd_path);
-	queueNext(cmd);
-}
-
 static bool isDirectSubdirectory(const Directory* parent, const char* child_path) {
     const char* parent_path = parent->path;
 
@@ -1699,26 +1212,7 @@ Array* pathToStack(const char* path) {
 	return array;
 }
 
-static void openDirectory(char* path, int auto_launch) {
-	char auto_path[256];
-	if (hasCue(path, auto_path) && auto_launch) {
-		openRom(auto_path, path);
-		return;
-	}
-
-	char m3u_path[256];
-	strcpy(m3u_path, auto_path);
-	char* tmp = strrchr(m3u_path, '.') + 1; // extension
-	strcpy(tmp, "m3u"); // replace with m3u
-	if (exists(m3u_path) && auto_launch) {
-		auto_path[0] = '\0';
-		if (getFirstDisc(m3u_path, auto_path)) {
-			openRom(auto_path, path);
-			return;
-		}
-		// TODO: doesn't handle empty m3u files
-	}
-
+static void openDirectory(char* path) {
 	// If this is the exact same directory for some reason, just return.
 	if(top && strcmp(top->path, path) == 0)
 		return;
@@ -1794,23 +1288,7 @@ static void toggleQuick(Entry* self)
 
 static void Entry_open(Entry* self) {
 	recent_alias = self->name;  // yiiikes
-	if (self->type==ENTRY_ROM) {
-		startgame = 1;
-		char *last = NULL;
-		if (prefixMatch(COLLECTIONS_PATH, top->path)) {
-			char* tmp;
-			char filename[256];
-
-			tmp = strrchr(self->path, '/');
-			if (tmp) strcpy(filename, tmp+1);
-
-			char last_path[256];
-			sprintf(last_path, "%s/%s", top->path, filename);
-			last = last_path;
-		}
-		openRom(self->path, last);
-	}
-	else if (self->type==ENTRY_PAK) {
+	if (self->type==ENTRY_PAK) {
 		startgame = 1;
 		int resume = should_resume_pak;
 		should_resume_pak = 0;
@@ -1818,7 +1296,7 @@ static void Entry_open(Entry* self) {
 		else openPak(self->path);
 	}
 	else if (self->type==ENTRY_DIR) {
-		openDirectory(self->path, 1);
+		openDirectory(self->path);
 	}
 	else if (self->type==ENTRY_DIP) {
 		toggleQuick(self);
@@ -1861,20 +1339,11 @@ static void loadLast(void) { // call after loading root directory
 
 	while (last->count>0) {
 		char* path = Array_pop(last);
-		if (!exactMatch(path, ROMS_PATH)) { // romsDir is effectively root as far as restoring state after a game
-			char collated_path[256];
-			collated_path[0] = '\0';
-			if (suffixMatch(")", path) && isConsoleDir(path)) {
-				strcpy(collated_path, path);
-				tmp = strrchr(collated_path, '(');
-				if (tmp) tmp[1] = '\0'; // 1 because we want to keep the opening parenthesis to avoid collating "Game Boy Color" and "Game Boy Advance" into "Game Boy"
-			}
-
+		{
 			for (int i=0; i<top->entries->count; i++) {
 				Entry* entry = top->entries->items[i];
 
-				// NOTE: strlen() is required for collated_path, '\0' wasn't reading as NULL for some reason
-				if (exactMatch(entry->path, path) || (strlen(collated_path) && prefixMatch(collated_path, entry->path)) || (prefixMatch(COLLECTIONS_PATH, full_path) && suffixMatch(filename, entry->path))) {
+				if (exactMatch(entry->path, path) || (prefixMatch(COLLECTIONS_PATH, full_path) && suffixMatch(filename, entry->path))) {
 					top->selected = i;
 					if (i>=top->end) {
 						top->start = i;
@@ -1887,7 +1356,7 @@ static void loadLast(void) { // call after loading root directory
 					if (last->count==0 && !exactMatch(entry->path, FAUX_RECENT_PATH) && !(!exactMatch(entry->path, COLLECTIONS_PATH) && prefixMatch(COLLECTIONS_PATH, entry->path))) break; // don't show contents of auto-launch dirs
 
 					if (entry->type==ENTRY_DIR) {
-						openDirectory(entry->path, 0);
+						openDirectory(entry->path);
 						break;
 					}
 				}
@@ -1919,7 +1388,7 @@ static void Menu_init(void) {
 	stack = Array_new(); // array of open Directories
 	recents = Array_new();
 
-	openDirectory(SDCARD_PATH, 0);
+	openDirectory(SDCARD_PATH);
 	loadLast(); // restore state when available
 
 	QuickMenu_init(); // needs Menu_init
@@ -2511,8 +1980,6 @@ int main (int argc, char *argv[]) {
 	// unsigned long main_begin = SDL_GetTicks();
 	// unsigned long first_draw = 0;
 
-	if (autoResume()) return 0; // nothing to do
-
 	simple_mode = exists(SIMPLE_MODE_PATH);
 
 	LOG_info("NextUI\n");
@@ -2733,7 +2200,6 @@ int main (int argc, char *argv[]) {
 				startgame = 1;
 				Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
 				readyEntryResume(selectedEntry);
-				should_resume = (selectedEntry->type!=ENTRY_PAK && can_resume);
 				should_resume_pak = (selectedEntry->type==ENTRY_PAK && pak_can_resume);
 				Entry_open(selectedEntry);
 				dirty = 1;
@@ -2883,11 +2349,9 @@ int main (int argc, char *argv[]) {
 				readyEntryResume(entry);
 
 			if (total>0
-			    && ((entry->type==ENTRY_PAK && pak_can_resume)
-			        || (entry->type!=ENTRY_PAK && can_resume))
+			    && entry->type==ENTRY_PAK && pak_can_resume
 			    && PAD_justReleased(BTN_RESUME)) {
-				if (entry->type==ENTRY_PAK) should_resume_pak = 1;
-				else should_resume = 1;
+				should_resume_pak = 1;
 				Entry_open(entry);
 
 				dirty = 1;
@@ -3152,88 +2616,8 @@ int main (int argc, char *argv[]) {
 
 					GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"),  NULL }, 0, screen, 0);
 
-					if(can_resume || pak_can_resume) GFX_blitButtonGroup((char*[]){ "Y", (char*)TR("REMOVE"), "A",(char*)TR("RESUME"), NULL }, 1, screen, 1);
+					if(pak_can_resume) GFX_blitButtonGroup((char*[]){ "Y", (char*)TR("REMOVE"), "A",(char*)TR("RESUME"), NULL }, 1, screen, 1);
 					else GFX_blitButtonGroup((char*[]){ "A",(char*)TR("OPEN"), NULL }, 1, screen, 1);
-
-					if(has_preview) {
-						// lotta memory churn here
-
-						SDL_Surface* bmp = IMG_Load(preview_path);
-						SDL_Surface* raw_preview = SDL_ConvertSurfaceFormat(bmp, screen->format->format, 0);
-						if (raw_preview) {
-							SDL_FreeSurface(bmp);
-							bmp = raw_preview;
-						}
-						if(bmp) {
-							int aw = screen->w;
-							int ah = screen->h;
-							int ax = 0;
-							int ay = 0;
-
-							float aspectRatio = (float)bmp->w / (float)bmp->h;
-							float screenRatio = (float)screen->w / (float)screen->h;
-
-							if (screenRatio > aspectRatio) {
-								aw = (int)(screen->h * aspectRatio);
-								ah = screen->h;
-							} else {
-								aw = screen->w;
-								ah = (int)(screen->w / aspectRatio);
-							}
-							ax = (screen->w - aw) / 2;
-							ay = (screen->h - ah) / 2;
-
-							if(lastScreen == SCREEN_GAME) {
-								// need to flip once so streaming_texture1 is updated
-								GFX_flipHidden();
-								GFX_animateSurfaceOpacity(bmp,0,0,screen->w,screen->h,0,255,CFG_getMenuTransitions() ? 150:20,LAYER_ALL);
-							} else if(lastScreen == SCREEN_GAMELIST) {
-
-								GFX_drawOnLayer(blackBG,0,0,screen->w,screen->h,1.0f,0,LAYER_BACKGROUND);
-								GFX_drawOnLayer(bmp,ax,ay,aw, ah,1.0f,0,LAYER_BACKGROUND);
-								GFX_flipHidden();
-								SDL_Surface *tmpNewScreen = GFX_captureRendererToSurface();
-								GFX_clearLayers(LAYER_ALL);
-								folderbgchanged=1;
-								GFX_drawOnLayer(tmpOldScreen,0,0,screen->w, screen->h,1.0f,0,LAYER_ALL);
-								GFX_animateSurface(tmpNewScreen,0,0-screen->h,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 100:20,255,255,LAYER_BACKGROUND);
-								SDL_FreeSurface(tmpNewScreen);
-
-							} else if(lastScreen == SCREEN_GAMESWITCHER) {
-								GFX_flipHidden();
-								GFX_drawOnLayer(blackBG,0,0,screen->w, screen->h,1.0f,0,LAYER_BACKGROUND);
-								if(gsanimdir == SLIDE_LEFT)
-									GFX_animateSurface(bmp,ax+screen->w,ay,ax,ay,aw,ah,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
-								else if(gsanimdir == SLIDE_RIGHT)
-									GFX_animateSurface(bmp,ax-screen->w,ay,ax,ay,aw,ah,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
-
-								GFX_drawOnLayer(bmp,ax,ay,aw,ah,1.0f,0,LAYER_BACKGROUND);
-							} else if(lastScreen == SCREEN_QUICKMENU) {
-								GFX_flipHidden();
-								GFX_drawOnLayer(blackBG,0,0,screen->w, screen->h,1.0f,0,LAYER_BACKGROUND);
-								GFX_drawOnLayer(bmp,ax,ay,aw,ah,1.0f,0,LAYER_BACKGROUND);
-							}
-							SDL_FreeSurface(bmp);  // Free after rendering
-						}
-					}
-					else {
-						SDL_Rect preview_rect = {ox,oy,screen->w,screen->h};
-						SDL_Surface * tmpsur = SDL_CreateRGBSurfaceWithFormat(0,screen->w,screen->h,screen->format->BitsPerPixel,screen->format->format);
-						SDL_FillRect(tmpsur, &preview_rect, THEME_COLOR7);
-						if(lastScreen == SCREEN_GAME) {
-							GFX_animateSurfaceOpacity(tmpsur,0,0,screen->w,screen->h,255,0,CFG_getMenuTransitions() ? 150:20,LAYER_BACKGROUND);
-						} else if(lastScreen == SCREEN_GAMELIST) {
-							GFX_animateSurface(tmpsur,0,0-screen->h,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 100:20,255,255,LAYER_ALL);
-						} else if(lastScreen == SCREEN_GAMESWITCHER) {
-							GFX_flipHidden();
-							if(gsanimdir == SLIDE_LEFT)
-								GFX_animateSurface(tmpsur,0+screen->w,0,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
-							else if(gsanimdir == SLIDE_RIGHT)
-								GFX_animateSurface(tmpsur,0-screen->w,0,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
-						}
-						SDL_FreeSurface(tmpsur);
-						GFX_blitMessage(font.large, (char*)TR("No Preview"), screen, &preview_rect);
-					}
 					Entry_free(selectedEntry);
 				}
 				else {
@@ -3282,16 +2666,13 @@ int main (int argc, char *argv[]) {
 				char defaultBgPath[512];
 				snprintf(defaultBgPath, sizeof(defaultBgPath), SDCARD_PATH "/bg.png");
 
-				if(((entry->type == ENTRY_DIR || entry->type == ENTRY_ROM) && CFG_getRomsUseFolderBackground())) {
-					char *newBg = entry->type == ENTRY_DIR ? entry->path:rompath;
+				if(entry->type == ENTRY_DIR && CFG_getRomsUseFolderBackground()) {
+					char *newBg = entry->path;
 					if((strcmp(newBg, folderBgPath) != 0 || lastType != entry->type) && sizeof(folderBgPath) != 1) {
 						lastType = entry->type;
 						char tmppath[512];
 						strncpy(folderBgPath, newBg, sizeof(folderBgPath) - 1);
-						if (entry->type == ENTRY_DIR)
-							snprintf(tmppath, sizeof(tmppath), "%s/.media/bg.png", folderBgPath);
-						else if (entry->type == ENTRY_ROM)
-							snprintf(tmppath, sizeof(tmppath), "%s/.media/bglist.png", folderBgPath);
+						snprintf(tmppath, sizeof(tmppath), "%s/.media/bg.png", folderBgPath);
 						if(!exists(tmppath)) {
 							// Safeguard: If no background is available, still render the text to leave the user a way out
 							list_show_entry_names = true;
@@ -3330,7 +2711,7 @@ int main (int argc, char *argv[]) {
 
 				// buttons
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
-				else if (can_resume || pak_can_resume) GFX_blitButtonGroup((char*[]){ "X",(char*)TR("RESUME"),  NULL }, 0, screen, 0);
+				else if (pak_can_resume) GFX_blitButtonGroup((char*[]){ "X",(char*)TR("RESUME"),  NULL }, 0, screen, 0);
 				else GFX_blitButtonGroup((char*[]){
 					BTN_SLEEP==BTN_POWER?"POWER":"MENU",
 					BTN_SLEEP==BTN_POWER||simple_mode?(char*)TR("SLEEP"):(char*)TR("INFO"),

@@ -26,8 +26,6 @@ void cleanName(char *name_out, const char *file_name);
 bool pathRelativeTo(char *path_out, const char *dir_from, const char *file_to);
 
 void getDisplayName(const char* in_name, char* out_name);
-void getEmuName(const char* in_name, char* out_name);
-void getEmuPath(char* emu_name, char* pak_path);
 
 void normalizeNewline(char* line);
 void trimTrailingNewlines(char* line);

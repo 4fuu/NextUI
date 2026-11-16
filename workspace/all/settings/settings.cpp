@@ -6,8 +6,6 @@ extern "C"
 #include "api.h"
 #include "utils.h"
 #include "displaycal.h"
-#include "ra_auth.h"
-#include "ra_sync.h"
 #include "i18n.h"
 }
 
@@ -174,34 +172,6 @@ static const std::vector<std::string> curtain_opacity_labels = {"Off", "10%", "2
 // Input prompt style options
 static const std::vector<std::any>    input_prompt_style_values = {(int)INPUT_STYLE_TEXT, (int)INPUT_STYLE_ABXY, (int)INPUT_STYLE_CARDINALS, (int)INPUT_STYLE_SHAPES};
 static const std::vector<std::string> input_prompt_style_labels = {"Text", "ABXY", "Cardinals", "Shapes"};
-
-// RetroAchievements sort order options
-static const std::vector<std::any> ra_sort_values = {
-    (int)RA_SORT_UNLOCKED_FIRST,
-    (int)RA_SORT_DISPLAY_ORDER_FIRST,
-    (int)RA_SORT_DISPLAY_ORDER_LAST,
-    (int)RA_SORT_WON_BY_MOST,
-    (int)RA_SORT_WON_BY_LEAST,
-    (int)RA_SORT_POINTS_MOST,
-    (int)RA_SORT_POINTS_LEAST,
-    (int)RA_SORT_TITLE_AZ,
-    (int)RA_SORT_TITLE_ZA,
-    (int)RA_SORT_TYPE_ASC,
-    (int)RA_SORT_TYPE_DESC
-};
-static const std::vector<std::string> ra_sort_labels = {
-    "Unlocked First",
-    "Display Order (First)",
-    "Display Order (Last)",
-    "Won By (Most)",
-    "Won By (Least)",
-    "Points (Most)",
-    "Points (Least)",
-    "Title (A-Z)",
-    "Title (Z-A)",
-    "Type (Asc)",
-    "Type (Desc)"
-};
 
 namespace {
     struct ColorDef { int id; const char *name; const char *desc; uint32_t defaultColor; };
@@ -704,22 +674,6 @@ int main(int argc, char *argv[])
             { return std::string(TIME_getCurrentTimezone()); }, [](const std::any &value)
             { TIME_setCurrentTimezone(std::any_cast<std::string>(value).c_str()); },
             []() { TIME_setCurrentTimezone("Asia/Shanghai");}}, // default from Stock
-            new MenuItem{ListItemType::Generic, TR("Save format"), TR("The save format to use.\nMinUI: Game.gba.sav, Retroarch: Game.srm, Generic: Game.sav"),
-            {(int)SAVE_FORMAT_SAV, (int)SAVE_FORMAT_SRM, (int)SAVE_FORMAT_SRM_UNCOMPRESSED, (int)SAVE_FORMAT_GEN},
-            {TR("MinUI (default)"), TR("Retroarch (compressed)"), TR("Retroarch (uncompressed)"), TR("Generic")}, []() -> std::any
-            { return CFG_getSaveFormat(); }, [](const std::any &value)
-            { CFG_setSaveFormat(std::any_cast<int>(value)); },
-            []() { CFG_setSaveFormat(CFG_DEFAULT_SAVEFORMAT);}},
-            new MenuItem{ListItemType::Generic, TR("Save state format"), TR("The save state format to use. MinUI: Game.st0, \nRetroarch-ish: Game.state.0, Retroarch: Game.state0"),
-            {(int)STATE_FORMAT_SAV, (int)STATE_FORMAT_SRM_EXTRADOT, (int)STATE_FORMAT_SRM_UNCOMRESSED_EXTRADOT, (int)STATE_FORMAT_SRM, (int)STATE_FORMAT_SRM_UNCOMRESSED},
-            {TR("MinUI (default)"), TR("Retroarch-ish (compressed)"), TR("Retroarch-ish (uncompressed)"), TR("Retroarch (compressed)"), TR("Retroarch (uncompressed)")}, []() -> std::any
-            { return CFG_getStateFormat(); }, [](const std::any &value)
-            { CFG_setStateFormat(std::any_cast<int>(value)); },
-            []() { CFG_setStateFormat(CFG_DEFAULT_STATEFORMAT);}},
-            new MenuItem{ListItemType::Generic, TR("Use extracted file name"), TR("Use the extracted file name instead of the archive name.\nOnly applies to cores that do not handle archives natively"), {false, true}, on_off,
-            []() -> std::any{ return CFG_getUseExtractedFileName(); },
-            [](const std::any &value){ CFG_setUseExtractedFileName(std::any_cast<bool>(value)); },
-            []() { CFG_setUseExtractedFileName(CFG_DEFAULT_EXTRACTEDFILENAME);}}
         };
 
         if(deviceInfo.getPlatform() == DeviceInfo::tg5040)
@@ -875,252 +829,6 @@ int main(int argc, char *argv[])
         }
         muteItems.push_back(new MenuItem{ListItemType::Button, TR("Reset to defaults"), TR("Resets all options in this menu to their default values."), ResetCurrentMenu});
 
-        auto notificationsMenu = new MenuList(MenuItemType::Fixed, "Notifications",
-        {
-            new MenuItem{ListItemType::Generic, "Save states", "Show notification when saving game state", {false, true}, on_off,
-            []() -> std::any { return CFG_getNotifyManualSave(); },
-            [](const std::any &value) { CFG_setNotifyManualSave(std::any_cast<bool>(value)); },
-            []() { CFG_setNotifyManualSave(CFG_DEFAULT_NOTIFY_MANUAL_SAVE);}},
-            new MenuItem{ListItemType::Generic, "Load states", "Show notification when loading game state", {false, true}, on_off,
-            []() -> std::any { return CFG_getNotifyLoad(); },
-            [](const std::any &value) { CFG_setNotifyLoad(std::any_cast<bool>(value)); },
-            []() { CFG_setNotifyLoad(CFG_DEFAULT_NOTIFY_LOAD);}},
-            new MenuItem{ListItemType::Generic, "Screenshots", "Show notification when taking a screenshot", {false, true}, on_off,
-            []() -> std::any { return CFG_getNotifyScreenshot(); },
-            [](const std::any &value) { CFG_setNotifyScreenshot(std::any_cast<bool>(value)); },
-            []() { CFG_setNotifyScreenshot(CFG_DEFAULT_NOTIFY_SCREENSHOT);}},
-            new MenuItem{ListItemType::Generic, "Vol / Display Adjustments", "Show overlay for volume, brightness,\nand color temp adjustments", {false, true}, on_off,
-            []() -> std::any { return CFG_getNotifyAdjustments(); },
-            [](const std::any &value) { CFG_setNotifyAdjustments(std::any_cast<bool>(value)); },
-            []() { CFG_setNotifyAdjustments(CFG_DEFAULT_NOTIFY_ADJUSTMENTS);}},
-            new MenuItem{ListItemType::Generic, "Duration", "How long notifications stay on screen", notify_duration_values, notify_duration_labels,
-            []() -> std::any { return CFG_getNotifyDuration(); },
-            [](const std::any &value) { CFG_setNotifyDuration(std::any_cast<int>(value)); },
-            []() { CFG_setNotifyDuration(CFG_DEFAULT_NOTIFY_DURATION);}},
-            new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu},
-        });
-
-        // RetroAchievements keyboard prompts
-        auto raUsernamePrompt = new KeyboardPrompt("Enter Username", [](AbstractMenuItem &item) -> InputReactionHint {
-            CFG_setRAUsername(item.getName().c_str());
-            return Exit;
-        });
-
-        auto raPasswordPrompt = new KeyboardPrompt("Enter Password", [](AbstractMenuItem &item) -> InputReactionHint {
-            CFG_setRAPassword(item.getName().c_str());
-            return Exit;
-        });
-
-        auto retroAchievementsMenu = new MenuList(MenuItemType::Fixed, "RetroAchievements",
-        {
-            new MenuItem{ListItemType::Generic, "Enable Achievements", "Enable RetroAchievements integration", {false, true}, on_off,
-            []() -> std::any { return CFG_getRAEnable(); },
-            [](const std::any &value) { CFG_setRAEnable(std::any_cast<bool>(value)); },
-            []() { CFG_setRAEnable(CFG_DEFAULT_RA_ENABLE);}},
-            new TextInputMenuItem{"Username", "RetroAchievements username",
-            []() -> std::any {
-                std::string username = CFG_getRAUsername();
-                return username.empty() ? std::string("(not set)") : username;
-            },
-            [raUsernamePrompt](AbstractMenuItem &item) -> InputReactionHint {
-                raUsernamePrompt->setInitialText(CFG_getRAUsername());
-                item.defer(true);
-                return NoOp;
-            }, raUsernamePrompt},
-            new TextInputMenuItem{"Password", "RetroAchievements password",
-            []() -> std::any {
-                std::string password = CFG_getRAPassword();
-                return password.empty() ? std::string("(not set)") : std::string("********");
-            },
-            [raPasswordPrompt](AbstractMenuItem &item) -> InputReactionHint {
-                raPasswordPrompt->setInitialText(CFG_getRAPassword());
-                item.defer(true);
-                return NoOp;
-            }, raPasswordPrompt},
-            new MenuItem{ListItemType::Button, "Authenticate", "Test credentials and retrieve API token",
-            [](AbstractMenuItem &item) -> InputReactionHint {
-                const char* username = CFG_getRAUsername();
-                const char* password = CFG_getRAPassword();
-
-                if (!username || strlen(username) == 0 || !password || strlen(password) == 0) {
-                    item.setDesc("Error: Username and password required");
-                    return NoOp;
-                }
-
-                item.setDesc("Authenticating...");
-
-                RA_AuthResponse response;
-                RA_AuthResult result = RA_authenticateSync(username, password, &response);
-
-                if (result == RA_AUTH_SUCCESS) {
-                    CFG_setRAToken(response.token);
-                    CFG_setRAAuthenticated(true);
-                    std::string desc = "Authenticated as " + std::string(response.display_name);
-                    item.setDesc(desc);
-                } else {
-                    CFG_setRAToken("");
-                    CFG_setRAAuthenticated(false);
-                    std::string desc = "Error: " + std::string(response.error_message);
-                    item.setDesc(desc);
-                }
-                return NoOp;
-            }},
-            new StaticMenuItem{ListItemType::Generic, "Status", "Authentication status",
-            []() -> std::any {
-                if (CFG_getRAAuthenticated() && strlen(CFG_getRAToken()) > 0) {
-                    return std::string("Authenticated");
-                }
-                return std::string("Not authenticated");
-            }},
-            // TODO: Hardcore mode hidden until feature is fully implemented and ready for the emulator approval process done by the RetroAchievements team
-            // new MenuItem{ListItemType::Generic, "Hardcore Mode", "Disable save states and cheats for achievements", {false, true}, on_off,
-            // []() -> std::any { return CFG_getRAHardcoreMode(); },
-            // [](const std::any &value) { CFG_setRAHardcoreMode(std::any_cast<bool>(value)); },
-            // []() { CFG_setRAHardcoreMode(CFG_DEFAULT_RA_HARDCOREMODE);}},
-            new MenuItem{ListItemType::Generic, "Show Notifications", "Show achievement unlock notifications", {false, true}, on_off,
-            []() -> std::any { return CFG_getRAShowNotifications(); },
-            [](const std::any &value) { CFG_setRAShowNotifications(std::any_cast<bool>(value)); },
-            []() { CFG_setRAShowNotifications(CFG_DEFAULT_RA_SHOW_NOTIFICATIONS);}},
-            new MenuItem{ListItemType::Generic, "Show Challenge Indicators", "Show a trophy indicator while a challenge achievement is active", {false, true}, on_off,
-            []() -> std::any { return CFG_getRAShowChallengeIndicators(); },
-            [](const std::any &value) { CFG_setRAShowChallengeIndicators(std::any_cast<bool>(value)); },
-            []() { CFG_setRAShowChallengeIndicators(CFG_DEFAULT_RA_SHOW_CHALLENGE_INDICATORS);}},
-            new MenuItem{ListItemType::Generic, "Notification Duration", "How long achievement notifications stay on screen", notify_duration_values, notify_duration_labels,
-            []() -> std::any { return CFG_getRANotificationDuration(); },
-            [](const std::any &value) { CFG_setRANotificationDuration(std::any_cast<int>(value)); },
-            []() { CFG_setRANotificationDuration(CFG_DEFAULT_RA_NOTIFICATION_DURATION);}},
-            new MenuItem{ListItemType::Generic, "Progress Duration", "Duration for progress updates (top-left). Off to disable.", progress_duration_values, progress_duration_labels,
-            []() -> std::any { return CFG_getRAProgressNotificationDuration(); },
-            [](const std::any &value) { CFG_setRAProgressNotificationDuration(std::any_cast<int>(value)); },
-            []() { CFG_setRAProgressNotificationDuration(CFG_DEFAULT_RA_PROGRESS_NOTIFICATION_DURATION);}},
-            new MenuItem{ListItemType::Generic, "Achievement Sort Order", "How achievements are sorted in the in-game menu", ra_sort_values, ra_sort_labels,
-            []() -> std::any { return CFG_getRAAchievementSortOrder(); },
-            [](const std::any &value) { CFG_setRAAchievementSortOrder(std::any_cast<int>(value)); },
-            []() { CFG_setRAAchievementSortOrder(CFG_DEFAULT_RA_ACHIEVEMENT_SORT_ORDER);}},
-            new MenuItem{ListItemType::Button, "Sync Offline Unlocks",
-            []() -> std::string {
-                uint32_t count = 0;
-                RA_Sync_hasPendingUnlocks(&count);
-                if (count > 0) {
-                    char buf[64];
-                    snprintf(buf, sizeof(buf), "%u pending \u2014 send to RA server", count);
-                    return std::string(buf);
-                }
-                return std::string("No pending unlocks");
-            }(),
-            [](AbstractMenuItem &item) -> InputReactionHint {
-                // Check authentication
-                if (!CFG_getRAAuthenticated() || strlen(CFG_getRAToken()) == 0) {
-                    item.setDesc("Not authenticated");
-                    return NoOp;
-                }
-
-                // Check for pending unlocks
-                uint32_t pending = 0;
-                if (!RA_Sync_hasPendingUnlocks(&pending) || pending == 0) {
-                    item.setDesc("No pending unlocks");
-                    return NoOp;
-                }
-
-                // Show initial overlay with cancel hint
-                char msg[128];
-                snprintf(msg, sizeof(msg), "Syncing %u achievement%s...\n\n(0/%u)",
-                         pending, pending == 1 ? "" : "s", pending);
-                MenuList::showOverlay(msg, OverlayDismissMode::None);
-
-                // Shared state between sync thread and main thread
-                SDL_atomic_t cancel;
-                SDL_AtomicSet(&cancel, 0);
-                std::atomic<bool> done{false};
-                std::mutex progress_mutex;
-                std::string progress_msg;
-                std::atomic<bool> progress_dirty{false};
-                RA_SyncResult sync_result = {0, 0, 0, 0};
-
-                // Progress callback updates shared message string
-                struct ProgressCtx {
-                    std::mutex* mutex;
-                    std::atomic<bool>* dirty;
-                    std::string* msg;
-                    uint32_t total;
-                };
-                ProgressCtx pctx = {&progress_mutex, &progress_dirty, &progress_msg, pending};
-
-                // Launch sync on background thread (game_id=0 for all games, NULL config for interactive defaults)
-                std::thread sync_thread([&]() {
-                    sync_result = RA_Sync_syncAll(0, NULL, &cancel,
-                        [](uint32_t current, uint32_t total, bool success, void* userdata) {
-                            auto* ctx = static_cast<ProgressCtx*>(userdata);
-                            char buf[128];
-                            snprintf(buf, sizeof(buf), "Syncing achievements...\n\n(%u/%u)",
-                                     current, ctx->total);
-                            {
-                                std::lock_guard<std::mutex> lock(*ctx->mutex);
-                                *ctx->msg = buf;
-                            }
-                            ctx->dirty->store(true);
-                        }, &pctx);
-                    done.store(true);
-                });
-
-                // Main thread: poll for B-button cancel and update overlay
-                while (!done.load()) {
-                    GFX_startFrame();
-                    PAD_poll();
-
-                    if (PAD_justPressed(BTN_B)) {
-                        SDL_AtomicSet(&cancel, 1);
-                        MenuList::showOverlay("Cancelling sync...", OverlayDismissMode::None);
-                    }
-
-                    // Update overlay if progress changed
-                    if (progress_dirty.exchange(false)) {
-                        std::string current_msg;
-                        {
-                            std::lock_guard<std::mutex> lock(progress_mutex);
-                            current_msg = progress_msg;
-                        }
-                        if (!SDL_AtomicGet(&cancel)) {
-                            MenuList::showOverlay(current_msg, OverlayDismissMode::None);
-                        }
-                    }
-
-                    GFX_sync();
-                }
-
-                sync_thread.join();
-                MenuList::hideOverlay();
-
-                // Update button description with result
-                if (SDL_AtomicGet(&cancel) && sync_result.synced == 0) {
-                    item.setDesc("Sync cancelled");
-                } else if (SDL_AtomicGet(&cancel) && sync_result.synced > 0) {
-                    snprintf(msg, sizeof(msg), "Cancelled: %u of %u synced",
-                             sync_result.synced, sync_result.total);
-                    item.setDesc(msg);
-                } else if (sync_result.failed > 0) {
-                    snprintf(msg, sizeof(msg), "Incomplete: %u synced, retry later",
-                             sync_result.synced);
-                    item.setDesc(msg);
-                } else if (sync_result.synced > 0) {
-                    snprintf(msg, sizeof(msg), "Synced %u achievement%s",
-                             sync_result.synced, sync_result.synced == 1 ? "" : "s");
-                    item.setDesc(msg);
-                } else {
-                    item.setDesc("No pending unlocks");
-                }
-
-                return NoOp;
-            }},
-            new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu},
-        });
-
-        auto minarchMenu = new MenuList(MenuItemType::List, "In-Game",
-        {
-            new MenuItem{ListItemType::Generic, "Notifications", "Save state notifications", {}, {}, nullptr, nullptr, DeferToSubmenu, notificationsMenu},
-            new MenuItem{ListItemType::Generic, "RetroAchievements", "Achievement tracking settings", {}, {}, nullptr, nullptr, DeferToSubmenu, retroAchievementsMenu},
-        });
-
         // We need to alert the user about potential issues if the
         // stock OS was modified in way that are known to cause issues
         std::string bbver = extractBusyBoxVersion(execCommand("cat --help"));
@@ -1172,8 +880,6 @@ int main(int argc, char *argv[])
 
         if(buttonMenu)
             mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Assignments"), TR("Customize button assignments"), {}, {}, nullptr, nullptr, DeferToSubmenu, buttonMenu});
-
-        mainItems.push_back(new MenuItem{ListItemType::Generic, TR("In-Game"), TR("In-game settings for MinArch"), {}, {}, nullptr, nullptr, DeferToSubmenu, minarchMenu});
 
         if(deviceInfo.hasWifi())
             mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Network"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, new Wifi::Menu(appQuit, ctx.dirty)});

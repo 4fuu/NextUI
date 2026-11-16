@@ -18,7 +18,6 @@ export ROMS_PATH="$SDCARD_PATH/Roms"
 export SAVES_PATH="$SDCARD_PATH/Saves"
 export CHEATS_PATH="$SDCARD_PATH/Cheats"
 export SYSTEM_PATH="$SDCARD_PATH/.system/$PLATFORM"
-export CORES_PATH="$SYSTEM_PATH/cores"
 export USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM"
 export SHARED_USERDATA_PATH="$SDCARD_PATH/.userdata/shared"
 export LOGS_PATH="$USERDATA_PATH/logs"
@@ -104,9 +103,9 @@ sh "$SYSTEM_PATH/bin/governor.sh" "auto"
 
 echo performance > /sys/devices/platform/soc@3000000/1800000.gpu/devfreq/1800000.gpu/governor
 
-# Very little libretro cores profit from multithreading, even stock OS is 
-# only very seldomly using more than 1+2 cores. Use as a baseline, the 
-# higher-end cores can just enable more cores themselves if needed.
+# Very little profit from multithreading, even stock OS is only very
+# seldomly using more than 1+2 cores. Use as a baseline, the
+# higher-end binaries can just enable more cores themselves if needed.
 
 # little Cortex-A55 CPU0 - 408Mhz to 1416Mhz
 echo 1 > /sys/devices/system/cpu/cpu0/online

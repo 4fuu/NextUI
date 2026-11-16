@@ -60,27 +60,14 @@ name:
 
 build:
 	# ----------------------------------------------------
-	make build -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=$(COMPILE_CORES)
+	make build -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM)
 	# ----------------------------------------------------
-
-build-cores:
-	make build-cores -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true
-	# ----------------------------------------------------
-
-cores-json:
-	@cat workspace/$(PLATFORM)/cores/makefile | grep ^CORES | cut -d' ' -f2 | jq  --raw-input .  | jq --slurp -cM .
-
-build-core:
-ifndef CORE
-	$(error CORE is not set)
-endif
-	make build-core -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true CORE=$(CORE)
 
 system:
 ifeq ($(PLATFORM), desktop)
 	# A host header can already be installed while the local .so is missing, so
 	# the per-binary header prerequisites alone do not guarantee this file exists.
-	make -f $(TOOLCHAIN_FILE) libmsettings PLATFORM=$(PLATFORM) COMPILE_CORES=
+	make -f $(TOOLCHAIN_FILE) libmsettings PLATFORM=$(PLATFORM)
 endif
 	make -f ./workspace/$(PLATFORM)/platform/makefile.copy PLATFORM=$(PLATFORM)
 	
@@ -103,7 +90,6 @@ ifneq ($(PLATFORM), desktop)
 endif
 	cp ./workspace/$(PLATFORM)/libmsettings/libmsettings.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/nextui/build/$(PLATFORM)/nextui.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/minarch/build/$(PLATFORM)/minarch.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/nextval/build/$(PLATFORM)/nextval.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/nextstate/build/$(PLATFORM)/nextstate.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/devserv/build/$(PLATFORM)/devserv.elf ./build/SYSTEM/$(PLATFORM)/bin/
@@ -126,74 +112,11 @@ endif
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
 	cp ./workspace/all/bootlogo/build/$(PLATFORM)/bootlogo.elf ./build/EXTRAS/Tools/$(PLATFORM)/Bootlogo.pak/
 endif
-ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700 my355))
-	# Audio resampling
-	cp ./workspace/all/minarch/build/$(PLATFORM)/libsamplerate.* ./build/SYSTEM/$(PLATFORM)/lib/
-
-	# ROM decompression and SRM support
-	cp ./workspace/all/minarch/build/$(PLATFORM)/libzip.* ./build/SYSTEM/$(PLATFORM)/lib/
-	cp ./workspace/all/minarch/build/$(PLATFORM)/libbz2.* ./build/SYSTEM/$(PLATFORM)/lib/
-	cp ./workspace/all/minarch/build/$(PLATFORM)/liblzma.* ./build/SYSTEM/$(PLATFORM)/lib/
-	cp ./workspace/all/minarch/build/$(PLATFORM)/libzstd.* ./build/SYSTEM/$(PLATFORM)/lib/
-
-	# libchdr and libcrypto for RetroAchievements
-	cp ./workspace/all/minarch/build/$(PLATFORM)/libchdr.so.* ./build/SYSTEM/$(PLATFORM)/lib/
-	cp ./workspace/all/minarch/build/$(PLATFORM)/libcrypto.so.* ./build/SYSTEM/$(PLATFORM)/lib/
-
-ifneq (,$(filter $(PLATFORM),tg5040 h700))
-	# liblz4 for Rewind support
-	cp -L ./workspace/all/minarch/build/$(PLATFORM)/liblz4.so.1 ./build/SYSTEM/$(PLATFORM)/lib/
-endif
-endif
-
-ifeq ($(PLATFORM), desktop)
-cores:
-	# stock cores
-	#cp ./workspace/$(PLATFORM)/cores/output/gambatte_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	#cp ./workspace/$(PLATFORM)/cores/output/gpsp_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	#cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/MGBA.pak
-else
-cores: # TODO: can't assume every platform will have the same stock cores (platform should be responsible for copy too)
-	# stock cores
-	cp ./workspace/$(PLATFORM)/cores/output/fceumm_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/$(PLATFORM)/cores/output/gambatte_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/$(PLATFORM)/cores/output/gpsp_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/$(PLATFORM)/cores/output/picodrive_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/$(PLATFORM)/cores/output/snes9x_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/$(PLATFORM)/cores/output/pcsx_rearmed_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	
-	# extras
-	cp ./workspace/$(PLATFORM)/cores/output/a5200_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A5200.pak
-	cp ./workspace/$(PLATFORM)/cores/output/prosystem_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A7800.pak
-	cp ./workspace/$(PLATFORM)/cores/output/stella2014_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A2600.pak
-	cp ./workspace/$(PLATFORM)/cores/output/handy_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/LYNX.pak
-	cp ./workspace/$(PLATFORM)/cores/output/fake08_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/P8.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/MGBA.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/SGB.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mednafen_pce_fast_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PCE.pak
-	cp ./workspace/$(PLATFORM)/cores/output/pokemini_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PKM.pak
-	cp ./workspace/$(PLATFORM)/cores/output/race_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/NGP.pak
-	cp ./workspace/$(PLATFORM)/cores/output/race_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/NGPC.pak
-	cp ./workspace/$(PLATFORM)/cores/output/fbneo_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/FBN.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mednafen_supafaust_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/SUPA.pak
-	cp ./workspace/$(PLATFORM)/cores/output/mednafen_vb_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/VB.pak
-	cp ./workspace/$(PLATFORM)/cores/output/cap32_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/CPC.pak
-	cp ./workspace/$(PLATFORM)/cores/output/puae2021_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PUAE.pak
-	cp ./workspace/$(PLATFORM)/cores/output/prboom_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PRBOOM.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_x64_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/C64.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_x128_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/C128.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_xplus4_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PLUS4.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_xpet_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PET.pak
-	cp ./workspace/$(PLATFORM)/cores/output/vice_xvic_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/VIC.pak
-	cp ./workspace/$(PLATFORM)/cores/output/bluemsx_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/MSX.pak
-	cp ./workspace/$(PLATFORM)/cores/output/gearcoleco_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/COLECO.pak
-endif
-
-common: build system cores
+common: build system
 	
 clean:
 	rm -rf ./build
-	make clean -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=$(COMPILE_CORES)
+	make clean -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM)
 
 setup: name
 	# ----------------------------------------------------
@@ -281,7 +204,7 @@ package: tidy
 	# TODO: can I just add everything in BASE to zip?
 	# cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves miyoo miyoo354 trimui rg35xx rg35xxplus gkdpixel miyoo355 magicx em_ui.sh MinUI.zip README.txt
 	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves Shaders Overlays trimui h700 em_ui.sh MinUI.zip *.pakz README.txt
-	cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-extras.zip Bios Emus Roms Saves Shaders Overlays Tools README.txt
+	cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-extras.zip Bios Roms Saves Overlays Tools README.txt
 	echo "$(RELEASE_VERSION)" > ./build/latest.txt
 
 	# compound zip (brew install libzip needed) 
