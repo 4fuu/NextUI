@@ -30,6 +30,7 @@ common_flags=(-std=gnu99 -Wall -Wextra -Werror -pedantic -D_FILE_OFFSET_BITS=64
     ../update_manifest.c \
     ../update_signature.c \
     ../update_transaction.c \
+    ../update_app.c \
     ../update_util.c \
     ../update_zip.c \
     ../../common/json_lite.c \
@@ -40,6 +41,11 @@ common_flags=(-std=gnu99 -Wall -Wextra -Werror -pedantic -D_FILE_OFFSET_BITS=64
 ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \
 UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
     python3 test_updater.py "$build_dir/nextupd" "$(pwd)/fixtures" "$build_dir/work" \
+        "$(cd .. && pwd)/scripts/sign-manifest.sh"
+
+ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \
+UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
+    python3 test_app_install.py "$build_dir/nextupd" "$(pwd)/fixtures" "$build_dir/app-work" \
         "$(cd .. && pwd)/scripts/sign-manifest.sh"
 
 ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \

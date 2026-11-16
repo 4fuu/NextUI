@@ -2,9 +2,10 @@
 
 `nextupd` verifies `nextui-update-v1` manifests, checks a `nextui-feed-v1`
 update feed, downloads into signature-verified staging, and applies a staged
-system package to an explicit offline target root with a resumable transaction.
-It never guesses a target root, never writes the environment it is running in,
-and does not install or activate an update by itself. The install boot scripts
+system or application package to an explicit offline target root with a
+resumable transaction. It never guesses a target root, never writes the
+environment it is running in, and does not install or activate an update by
+itself. The install boot scripts
 call `recover` before `.system` is used, from a copy packaged in
 `.tmp_update/<platform>/`.
 
@@ -60,13 +61,22 @@ against isolated roots with every device path rewritten into that root.
   the existing staging path. Reuses a valid staged package; never installs.
 - `stage`: verify, check free space, copy into a per-package staging directory,
   and write `staged.json` last.
-- `install`: re-verify a staged package, then apply its `.system/` tree and,
-  when present, its signed `.tmp_update/` tree to an explicit `--target-root`
-  through a recorded transaction. Requires an existing `.system` with
-  `version.txt`; refuses a missing or older version.
-- `recover`: offline arbitration entry point. Completes an interrupted commit
-  or restores `.system.bak` and `.tmp_update.bak`; `--rollback` also returns a
-  committed install to its recorded previous version.
+- `install`: re-verify a staged package, then apply it to an explicit
+  `--target-root` through a recorded transaction. A `kind: system` package
+  applies its `.system/` tree and, when present, its signed `.tmp_update/` tree;
+  it requires an existing `.system` with `version.txt` and refuses a missing or
+  older version. A `kind: app` package installs into
+  `Tools/<platform>/<id>.pak/` through an independent app transaction with its
+  own backup and recovery; it never touches `.system` or `.tmp_update`. App
+  install is a local, store-free path: it consumes an already-staged package and
+  selects no source.
+- `recover`: offline arbitration entry point with an explicit selector. A plain
+  `recover` resolves a pending system transaction and then a pending app
+  transaction; a terminal system record resolves to `nothing_to_recover` and
+  does not block app recovery. `--rollback` rolls back the **system** only.
+  `--app <id>` targets one application, and `--app <id> --rollback` rolls that
+  app back to its recorded previous version without ever touching `.system`,
+  `.nextupd-txn`, or another app. The two lifecycles never interfere.
 
 `install` and `recover` have no default roots. They never read `SDCARD_PATH` and
 never write the current working directory. The install boot scripts pass the
