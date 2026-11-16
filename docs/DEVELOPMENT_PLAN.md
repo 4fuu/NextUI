@@ -5,16 +5,18 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `1a3f2a7` (merge of PR #11, the boot-time recovery
-  wiring; fetched 2026-11-16). Landing points on main, oldest first: PR #5
+- Baseline: `origin/main` @ `1d9aea2` (merge of PR #13, the built-in emulator
+  removal; fetched 2026-11-16). Landing points on main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
   (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
   PR #8 (updater offline install transaction, `212a695`), PR #9 (schedule
   update, `3ecefd5`), PR #10 (schedule update, `b28b126`), PR #15 (updater
   transaction hardening, `e2eba90`), PR #14 (settings i18n first slice,
-  `ec05440`), and PR #11 (boot-time recovery wiring, `1a3f2a7`); `de69781` is
-  an ancestor of all of them. Later updates branch from `origin/main`.
+  `ec05440`), PR #11 (boot-time recovery wiring, `1a3f2a7`), PR #12 (schedule
+  file, `3ae1ddf`), and PR #13 (built-in emulator removal, `1d9aea2`);
+  `de69781` is an ancestor of all of them. Later updates branch from
+  `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -78,11 +80,13 @@ Rules:
   `b506dbd`); the runtime line (PR #1, `3a50fe8`); the updater offline install
   transaction and recovery core (PR #8, `212a695`), hardened by PR #15
   (`e2eba90`); the settings Appearance i18n slice (PR #14, `ec05440`); the
-  boot-time recovery wiring (PR #11, `1a3f2a7`); and this schedule file
-  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, and PR #10, `b28b126`).
-- Host-done, unpushed: none. The open pull requests are I8 (emulator removal,
-  PR #13, head `e1275e4`) and this schedule file's own update (PR #12, head
-  `8efb537`). The runtime line (I1) merged into main as `3a50fe8`; the updater
+  boot-time recovery wiring (PR #11, `1a3f2a7`); this schedule file
+  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, PR #10, `b28b126`, and
+  PR #12, `3ae1ddf`); and the built-in emulator removal (PR #13, `1d9aea2`).
+- Host-done, unpushed: none. No pull requests are open at the last check
+  (I8/PR #13 merged as `1d9aea2`; this schedule file's previous update, PR #12,
+  merged as `3ae1ddf`); this schedule update opens a new pull request from
+  `origin/main`. The runtime line (I1) merged into main as `3a50fe8`; the updater
   staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
   the display/audio backend module (PR #6, `b506dbd`), the transaction
   hardening (PR #15, `e2eba90`), the settings i18n first slice (PR #14,
@@ -109,8 +113,11 @@ Rules:
   emulator removal, head `e1275e4`) CI is green (Feature checks push/PR,
   Development/Desktop). PR #14 (settings Appearance page i18n, head
   `6937959`) and PR #15 (updater transaction hardening, head `c6dc914`) CI runs
-  are green. Main landings `e2eba90` and `ec05440` had runs in progress at the
-  last check; `1a3f2a7` had runs in progress at the last check as well.
+  are green. Main landings `e2eba90` and `ec05440` had runs in progress at
+  earlier checks; the current main tip `1d9aea2` has full-platform CI success
+  (run 43829493761, no core matrix). PR #13 (built-in emulator removal, head
+  `e1275e4`) merged into main as `1d9aea2` with its CI/release core cleanup
+  (no core-matrix/build-core/Download Cores jobs remain).
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -203,10 +210,11 @@ Rules:
   charset fixtures/tests; coordinates shared i18n keys with I5; must not edit
   devserv/keymon/launch/updater or revive the stopped permission UI.
 - Depends on: baseline; I5 coordination.
-- Next: the remaining settings pages in follow-up slices (the second block
-  About / In-Game / Notifications / RetroAchievements is in progress and
-  uncommitted; the In-Game page disappears with PR #13, so that slice drops
-  it).
+- Next: the remaining settings pages in follow-up slices. Per the owner's
+  decision the In-Game menu is gone with PR #13, so it is not a translation
+  gap and the second block keeps only About and the shared menu/keyboard
+  hints; the Notifications and RetroAchievements submenus went with the
+  In-Game menu and are not listed as gaps either.
 
 ### I5 — LedControl and boot text i18n
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-ed1c-779c-965c-e559b98248b0
@@ -278,19 +286,15 @@ Rules:
 
 ### I8 — Remove the built-in emulator and its entry
 - Owner thread: https://ampcode.com/threads/T-01a1e307-1d43-738e-b40a-56417f8ba038
-- State: delivered for review as PR #13
+- State: merged into main. PR #13
   (https://github.com/4fuu/NextUI/pull/13, branch
-  `remove-builtin-emulator`), head
-  `e1275e4fa1a941b5b44ec9859ab3055115aee172`, based on `origin/main` @
-  `b28b126` (docs-only delta, clean rebase); OPEN and mergeable, not merged.
-  The head moved from `ba2296a` to `e1275e4` ("Drop emulator core jobs from CI
-  and release"). CI on `e1275e4` is green (Feature checks push/PR,
-  Development/Desktop).
-- Merge precondition (not a post-merge cleanup): the core-matrix/build-core
-  cleanup must land together with the removal and be verified complete before
-  the merge, so `main` never references make targets that no longer exist. The
-  `e1275e4` commit covers the CI and release side; the merge owner confirms the
-  full cleanup as part of the review.
+  `remove-builtin-emulator`), final head
+  `e1275e4fa1a941b5b44ec9859ab3055115aee172`, merged as `1d9aea2` by the
+  CI/merge owner. CI on `e1275e4` was green (Feature checks push/PR,
+  Development/Desktop), and the head moved from `ba2296a` to `e1275e4`
+  ("Drop emulator core jobs from CI and release"): the CI and release
+  workflows no longer carry core-matrix/build-core/Download Cores, so `main`
+  never references the deleted make targets.
 - Deleted (built-in emulator specific): `workspace/all/minarch` and the
   rcheevos/libchdr/libretro-common/libsrm builds it vendored;
   `workspace/{all,desktop,tg5040,tg5050,h700}/cores` (core builds, per-platform
@@ -306,15 +310,20 @@ Rules:
   targets cores/cores-json/build-cores/build-core, the minarch build and copy
   steps, the Emus entry in the extras zip, and the minarch/cores .vscode debug
   configs.
-- Shared-library packaging (open dependency, do not call emulator-only without
-  evidence): PR #13 also removes the packaging steps that copied the
-  minarch-built libraries (libsamplerate, libzip, bz2, lzma, zstd, chdr,
-  crypto, lz4) into the device image. `libsamplerate` is not emulator-only:
+- Shared-library packaging (dependency restored, evidence separated): PR #13
+  removed the packaging steps that copied the minarch-built libraries
+  (libsamplerate, libzip, bz2, lzma, zstd, chdr, crypto, lz4) into the device
+  image. `libsamplerate` is not emulator-only: api.c calls libsamplerate, and
   `workspace/desktop/apostropheoverlaydemo/makefile` explicitly links
-  `-lsamplerate` (api.c calls libsamplerate) with an rpath, so removing the
-  packaging breaks that dependency unless the library is provided another way.
-  The deletion source and the merge owner are checking restoration; the
-  resolution is not recorded until there is evidence.
+  `-lsamplerate`. The merge resolved it by restoring libsamplerate into
+  `workspace/all/libs` and `.system/<platform>/lib`. Substitute evidence on
+  record: the tg5040 devserv NEEDED check for libsamplerate.so, plus the
+  overlaydemo/fnbridgedemo demos. Exact co-rendering harness is still pending:
+  the Apostrophe adapter is available (`a6-host-adapter` @ `0276aa2` / tree
+  `98b714b`, `origin/main` still `8b58ab7`) and the exact harness regression is
+  dispatched to thread `T-01a1e05b` (full URL to be filled in once confirmed)
+  on main `1d9aea2`; until it reports, do not record the exact harness as
+  passed, and do not claim the header was unavailable.
 - Kept (generic capabilities): pak install and launch (Tools/<platform> scan,
   pak.json, B3 app-state slots, B4 `saves` resume), Recents, Collections, quick
   menu and quick actions, game switcher, folder backgrounds and artwork, the
@@ -325,9 +334,10 @@ Rules:
 - Depends on: `origin/main`.
 - Delivery/verification: the desktop menu no longer shows an emulator entry,
   packages no longer carry the built-in emulator, host regression tests and the
-  tg5040 build still pass; PR #13's CI is green on head `e1275e4`.
-- Next: the CI/merge owner reviews and merges once the merge preconditions
-  (core cleanup completeness and the libsamplerate dependency) are resolved.
+  tg5040 build still pass; PR #13's CI was green on head `e1275e4` and it
+  merged into main as `1d9aea2`.
+- Next: the exact Apostrophe co-rendering harness (T-01a1e05b) closes the
+  libsamplerate evidence gap; nothing else remains for I8.
   This schedule no longer treats minarch or cores as development goals or
   acceptance prerequisites.
 
@@ -490,10 +500,20 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 #### U4 — Update feed
 - Owner thread: https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
-  (system update check; dispatched 2026-11-16 after PR #11 merged, orb
-  workspace preparing, no commit yet).
-- Status: dispatched, not started. Works from the actual `origin/main` on an
-  independent branch.
+  (system update check; dispatched 2026-11-16 after PR #11 merged; local
+  implementation complete, not yet committed or pushed).
+- Status: local implementation done, not yet delivered. The thread implemented
+  `nextupd feed` and `nextupd fetch` (new `update_download.h/.c`,
+  `tests/test_feed.py`; `update_feed.c`, `update_util.h`, `nextupd.c`,
+  `makefile`, `tests/run_tests.sh` touched): feed parse, local/HTTP/HTTPS fetch
+  (own HTTP stack with poll timeouts, redirect cap, chunked/Content-Length,
+  size cap; HTTPS never silently downgrades and uses `curl`), entry selection,
+  version compare, manifest/signature download and verification, feed↔manifest
+  consistency, `min_system` and free-space checks, download into the existing
+  staging via `run_stage`. Local evidence: `test_feed.py` 49 passed; the full
+  `SANITIZE=1` suite exit 0 (177 updater + 49 feed + 56 boot-recovery checks);
+  desktop build pass. No commit, branch, or pull request yet — nothing is
+  recorded as pushed or CI-verified.
 - Scope: this repo's own feed, update check, and download into the existing
   signature-verified staging, compatible with the nextupd contract; verified
   with a local HTTP fixture, test root directories, and a test feed plus test
@@ -540,8 +560,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e303-9b65-765c-b8d1-da4565666cd7
   (stopped and archived, 2026-11-16).
 - Status: cancelled, not completed. 4fu decided the built-in emulator is not
-  needed, and PR #13 removes minarch entirely, so there is no minarch left to
-  translate. The two i18n keys "In-Game" and "In-game settings for MinArch" are
+  needed, and PR #13 (merged into main as `1d9aea2`) removes minarch entirely,
+  so there is no minarch left to translate. The two i18n keys "In-Game" and
+  "In-game settings for MinArch" are
   gone from `workspace/all/common/i18n.c` and from
   `scripts/fonts/charsets/a3-zh-2026-11-15.txt`; PAKS.md has been rewritten for
   tool paks only; I4/I5 key coordination is unaffected beyond those two keys.
@@ -674,6 +695,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
 - System update check (feed/check/download staging) thread:
   https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
+- Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
+  in once confirmed; runs the exact libsamplerate co-render regression on
+  main `1d9aea2` with the `a6-host-adapter` @ `0276aa2`)
 
 ## Maintenance
 
@@ -685,8 +709,10 @@ as they happen; nothing is reported as passing without a run.
 ## Delivery of this file
 
 - This file is on `main`: PR #2 merged as `59a63e6`, updated by PR #9
-  (`3ecefd5`) and PR #10 (`b28b126`). Later schedule updates branch from
-  `origin/main` and open a pull request into `main`; the CI/merge owner merges
-  after checks pass. This thread performs no merges itself.
-- The current update travels on branch `docs/schedule-update-3` (based on
-  `origin/main` @ `b28b126`).
+  (`3ecefd5`), PR #10 (`b28b126`), and PR #12 (`3ae1ddf`). Later schedule
+  updates branch from `origin/main` and open a pull request into `main`; the
+  CI/merge owner merges after checks pass. This thread performs no merges
+  itself.
+- The current update travels on a new branch cut from `origin/main` @
+  `1d9aea2` (not the earlier `docs/schedule-update-3`, which merged as
+  `3ae1ddf`).
