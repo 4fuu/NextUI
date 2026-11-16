@@ -746,11 +746,31 @@ static const DeviceBackend backend = {
     backend_call,
 };
 
+/*
+ * An existing backend keeps any capability it already reports available. This
+ * adapter fills the display/audio capabilities the base does not implement
+ * (the production LED backend implements none), so composing it can never
+ * silently replace another backend's working path or its tests.
+ */
+static int base_handles(const char* capability)
+{
+    char ignored[128];
+
+    if (composed_base == NULL || composed_base->available == NULL) return 0;
+    return composed_base->available(composed_base->context, capability, ignored,
+                                    sizeof ignored);
+}
+
 static int composed_available(void* context, const char* capability, char* detail,
                               size_t detail_size)
 {
     (void)context;
 
+    if (base_handles(capability))
+    {
+        set_detail(detail, detail_size, "served by the composed base backend");
+        return 1;
+    }
     if (composed_self != NULL && capability_is_ours(capability))
         return composed_self->available(composed_self->context, capability, detail, detail_size);
     if (composed_base != NULL)
@@ -765,6 +785,9 @@ static int composed_call(void* context, const char* capability, const char* acti
 {
     (void)context;
 
+    if (base_handles(capability))
+        return composed_base->call(composed_base->context, capability, action, args, value,
+                                   value_size, detail, detail_size);
     if (composed_self != NULL && capability_is_ours(capability))
         return composed_self->call(composed_self->context, capability, action, args, value,
                                    value_size, detail, detail_size);

@@ -300,6 +300,36 @@ static const DeviceBackend BASE_BACKEND = {
     base_call,
 };
 
+/* A base that already implements a display capability must keep it. */
+static int self_available(void* context, const char* capability, char* detail,
+                          size_t detail_size)
+{
+    (void)context;
+    (void)detail;
+    (void)detail_size;
+    return capability != NULL && strcmp(capability, "display.brightness") == 0;
+}
+
+static int self_call(void* context, const char* capability, const char* action, const char* args,
+                     char* value, size_t value_size, char* detail, size_t detail_size)
+{
+    (void)context;
+    (void)action;
+    (void)args;
+    (void)detail;
+    (void)detail_size;
+    if (capability == NULL || strcmp(capability, "display.brightness") != 0) return 0;
+    snprintf(value, value_size, "{\"base_priority\":true}");
+    return 1;
+}
+
+static const DeviceBackend SELF_BACKEND = {
+    "self-display",
+    NULL,
+    self_available,
+    self_call,
+};
+
 static void reset_fake(void)
 {
     memset(&fake, 0, sizeof fake);
@@ -756,6 +786,16 @@ static void test_composition(void)
               1);
     CHECK(strstr(result.value, "\"base\":true") != NULL);
     CHECK_INT(fake.base_call_count, 1);
+
+    composed = device_backend_display_audio_compose(&SELF_BACKEND);
+    CHECK(strcmp(composed->name, "nextui-display-audio+self-display") == 0);
+    CHECK_INT(composed->available(composed->context, "display.brightness", NULL, 0), 1);
+    CHECK_INT(composed->call(composed->context, "display.brightness", "set", "{\"value\":9}",
+                             result.value, sizeof result.value, result.detail,
+                             sizeof result.detail),
+              1);
+    CHECK(strstr(result.value, "\"base_priority\":true") != NULL);
+    CHECK_INT(fake.write_count, 0);
 
     composed = device_backend_display_audio_compose(NULL);
     CHECK(strcmp(composed->name, "nextui-display-audio+none") == 0);

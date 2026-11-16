@@ -75,9 +75,11 @@ const DeviceBackend* device_backend_display_audio(void);
 
 /*
  * Compose the display/audio backend with the existing LED backend so devserv
- * still exposes exactly one DeviceBackend. display.* and audio.* go to this
- * module; every other capability goes to base. A NULL base keeps those
- * capabilities unavailable. This is the only routing change devserv needs.
+ * still exposes exactly one DeviceBackend. A capability the base already
+ * reports available stays with the base; otherwise display.* and audio.* go
+ * to this module and every other capability goes to the base. A NULL base
+ * keeps capabilities this module does not serve unavailable. This is the only
+ * routing change devserv needs.
  */
 const DeviceBackend* device_backend_display_audio_compose(const DeviceBackend* base);
 
