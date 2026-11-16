@@ -6,12 +6,13 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `3a0b048` (merge of PR #33, the tg5040 update package content check;
-  below it PR #35 the System Update page's zh follow-up, PR #32 the System
-  Update install UI, PR #34 the Off/On labels slice and the in-repo i18n
-  fixture value test, PR #30 the About page Unknown zh entry -- which also
-  carries PR #27 the transactional update package build -- and PR #29 the I9
-  settings abnormal-data fixes; fetched 2026-11-16).
+  rule): `b3dcae4` (merge of PR #36, the atomic update-package output and the
+  locked legacy-version refusal; below it PR #33 the tg5040 update package
+  content check, PR #35 the System Update page's zh follow-up, PR #32 the
+  System Update install UI, PR #34 the Off/On labels slice and the in-repo
+  i18n fixture value test, PR #30 the About page Unknown zh entry -- which
+  also carries PR #27 the transactional update package build -- and PR #29 the
+  I9 settings abnormal-data fixes; fetched 2026-11-16).
   Docs-only main heads do not move this baseline; the last
   docs-only tip was `8e4f744` (merge of PR #28). Landing points on
   main, oldest first: PR #5
@@ -116,7 +117,9 @@ Rules:
   `d25543b`); the Off/On labels slice with the in-repo i18n fixture value
   test (PR #34, `a6f507f`); the System Update install UI (PR #32, `64540a7`);
   the System Update page's zh follow-up (PR #35, `9374757`);
-  the tg5040 update package content check (PR #33, `3a0b048`);
+  the tg5040 update package content check (PR #33, `3a0b048`); the atomic
+  update-package output with the locked legacy-version refusal (PR #36,
+  `b3dcae4`);
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
@@ -1156,10 +1159,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U10 — First update contract and package output safety
 - Owner thread: https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652
   (Step Medium; dispatched 2026-11-16).
-- Status: the first head failed the independent review; a fix head is pushed
-  and its review is pending. PR #36
+- Status: merged into main; the bootstrap version policy remains the only open
+  gate. PR #36
   (https://github.com/4fuu/NextUI/pull/36, branch
-  `fix/update-package-atomic-output`) is open; the first head
+  `fix/update-package-atomic-output`) merged into main as
+  `b3dcae45180c30b0962b9f904d2c4b84b768d5e4` (2026-11-16T14:30:39Z per gh);
+  the final head `63f982a6955f9177020b16fe516e9ffd7ece631e` corrected the
+  atomic-publish boundary, made the SHA-256 portable, and added the real-window
+  tests, addressing the four independent-review failures recorded at
+  `ed7b9de` (the marker not consumed by nextupd, the old whole set not
+  recoverable during publish, the untested mixed-consumer boundary, and the
+  `sha256sum` hard dependency missing on macOS). The post-merge runs on
+  `b3dcae4` (Feature checks and Development/Desktop) are success per gh while
+  the full CI run is in progress at the last check (not recorded as passing).
+  No separate review-passed report reached this schedule, so only the merge and
+  CI facts are recorded. The first head
   `ed7b9de5e4aa7a57fe0f6d697bf2333652aefa87` (based on main `3a0b048`) failed
   the independent review per the merge owner (2026-11-16 14:04): the commit
   marker is not consumed by nextupd, so a window with three new files plus the
@@ -1217,11 +1231,17 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   interrupted-group failure path, plus an independent pull request; a run
   without a pull request is not a delivery. At this head the atomic-output
   suite is 36/36 and fails 6 against the pre-fix script.
-- Next: the merge owner runs the new-head review on `bbb60bd`, then decides.
-  The version policy suggestion in the documentation (one future version, three
-  existing ones) is a suggestion only, not user-approved; the owner decision on
-  the version policy remains the only item blocking
-  first-update-on-bootstrap.
+- Next: the only remaining gate for this workstream is the bootstrap version
+  policy -- an owner decision among the three documented options (a real
+  version source, an explicit legacy mapping, or a one-time migration), with no
+  date-to-semver mapping invented and no unknown version treated as `v0.0.0`.
+  It blocks only the first transactional update onto an already-bootstrapped
+  card, not other desktop work. Option 1 is recorded as the recommendation and
+  is a recommendation only, not user-approved. There is no ETA; it waits on the
+  owner's choice.
+- Minor follow-up noted for the next packaging or version change (not
+  scheduled separately): harden `NEXTUI_SHA256` so a forced-but-missing backend
+  fails instead of writing an empty-hash marker.
 
 ### P3 — Full UI translation remainder
 
