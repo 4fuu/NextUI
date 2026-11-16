@@ -306,6 +306,15 @@ Rules:
   Development/Desktop, and the full CI run are all success per gh. Open at
   this check: only this schedule's own PR
   #31.
+- Open again at the next check (2026-11-16, after the PR #39 and PR #40
+  merges): PR #41 (branch `feature/local-app-install-ui`, Add the "Install
+  from file" settings page for local app packages), head
+  `7418cf56d78e40ab44da732c47ba9c904db11a11`, cut from `origin/main`
+  `1b73667`, OPEN, MERGEABLE and CLEAN per gh; CI at that head is green per gh
+  (Feature checks push and pull_request with Host tests at 634 passed / 0
+  failed per the run log and the tg5040 target build; Development/Desktop with
+  build-linux and build-macos); the merge owner has the head for independent
+  review; not merged.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1368,8 +1377,43 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   does not wait for the production source key. The merge owner has directly
   notified the F6b thread to normal-merge the latest main (now `1b73667`)
   before delivering, and the F6b work must not restore the RetroAchievements,
-  i18n, or store removals that PR #40, PR #34/#35/#30, and PR #38 landed. No
-  F6b head has been delivered to this schedule yet. Shared settings/i18n
+  i18n, or store removals that PR #40, PR #34/#35/#30, and PR #38 landed.
+  Delivered 2026-11-16 as PR #41
+  (https://github.com/4fuu/NextUI/pull/41, branch
+  `feature/local-app-install-ui`, Add the "Install from file" settings page
+  for local app packages), head
+  `7418cf56d78e40ab44da732c47ba9c904db11a11`, cut from `origin/main`
+  `1b73667`, OPEN, MERGEABLE and CLEAN per gh; CI at the exact head is green
+  per gh (Feature checks push and pull_request with Host tests at 634 passed /
+  0 failed per the run log and the tg5040 target build; Development/Desktop
+  with build-linux and build-macos). Source-reported content: a settings page
+  lists the signed packages in the one app-controlled folder
+  `<target>/.tmp_update/packages` and runs the existing `stage --replace` plus
+  `install` path for the picked one, showing real progress and every real
+  failure state; the platform, the running-system version, and the trusted key
+  follow the existing contracts; no signature transaction is re-implemented
+  and no production key is configured. Source-reported tests: an SDL-free
+  controller with 54 checks (folder scan, stage plus install, same-version,
+  downgrade, bad signature, tampered manifest, wrong device, `min_system`,
+  missing tool, unconfigured key, single-flight), page render, frame pump,
+  refusal and rescan tests, and a production-path test that installs with the
+  real nextupd, compiles the real `nextui.c`, and from the same isolated root
+  discovers the installed app and executes its queued launch command; 25 new
+  zh entries plus the a4 fixture, with the font verifier reporting 0 missing
+  and the width check passing. The launcher gap therefore changes from "only a
+  copied scanner" to "the source has provided production-path host evidence,
+  awaiting the merge owner's independent review" -- it is not a real-device
+  pass. Not merged; no independent review result has been reported, so nothing
+  is written as accepted, and a source self-test is not acceptance.
+- I10 mapping: PR #41's copy of this file records this slice as "I10 — Local
+  application install UI (settings surface)" with the same owner thread and
+  the same scope. It is the same task as F6b, not a second one; this schedule
+  keeps F6b as the single record, and when PR #41 merges the file-level
+  reconciliation folds the I10 entry into F6b instead of carrying both. The
+  source's I10 status line ("no pull request is merged yet, so nothing is
+  recorded as delivered") describes the source's own file state at its cut;
+  this schedule records the delivery by its own rule (head delivered,
+  awaiting independent review). Shared settings/i18n
   hunks are coordinated with PR #40, and each pull request goes to the sole
   merge owner for independent review and merge.
 - Coexistence verified by the source (real nextupd A/B runs plus regression;
@@ -1395,9 +1439,13 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   launcher binary and not a shared production-function integration test. Host
   algorithm and layout are therefore verified; real launcher launch and
   rendering, and real-device behavior, remain unverified.
-- Remaining gap kept open, now the F6b scope: there is no real launcher
-  discovery or launch evidence yet, so that acceptance item is not closed;
-  the backend evidence is host-level only.
+- Remaining gap (narrowed, still open): the source now provides
+  production-path host evidence -- a real nextupd install, the real `nextui.c`
+  compiled, and the same isolated root discovering the installed app and
+  executing its queued launch command -- so the old "only a copied scanner"
+  wording no longer applies to F6b. Real launcher rendering, boot, power-loss,
+  and device behavior are still unverified, so that acceptance item is not
+  closed.
 - Status before this delivery (audited and split into three layers; the install
   layer was not delivered). (1) The stage/verify layer for app packages IS delivered and
   host-verified: manifest plus Ed25519 signature plus per-file SHA-256, ZIP
@@ -1827,7 +1875,9 @@ as they happen; nothing is reported as passing without a run.
   -- PR #39 into main as `d72565a` (final head `e807f35`, independent review
   PASS after the `41d1a43` FAIL was fixed) and PR #40 into main as `1b73667`
   (final head `b0ce4d3`, independent review PASS), moving the schedule
-  baseline to `1b73667`),
+  baseline to `1b73667`; and F6b delivered its first head as PR #41 (head
+  `7418cf5`, awaiting the merge owner's independent review), with the source's
+  I10 entry mapped to F6b so the slice stays one task),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
