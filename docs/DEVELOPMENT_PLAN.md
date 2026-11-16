@@ -105,8 +105,9 @@ Rules:
   abnormal-data fixes (PR #29, `5de96d2`); and the U4 update
   feed block (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #27 (U8 transactional
-  update package build, head `8ffea67`, CI green on that head per gh with the
-  source reporting six of six, B1-B3 fixes and follow-ups pushed, awaiting
+  update package build, head `b61ff1f`, CI green on that head per gh with the
+  source reporting six of six, B1-B3 fixes and follow-ups pushed at the head
+  with the `5de96d20` makefile conflict resolved by a normal merge, awaiting
   independent review, open) and this schedule file's own update (PR #28). PR #29
   (I9 settings abnormal-data fault tolerance, final head `acf1d3f`) merged into
   main as `5de96d208ae122b421e5110592b8d670e74bcd5b` with the merge owner
@@ -733,14 +734,18 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Status: B1-B3 fixes and follow-ups pushed at a new head; awaiting independent
   review; not merged. PR #27
   (https://github.com/4fuu/NextUI/pull/27, branch `feature/updater-update-package`),
-  head `8ffea67cb78548ed3562671ebee74367022b8831` (supersedes
-  `38b8cdc376cb15a595b7e5c2bb09b9ce4a3378be` and
+  head `b61ff1f6c4940d5551dda7b8407363ba556117d6` (supersedes
+  `8ffea67cb78548ed3562671ebee74367022b8831` and
   `3b406c6da2becb1379199944bdb9ec50520d70e2`; it is a normal merge of
-  `origin/main` `dc4bef08`, the PR #24 boot payload sync), OPEN and mergeable
-  per gh. CI at this head is six of six green per the source (Host tests push
-  and PR, build-linux, build-macos, tg5040 target build push and PR), with Host
-  tests logging "110 passed, 0 failed, 0 skipped"; gh shows Feature checks
-  (push and pull_request) and Development/Desktop success on that head.
+  `origin/main` `5de96d20`, the PR #29 settings crash fixes — no rebase, no
+  force), OPEN and mergeable per gh. CI at this head is six of six green per the
+  source (Host tests push and PR, build-linux, build-macos, tg5040 target build
+  push and PR); gh shows Feature checks (push and pull_request) and
+  Development/Desktop success on that head.
+- The `5de96d20` merge conflict was only the `.PHONY` and `test:` list lines:
+  both now contain `test-settings` and `test-update-package`, with the two
+  target bodies separate and unchanged. No PR #29 settings/menu/version code
+  was touched (`git diff origin/main -- workspace/` is empty).
 - The `38b8cdc` independent review FAIL (B1/B2/B3 below) is addressed at this
   head: B1 the platform's system content is staged at `.system/<platform>/`
   (device layout), so `.system/<platform>/paks/MinUI.pak/launch.sh` and
@@ -767,18 +772,19 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `test-update-package`); `UPDATE-PACKAGING.md` documents the contract. The
   bootstrap `MinUI.zip` built by `make package` is unchanged and still carries
   `Tools/`.
-- Evidence (host only, no device) at `8ffea67`: `make -C tests test` green
-  (177 + 55 + 67 + 56 pre-existing checks); the new suite 110 passed, 0 failed,
-  0 skipped, including the tg5040, h700, and make-target boot install
-  lifecycles; ASan/UBSan the same; the old bootstrap shape passes `check` and
-  is refused by `install` with `unexpected_path` and zero writes on both
-  binaries. Earlier-head evidence kept for the record: at `38b8cdc` the suite
-  was 61 passed, 0 failed, 2 skipped on main and 73 passed, 0 failed, 0 skipped
-  against the updater's frozen head `beae0cf`, including the h700 boot install
-  lifecycle, with new tests for an h700 tree with chained `libSDL2` links
-  (regular files with the real library bytes, roots still `.system` plus
-  optional `.tmp_update`, no `Tools/`), broken-symlink and FIFO refusals, and
-  the h700 boot install lifecycle.
+- Evidence (host only, no device) at `b61ff1f`: `make -C tests test` green —
+  nextupd 355 passed, 0 failed (177 updater + 55 feed + 67 boot-sync + 56 boot
+  recovery; the 67 is PR #24's boot-sync suite, already on main), the settings
+  crash tests pass ("settings version tests passed", "settings menu tests
+  passed"), and update-package 110 passed, 0 failed, 0 skipped; the CI Host
+  tests job logged the same counts. Earlier-head evidence kept for the record:
+  at `8ffea67` the update-package suite was 110 passed, 0 failed, 0 skipped with
+  the tg5040, h700, and make-target boot install lifecycles; at `38b8cdc` the
+  suite was 61 passed, 0 failed, 2 skipped on main and 73 passed, 0 failed, 0
+  skipped against the updater's frozen head `beae0cf`, with new tests for an
+  h700 tree with chained `libSDL2` links (regular files with the real library
+  bytes, roots still `.system` plus optional `.tmp_update`, no `Tools/`),
+  broken-symlink and FIFO refusals, and the h700 boot install lifecycle.
 - Dependency: the `.tmp_update` install lifecycle end to end now runs on main
   because PR #24 is merged; the test detects support from `check`'s
   `boot_payload` field. The tg5040 package-content CI job is proposed to the CI
