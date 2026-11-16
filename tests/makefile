@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-settings test-led-render test-show2-render test-update-package clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-settings test-led-render test-show2-render test-update-package test-sysupdate clean
 
-test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings test-settings test-update-package
+test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings test-settings test-update-package test-sysupdate
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -109,6 +109,14 @@ test-boot-strings:
 test-settings:
 	../workspace/all/settings/tests/run_settings_version_test.sh
 	../workspace/all/settings/tests/run_settings_menu_test.sh
+
+# System Update Controller regression. Builds the nextupd host tool and the
+# SDL-free Controller test, then drives check/download/install against isolated
+# temporary roots using the committed signed fixture and a local file feed.
+# Host-only: no device, no real root, no feed, no production key.
+test-sysupdate:
+	../workspace/all/settings/tests/run_sysupdate_test.sh
+	../workspace/all/settings/tests/run_sysupdate_menu_test.sh
 
 test-led-render:
 	../workspace/all/ledcontrol/tests/run_led_render_proof.sh

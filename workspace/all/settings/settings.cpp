@@ -27,6 +27,7 @@ extern "C"
 #include "palettemenu.hpp"
 #include "fnbuttonmenu.hpp"
 #include "version.hpp"
+#include "sysupdatemenu.hpp"
 
 #define BUSYBOX_STOCK_VERSION "1.27.2"
 
@@ -889,6 +890,23 @@ int main(int argc, char *argv[])
 
         MenuList *buttonMenu = buildFnButtonMenu(); // nullptr if this device has none
 
+        // System Update page wiring. The staging and target roots are the SD card
+        // and are never taken from user input or feed data; the feed and trusted
+        // key stay unconfigured until the owner provisions them, so the page
+        // reports "Update source is not configured." instead of pretending an
+        // update exists. Test roots are injected only by the host controller test.
+        SysUpdate::Config updateConfig;
+        updateConfig.platform = PLATFORM;
+        updateConfig.system_version = SysUpdate::readSystemVersion(ROOT_SYSTEM_PATH "version.txt");
+        if (const char *feed = getenv("NEXTUI_UPDATE_FEED"))
+            updateConfig.feed = feed;
+        if (const char *key = getenv("NEXTUI_UPDATE_TRUSTED_KEY"))
+            updateConfig.trusted_key = key;
+        updateConfig.staging_root = std::string(SDCARD_PATH) + "/.tmp_update/staging";
+        updateConfig.target_root = SDCARD_PATH;
+        SysUpdate::Controller updateController(updateConfig);
+        std::unique_ptr<SysUpdate::Menu> sysUpdateMenu;
+
         std::vector<AbstractMenuItem*> mainItems = {
             new MenuItem{ListItemType::Generic, TR("Appearance"), TR("UI customization"), {}, {}, nullptr, nullptr, DeferToSubmenu, appearanceMenu},
             new MenuItem{ListItemType::Generic, TR("Display"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, displayMenu},
@@ -909,6 +927,9 @@ int main(int argc, char *argv[])
             mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Bluetooth"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, new Bluetooth::Menu(appQuit, ctx.dirty)});
 
         mainItems.push_back(new MenuItem{ListItemType::Generic, TR("About"), "", {}, {}, nullptr, nullptr, DeferToSubmenu, aboutMenu});
+
+        sysUpdateMenu.reset(new SysUpdate::Menu(appQuit, ctx.dirty, updateController));
+        mainItems.push_back(new MenuItem{ListItemType::Generic, TR("System Update"), TR("Check, download, and install a system update"), {}, {}, nullptr, nullptr, DeferToSubmenu, sysUpdateMenu.get()});
 
         ctx.menu = new MenuList(MenuItemType::List, "Main", mainItems);
 
@@ -1023,6 +1044,9 @@ int main(int argc, char *argv[])
         delete ctx.menu;
         delete appearanceMenu;
         delete systemMenu;
+        // Join the System Update worker before updateController (declared above)
+        // goes out of scope, so the worker never outlives the controller it calls.
+        sysUpdateMenu.reset();
         ctx.menu = NULL;
 
         // Color pickers are owned by unique_ptrs above; destroyed automatically here.
