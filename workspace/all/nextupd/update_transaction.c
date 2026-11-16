@@ -1669,6 +1669,24 @@ int upd_install_execute(const UpdInstallRequest* request, UpdTransactionResult* 
                       request->manifest->platform, request->platform);
         return 0;
     }
+    if (request->manifest->has_min_system)
+    {
+        int comparison = 0;
+        if (!upd_semver_compare(request->manifest->version, request->manifest->min_system,
+                                &comparison))
+        {
+            upd_error_set(error, UPD_E_INVALID, "invalid_min_system",
+                          "cannot compare package and minimum versions");
+            return 0;
+        }
+        if (comparison < 0)
+        {
+            upd_error_set(error, UPD_E_INVALID, "invalid_min_system",
+                          "package version %s is below its own min_system %s",
+                          request->manifest->version, request->manifest->min_system);
+            return 0;
+        }
+    }
     if (!upd_manifest_check_min_system(request->manifest, request->system_version, error))
         return 0;
     if (request->manifest->raw == NULL || request->manifest->raw_length == 0)

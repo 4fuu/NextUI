@@ -834,6 +834,14 @@ def test_install_refusals(key_der):
            "system_too_old")
     expect_unchanged("install required system writes nothing", target, before)
 
+    contradictory = build_stage("install-contradictory-stage", version="v6.15.1",
+                                min_system="v6.16.0", stage_system="v6.16.0")
+    before = tree_manifest(target)
+    expect("install rejects version below min_system",
+           run(install_args(contradictory, target, system="v6.16.0")), 3,
+           "invalid_min_system")
+    expect_unchanged("install contradictory min_system writes nothing", target, before)
+
     bad_backup = make_target("install-bad-backup", previous="v6.10.0")
     os.unlink(os.path.join(bad_backup, ".system.bak", "version.txt"))
     before = tree_manifest(bad_backup)
