@@ -1487,6 +1487,54 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   option, not a delivery requirement.
 - Next: continuous with each task.
 
+### P6 — Modification debt (read-only audit suggestions; not scheduled)
+
+Source: the read-only audit thread
+https://ampcode.com/threads/T-01a1e4d0-21d1-72e8-a5d2-1440fe0eb44e at
+`origin/main` `b3dcae4` (audit only; no code changed, no branch, no pull
+request, and nothing here is an approved implementation or a new goal). The
+full report lives in that thread's artifact
+https://ampcode.com/artifacts/audits/nextui-origin-main-b3dcae4-338a320e-af5d-447e-960e-6921eac10e3f
+. Whether any item enters the schedule is for the schedule thread and the
+user to decide.
+
+#### D1 — Cleanup candidates outside the current goals (A class)
+- A1 RetroAchievements dead cluster: the `ra_*` code (about 3900 lines) plus
+  `http.c` and `notification.c`, the 13 RA config fields (including a
+  plaintext token), and the dead options table in `settings.cpp` have zero
+  build entry, consumer, or test, and are fully unsupported after PR #13.
+  The audit calls it the smallest independent cleanup block.
+- A2 Game Tracker / gametime: the game-time statistics never fill because
+  nothing calls `gametimectl start`; the desktop skeleton preinstalls no
+  executable; the device build and packaging still carry them.
+- A3 Remove Loading.pak: an original-factory compatibility one-time hack, and
+  its "Done" string is untranslated.
+- A4 Nine dead i18n keys (the emulator save formats) that the i18n and font
+  tests still carry.
+- A5 `makefile:213` base zip stale entries: `Shaders/trimui/h700/em_ui.sh` do
+  not exist and fail silently as warnings, while `Cheats` and `Palettes` are
+  missed.
+
+#### D2 — Items needing a user decision (B class)
+- B1 The old update bypass: the `MinUI.zip` and bare `*.pakz` boot-time
+  unzip path installs without signature or manifest verification. It needs a
+  user decision on retention scope and verification, and it sits at the same
+  decision point as the pending bootstrap version policy (U10), so the two
+  should be decided together. This is the first item that needs a call.
+- B2 User directories such as `Roms`: I8 kept them, `launch.sh` creates them
+  on every boot, and the third-party dependence is unknown.
+
+#### D3 — Do not delete (C class)
+- `generic_wifi`, `bt`, and `video` are used implementations included by
+  `platform.c`; the game switcher and artwork are generic capabilities I8
+  kept; `Files.pak`, the h700 `curl`, `--require-grants`, and the HOOKS rom
+  branch all stay.
+
+- Not done: no code change was made, and how much the third-party paks
+  depend on the `Roms` layout is unknown.
+- Next: nothing is scheduled from this audit until the user or the schedule
+  thread decides; B1 is the first item that needs a decision.
+
 ## Decisions superseded by this schedule
 
 - The permission settings UI is stopped and is no longer a goal. C1 ships the
