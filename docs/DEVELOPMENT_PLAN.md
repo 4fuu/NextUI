@@ -579,11 +579,16 @@ Rules:
 
 ### I7 — HOME input mapping fix (new task after `be88c20`)
 - Owner thread: https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
-- State: fix shipped in PR #1 (merged as `3a50fe8`). Commit `3e66705` "Map the
-  real HOME key and wire the desktop overlay" is part of final head `73959545`.
-  Real-machine status stays unverified: no further physical key presses are
-  scheduled (owner decision), and the review records HOME/js0 as OPEN, so the
-  fix waits for the V1 batch or a replay fixture on device.
+- State: closed at source level; do not re-dispatch a duplicate fix. The HOME
+  input mapping fix shipped in PR #1 (merged as `3a50fe8`). Commit `3e66705`
+  "Map the real HOME key and wire the desktop overlay" is part of final head
+  `73959545`. Real-machine status stays unverified: no further physical key
+  presses are scheduled (owner decision), and the review records HOME/js0 as
+  OPEN, so the fix waits for the V1 batch or a replay fixture on device. The
+  owner confirmed on 2026-11-16 that the source-side gap closed in that
+  earlier merge, so this item must not be recorded as undeveloped, no repeat
+  fix may be dispatched, and the HOME scope check is concluded -- it does not
+  continue.
 - Verified 2026-11-16 (schedule check for the next dispatchable block): the
   source-side gap is closed in main -- `platform.h` no longer guesses a
   joystick index (`JOY_MENU_ALT` is `JOY_NA` at platform.h:106, with
@@ -725,8 +730,20 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   real-machine acceptance in V1.
 
 #### R3 — Rumble backend (input.rumble)
-- Owner: new backend thread.
-- Status: not started; haptics reports `unavailable`.
+- Owner: dispatched implementation thread
+  https://ampcode.com/threads/T-01a1e60a-171e-70c4-bdd5-5c51a84c75fe
+  (Step Medium; dispatched 2026-11-16 after the owner accepted the
+  next-dispatchable recommendation).
+- Status: dispatched; no head delivered, so nothing is recorded as done. The
+  scope: an R1/R2-pattern rumble module plus the devserv action, capability,
+  and status wiring, along the established `PLAT_setRumble`/`VIB_` semantics,
+  honoring the Brick Pro 2.5V ceiling; fake-sysfs host verification of the
+  write guards, read-back, range refusal, and honest `unavailable`; desktop
+  and tg5040 real CI. Boundaries: no real device, sysfs, SD, or POWER work; no
+  permission product; grants are not a default feature gate. That thread owns
+  the code; this schedule owns the record; delivery goes to the sole merge
+  owner's independent gate. Device rumble effect and recovery stay unverified
+  (V1).
 - Verified 2026-11-16 (next-dispatchable check): the capability is already
   declared (`workspace/all/common/device_caps.c:22` lists `input.rumble`),
   `PLAT_setRumble` is implemented per platform
@@ -2004,6 +2021,8 @@ coordinates the root makefile with PR #38.
   https://ampcode.com/threads/T-01a1e517-15fd-710c-bb01-300ef858376b
 - Local install package-kind protection thread (F6c, the swap race):
   https://ampcode.com/threads/T-01a1e5c2-0302-71cd-b14f-828546632bc9
+- Rumble backend thread (R3):
+  https://ampcode.com/threads/T-01a1e60a-171e-70c4-bdd5-5c51a84c75fe
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
   in once confirmed; ran the exact libsamplerate co-render regression on main
   `1d9aea2` with `a6-host-adapter` @
@@ -2058,7 +2077,9 @@ as they happen; nothing is reported as passing without a run.
   is no longer recorded as the gap; PR #42 then merged into main as `5b66d70`
   with the merge owner's independent PASS on the exact head `dccda87`, closing
   F6c at host level, and the I7 and R3 entries were verified for the next
-  dispatchable block),
+  dispatchable block; the owner then confirmed I7's source gap closed in the
+  earlier PR #1 merge (no re-dispatch, HOME scope check concluded) and
+  dispatched R3 to thread T-01a1e60a),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
