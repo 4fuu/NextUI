@@ -113,7 +113,29 @@ Rules:
   `5de96d20` with no rebase/force; it awaits the incremental independent
   review and is not merged) and PR #30 (I4 follow-up: the zh entry for the
   About page's "Unknown" fallback, branch `i18n/unknown-fallback`, head
-  `015b57b`, OPEN and mergeable per gh, not merged). This schedule file's own
+  `a51da4b` (three commits on the same branch, no force and no amend:
+  `9c3bec2` the append-only `{"Unknown","未知"}` entry in
+  `workspace/all/common/i18n.c` with the matching charset fixture line, header
+  count 241 to 242; `015b57b` the fallback-only `TR()` wiring in
+  `workspace/all/settings/settings.cpp` -- only the placeholder is translated,
+  so no temporary `c_str()` dangles and a real version string reaches the
+  renderer unchanged in either language; `a51da4b` a comment-only refresh).
+  The source verified the actual render on the desktop build: zh with a
+  missing `version.txt` shows the Chinese entry, en shows Unknown, and a real
+  version string passes through in both languages; `test-i18n-width` 243
+  entries with the widest hint at 958 px, font coverage 391/391 against the A4
+  fixture, the fixture multiset 242 to 242 with both controls failing as they
+  should, `make -C tests test` exit 0, and CI six of six green on `a51da4b`
+  (also green per gh). OPEN and mergeable per gh, not merged; the independent
+  review result is not yet reported, and there is no in-repo multiset test in
+  this pull request because `tests/makefile` belongs to the crash-fix thread
+  until PR #27 lands. PR #32 (U9 system update install UI, branch
+  `feature/sysupdate-ui`) is open at head
+  `c6d49a3eb23f54b9cbc7627aca77aa1a462a21f1` with CI green on that head per gh
+  (Feature checks push and pull_request, Development/Desktop), but gh reports
+  it CONFLICTING/DIRTY against main at the last check, so the conflict
+  resolution is the source's and the merge owner's; it is not merged. This
+  schedule file's own
   update travels as PR #31. PR #29
   (I9 settings abnormal-data fault tolerance, final head `acf1d3f`) merged into
   main as `5de96d208ae122b421e5110592b8d670e74bcd5b` with the merge owner
@@ -888,20 +910,38 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e400-3b99-7794-9cf1-ad8cb5433bbc
   (running, Step Medium; dispatched 2026-11-16 after PR #29 merged; the merge
   owner released it at 11:10 to continue from main `5de96d2`).
-- Status: running; no pull request yet, so nothing is recorded as delivered.
-- Scope: an existing settings surface for update check, download into staging,
-  and user-initiated install; real failure and unconfigured states; Chinese and
-  English display; verifying the independent tool invocation safety when
-  replacing `.system`. Signature fixtures plus isolated roots; no real device,
-  no writing the real root, and no reboot/POWER/publish/production source or
-  key. The settings/menu ownership is settled with I9.
+- Status: delivered and pushed; not merged. PR #32
+  (https://github.com/4fuu/NextUI/pull/32, branch `feature/sysupdate-ui`), head
+  `c6d49a3eb23f54b9cbc7627aca77aa1a462a21f1`, base main on the `5de96d2` line
+  (it includes PR #29), OPEN per gh. CI at this head is green per gh (Feature
+  checks push and pull_request, Development/Desktop); the source reports Host
+  tests, build-linux, build-macos, and the tg5040 target build green as well.
+  gh reports the head CONFLICTING/DIRTY against main at the last check, so the
+  conflict resolution belongs to the source and the merge owner; nothing is
+  recorded as merged.
+- Delivered: a self-contained System Update page in the settings app wiring
+  only the existing nextupd feed/fetch/signature-verified staging plus
+  user-initiated install (no PR #27 artifacts); an SDL-free Controller
+  (`sysupdate.{hpp,cpp}`) and Menu (`sysupdatemenu.{hpp,cpp}`) with tests; a
+  minimal additive `settings.cpp` entry, `settings/makefile` (new sources plus
+  `json_lite.c`), and `tests/makefile` (target `test-sysupdate`). Honest
+  states: unconfigured, transport, verification, busy, staged, installed,
+  downgrade, already-installed, and pending-recovery; a non-blocking overlay;
+  no concurrent install; install re-verifies; the running-settings-versus-
+  `.system` safety is documented and verified.
+- Evidence (host only, no device): `test-sysupdate` controller 36/36 plus
+  headless render ok; `test-updater` 56/56; `test-settings` and `test-i18n`
+  pass; the desktop `settings.elf` builds; PR #32 CI green on the head per gh.
+- Not delivered: device packaging of nextupd into
+  `.system/<platform>/bin` (host plus cross-build verified, device not run);
+  the real feed and the production key are owner-provisioned; the zh strings
+  are an append-only follow-up for I4; real-device boot is out of scope. No
+  device, real root, reboot, publish, or production key.
 - Depends on: U4 feed (in main), U1 transaction (in main), U7 boot payload sync
   (in main), and the I9 settings fixes (in main).
-- Delivery/verification: host tests with signature fixtures and isolated roots
-  covering check, staging, install, failure, and unconfigured paths; a pull
-  request to the sole CI/merge owner; a run without a pull request is not a
-  delivery.
-- Next: hands the install UI to the merge owner after the pull request lands.
+- Next: the merge owner does precise-head CI, review, and sequential merge;
+  after the merge the remaining follow-ups (device packaging, production
+  feed/key, and the I4 zh strings) can be scheduled.
 
 ### P3 — Full UI translation remainder
 
