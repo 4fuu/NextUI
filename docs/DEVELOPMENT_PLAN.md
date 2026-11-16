@@ -862,6 +862,31 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   delivery.
 - Next: hands the install UI to the merge owner after the pull request lands.
 
+#### I10 — Local application install UI (settings surface)
+- Owner thread: https://ampcode.com/threads/T-01a1e517-15fd-710c-bb01-300ef858376b
+  (running, Step Medium; dispatched 2026-11-16 after the local app install
+  transaction merged as PR #37).
+- Status: implemented on branch `feature/local-app-install-ui`, cut from
+  `origin/main` @ `1b73667`; no pull request is merged yet, so nothing is
+  recorded as delivered.
+- Scope: the user entry for the app install transaction that is already in main.
+  A settings page lists the signed packages in one app-controlled folder
+  (`<target>/.tmp_update/packages`) and runs the existing `stage` + `install`
+  path for the picked one, showing progress and every real failure. No store,
+  no online catalog, no uninstall, no permission product, no new system update
+  mechanism, and no production source or key: the trusted key follows the System
+  Update contract and stays unconfigured until the owner provisions one.
+- Depends on: the app install transaction (in main), the System Update UI's
+  controller pattern (in main), and the I9 settings fixes (in main).
+- Delivery/verification: host tests with the committed test-only key and
+  isolated roots - the SDL-free controller (folder scan, stage+install,
+  same-version, downgrade, bad signature, tampered manifest, wrong device,
+  min_system, missing tool, unconfigured key, single-flight), the page (render,
+  freeze, unusable package), and the real launcher discovering and starting an
+  installed app; a pull request to the sole CI/merge owner; a run without a pull
+  request is not a delivery. Real-device behavior stays with V1.
+- Next: hands the page to the merge owner after the pull request lands.
+
 ### P3 — Full UI translation remainder
 
 #### T1 — minarch fixed text (cancelled by the owner; moot after PR #13)
