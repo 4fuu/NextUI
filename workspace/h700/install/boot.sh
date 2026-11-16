@@ -44,6 +44,23 @@ fi
 
 h700_prepare_install
 
+# Resolve an interrupted system install before any package or launcher touches
+# .system. With no transaction this block does nothing. A failure powers off
+# instead of launching a half system or rebooting into the same failure.
+if [ -f "$SCRIPT_DIR/nextupd-recover.sh" ]; then
+	. "$SCRIPT_DIR/nextupd-recover.sh"
+	if ! nextupd_recover_boot "$SDCARD_PATH" "$SCRIPT_DIR" "$PLATFORM" "$INSTALL_LOG"; then
+		poweroff
+		exit 1
+	fi
+elif [ -e "$SDCARD_PATH/.nextupd-txn" ] || [ -L "$SDCARD_PATH/.nextupd-txn" ]; then
+	mkdir -p "$(dirname "$INSTALL_LOG")" 2>/dev/null || true
+	echo "recover: missing $SCRIPT_DIR/nextupd-recover.sh; refusing to start" \
+		>> "$INSTALL_LOG" 2>/dev/null || true
+	poweroff
+	exit 1
+fi
+
 # generic NextUI package install
 for pakz in $PAKZ_PATH; do
 	if [ ! -e "$pakz" ]; then continue; fi

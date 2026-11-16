@@ -3,8 +3,9 @@
 `nextupd` verifies `nextui-update-v1` manifests, stages packages, and applies a
 staged system package to an explicit offline target root with a resumable
 transaction. It never guesses a target root, never writes the environment it is
-running in, and does not edit boot/launch scripts or activate an update by
-itself.
+running in, and does not install or activate an update by itself. The install
+boot scripts call `recover` before `.system` is used, from a copy packaged in
+`.tmp_update/<platform>/`.
 
 See [`UPDATES.md`](../../../UPDATES.md) for the contract, threat model, staging
 layout, signatures, transaction states, and non-goals.
@@ -27,9 +28,11 @@ workspace/all/nextupd/tests/run_tests.sh
 SANITIZE=1 workspace/all/nextupd/tests/run_tests.sh
 ```
 
-Tests are host-only and use temporary staging and target roots. They never touch
-`/mnt/SDCARD` or a device. Crash hooks (`NEXTUPD_TEST_CRASH_PHASE`) cover every
-transaction phase; no hook is compiled into a production build.
+Tests are host-only and use temporary staging, target, and boot roots. They never
+touch `/mnt/SDCARD`, `/sys`, or a device. Crash hooks
+(`NEXTUPD_TEST_CRASH_PHASE`) cover every transaction phase; no hook is compiled
+into a production build. The boot tests execute the real install boot scripts
+against isolated roots with every device path rewritten into that root.
 
 ## Commands
 
@@ -45,9 +48,10 @@ transaction phase; no hook is compiled into a production build.
   restores `.system.bak`; `--rollback` also returns a committed install to its
   recorded previous version.
 
-`install` and `recover` have no default roots. They never read `SDCARD_PATH`,
-never write the current working directory, and are not called from `boot.sh`,
-`launch.sh`, keymon, or devserv. Wiring `recover` into boot is a separate task.
+`install` and `recover` have no default roots. They never read `SDCARD_PATH` and
+never write the current working directory. The install boot scripts pass the
+mounted SD root explicitly to `recover` before `.system` is used; nothing runs
+`install` at boot, and `launch.sh`, keymon, and devserv call neither command.
 
 The committed test seed under `tests/fixtures/` is test-only. Production key
 generation, custody, and release signing remain owner decisions and are not

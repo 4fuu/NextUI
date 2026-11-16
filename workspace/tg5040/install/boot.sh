@@ -6,6 +6,8 @@ SDCARD_PATH="/mnt/SDCARD"
 UPDATE_PATH="$SDCARD_PATH/MinUI.zip"
 PAKZ_PATH="$SDCARD_PATH/*.pakz"
 SYSTEM_PATH="$SDCARD_PATH/.system"
+SCRIPT_DIR="$(dirname "$0")"
+INSTALL_LOG="$SDCARD_PATH/.userdata/$PLATFORM/logs/install.txt"
 
 export LD_LIBRARY_PATH=/usr/trimui/lib:$LD_LIBRARY_PATH
 export PATH=/usr/trimui/bin:$PATH
@@ -55,6 +57,23 @@ if [ "$SHOW_SPLASH" = "yes" ] ; then
 	fi
 	#sleep 0.5
 	#SHOW_PID=$!
+fi
+
+# Resolve an interrupted system install before any package or launcher touches
+# .system. With no transaction this block does nothing. A failure powers off
+# instead of launching a half system or rebooting into the same failure.
+if [ -f "$SCRIPT_DIR/nextupd-recover.sh" ]; then
+	. "$SCRIPT_DIR/nextupd-recover.sh"
+	if ! nextupd_recover_boot "$SDCARD_PATH" "$SCRIPT_DIR" "$PLATFORM" "$INSTALL_LOG"; then
+		poweroff
+		exit 1
+	fi
+elif [ -e "$SDCARD_PATH/.nextupd-txn" ] || [ -L "$SDCARD_PATH/.nextupd-txn" ]; then
+	mkdir -p "$(dirname "$INSTALL_LOG")" 2>/dev/null || true
+	echo "recover: missing $SCRIPT_DIR/nextupd-recover.sh; refusing to start" \
+		>> "$INSTALL_LOG" 2>/dev/null || true
+	poweroff
+	exit 1
 fi
 
 echo userspace > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
