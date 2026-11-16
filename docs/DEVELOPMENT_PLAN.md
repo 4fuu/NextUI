@@ -83,8 +83,12 @@ Rules:
   attestation remain main-only (ci.yaml/release.yaml). Verified runs: PR #3
   (host, tg5040, desktop macOS/Linux per the CI/merge owner), PR #4 head
   `b1ca4b5` (Feature checks push and pull_request, Development/Desktop:
-  success), PR #1 head `d7443da` (Feature checks and Development/Desktop:
-  success).
+  success), PR #6 head `1c539cf` (Host tests, build-linux, build-macos, tg5040
+  target build: success), PR #1 combo `ae4309f` (Feature checks and
+  Development/Desktop: success per the source; it predates `b506dbd`). Main
+  landings: `201526c` full-platform packaging success and `bdab39e` success;
+  `dea1f2d` and `b506dbd` runs were still in progress at the last check — a run
+  that has not finished is never recorded as passing.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -106,16 +110,15 @@ Rules:
   `763cefa`, a merge of an earlier main `86b9ebc`, and the earlier HOME mapping
   fix `3e66705` and `-lrt` fix `b46227ac` on top of
   `be88c2028196d5249e8819adba07bcd4e7fc7a4c` (the commit the toolchain PASS in
-  I2 covers). The head predates `b506dbd` (verified: it does not contain it),
-  so the owner has asked the runtime thread to merge main and report a new SHA
-  for the final joint check. Delivered as draft PR #1
+  I2 covers). The head predates `b506dbd` (verified: it does not contain it):
+  the branch has integrated the display/audio devserv wiring and race tests,
+  and the final candidate will merge `b506dbd` again before the owner's final
+  joint check. Delivered as draft PR #1
   (https://github.com/4fuu/NextUI/pull/1), based on `main`; PR state OPEN,
-  draft, GitHub reports mergeable CONFLICTING. Verified CI on the combo:
-  Feature checks and Development/Desktop success (source-reported for the
-  wiring combo; the `b506dbd` base delta is not covered by those runs).
-  Review (I3) is in progress with no conclusion yet. Not merged; the merge
-  decision belongs to the CI/merge owner after real CI and review pass. No
-  status is upgraded without executed evidence.
+  draft, GitHub reports mergeable CONFLICTING. Still awaiting the independent
+  review verdict (I3); HOME/js0 remains OPEN. Not merged; the merge decision
+  belongs to the CI/merge owner after real CI and review pass. No status is
+  upgraded without executed evidence.
 - Covers: C4 exit/force-exit path (never removes `/tmp/nextui_exec`), B6 Clock
   as the reference adapted pak, and the install-default-highest-permission
   policy (legacy grant store only behind `--require-grants`).
@@ -260,8 +263,10 @@ Rules:
 - Delivery/verification: the desktop menu no longer shows an emulator entry,
   packages no longer carry the built-in emulator, host regression tests and the
   tg5040 build still pass, with the exact SHA/PR and evidence reported.
-- Next: PR after completion; emulator-specific CI/core build cleanup is
-  coordinated with the CI/merge owner, who merges after checks pass.
+- Next: PR after completion; emulator-specific CI/core build cleanup waits for
+  the removal thread's handoff and is coordinated with the CI/merge owner, who
+  merges after checks pass. This schedule no longer treats minarch or cores as
+  development goals or acceptance prerequisites.
 
 ## Backlog, in priority order
 
