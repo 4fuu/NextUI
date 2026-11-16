@@ -6,13 +6,16 @@ time and preinstall it on the card, and the launcher used to give it a special
 quick-menu entry and icon. This test locks in the removal:
 
   - no tracked file references the third-party store download anymore
-  - the root makefile stages no vendored download and zips no .pakz
+  - the root makefile stages no vendored download and names the one pakz it
+    still ships, the tg5040 Bluetooth upgrade pak, explicitly instead of
+    globbing *.pakz
   - the launcher no longer special-cases "Pak Store" in its quick entries or
     its quick-menu icon selection, while the generic Tools/<platform>
     discovery and the Settings quick entry stay
   - a real `make package` over a synthetic build tree downloads nothing (any
     network fetch fails the build through a poison curl) and produces a base
-    package with no .pakz, while the generic Tools content still ships
+    package with no store pakz while the tg5040 Bluetooth upgrade pakz and the
+    generic Tools content still ship
 
 Everything runs inside throwaway directories: no device, no real SD card, no
 release feed, no production key. The compound archive step uses a local
@@ -135,6 +138,28 @@ def test_launcher_has_no_store_special_case():
         ok("the launcher keeps only generic app discovery")
 
 
+def test_makefile_ships_bluetooth_pak():
+    # The base package must name the Bluetooth upgrade pakz explicitly instead
+    # of globbing *.pakz, so no store pakz can ride in behind the glob.
+    path = os.path.join(REPO, "makefile")
+    lines = [line for line in read(path).splitlines()
+             if "-base.zip" in line and "zip -r" in line
+             and not line.strip().startswith("#")]
+    if not lines:
+        fail("the base package zip recipe exists", "no -base.zip recipe line found")
+        return
+    line = lines[0]
+    if "nextui.upgrade_bluez.tg5040.pakz" not in line:
+        fail("the base package ships the Bluetooth upgrade pak explicitly",
+             "the recipe does not name nextui.upgrade_bluez.tg5040.pakz: %s" % line.strip())
+        return
+    if "*.pakz" in line:
+        fail("the base package names its pakz explicitly",
+             "the recipe still globs *.pakz: %s" % line.strip())
+        return
+    ok("the base package ships the Bluetooth upgrade pak explicitly")
+
+
 def test_boot_unzip_path_kept():
     # The generic boot path that extracts a user-dropped .pakz stays; only the
     # preinstalled store download is gone.
@@ -161,6 +186,11 @@ def build_sandbox(work):
     for name in ("em_ui.sh", "README.txt"):
         with open(os.path.join(base, name), "w") as handle:
             handle.write("stub\n")
+    # The real tg5040 Bluetooth upgrade pakz, staged by
+    # workspace/tg5040/platform/makefile.copy and extracted by the boot
+    # installer: the base package must keep shipping it.
+    with open(os.path.join(base, "nextui.upgrade_bluez.tg5040.pakz"), "wb") as handle:
+        handle.write(b"bluez upgrade stub\n")
 
     extras = os.path.join(repo, "build", "EXTRAS")
     for name in ("Bios", "Roms", "Saves", "Overlays"):
@@ -253,16 +283,22 @@ def test_package_downloads_nothing():
         base_zip = os.path.join(releases, base_zips[0])
         with zipfile.ZipFile(base_zip) as archive:
             names = archive.namelist()
-        pakz = [name for name in names if name.endswith(".pakz")]
-        if pakz:
-            fail("the base package carries no .pakz", ", ".join(pakz))
+        store_pakz = [name for name in names
+                      if name.endswith("Pak.Store.pakz")
+                      or name.endswith("pak_store.pakz")]
+        if store_pakz:
+            fail("the base package carries no store pak", ", ".join(store_pakz))
+            return
+        if "nextui.upgrade_bluez.tg5040.pakz" not in names:
+            fail("the base package keeps shipping the Bluetooth upgrade pak",
+                 "nextui.upgrade_bluez.tg5040.pakz missing from %s" % base_zips[0])
             return
         for expected in ("Bios/", "Roms/", "Saves/", "em_ui.sh", "MinUI.zip", "README.txt"):
             if expected not in names:
                 fail("the base package keeps its generic content",
                      "%s missing from %s" % (expected, base_zips[0]))
                 return
-        ok("the base package carries no .pakz and keeps its generic content")
+        ok("the base package ships the Bluetooth upgrade pak and no store pak")
 
         # The bootstrap payload still ships the generic Tools content.
         with zipfile.ZipFile(base_zip) as archive:
@@ -296,6 +332,7 @@ def main():
         return 1
     test_no_tracked_reference()
     test_makefile_has_no_download()
+    test_makefile_ships_bluetooth_pak()
     test_launcher_has_no_store_special_case()
     test_boot_unzip_path_kept()
     test_package_downloads_nothing()

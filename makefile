@@ -38,7 +38,10 @@ RELEASE_NAME ?= $(RELEASE_BASE)-$(RELEASE_DOT)
 # this repository produces: the third-party Pak Store download that used to be
 # staged into the base package was removed, so a fresh card carries no
 # preinstalled store. A store can still be installed later as an ordinary
-# Tools/<platform> pak, which the launcher discovers like any other app.
+# Tools/<platform> pak, which the launcher discovers like any other app. The one
+# .pakz the base package still carries is the tg5040 Bluetooth upgrade pak
+# staged by workspace/tg5040/platform/makefile.copy, which the boot installer
+# extracts; it is named explicitly so no store pakz can ride in behind a glob.
 
 ###########################################################
 
@@ -198,7 +201,7 @@ package: tidy
 	
 	# TODO: can I just add everything in BASE to zip?
 	# cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves miyoo miyoo354 trimui rg35xx rg35xxplus gkdpixel miyoo355 magicx em_ui.sh MinUI.zip README.txt
-	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves Shaders Overlays trimui h700 em_ui.sh MinUI.zip README.txt
+	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves Shaders Overlays trimui h700 em_ui.sh MinUI.zip nextui.upgrade_bluez.tg5040.pakz README.txt
 	cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-extras.zip Bios Roms Saves Overlays Tools README.txt
 
 	# compound zip (brew install libzip needed) 
