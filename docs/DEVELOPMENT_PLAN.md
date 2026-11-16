@@ -538,5 +538,9 @@ as they happen; nothing is reported as passing without a run.
   retargeted to `main` and merged as `59a63e6`. Later schedule updates branch
   from `origin/main` and open a pull request into `main`; the CI/merge owner
   merges after checks pass. This thread performs no merges itself.
-- The current update travels on branch `docs/schedule-update` (based on
-  `origin/main` @ `dea1f2d`).
+- The current update travels on branch `docs/schedule-update` (merged with
+  `origin/main` @ `3a50fe8`, merge commit, no history rewrite) and is delivered
+  as pull request #9 (https://github.com/4fuu/NextUI/pull/9), head
+  `05778f1fd113ab2f5a848e4d80fdeedad7bdb1b0`, state OPEN and mergeable. Its
+  Feature checks and Development/Desktop runs were in progress at the last
+  check; a job that has not finished is never recorded as passing.
