@@ -5,6 +5,8 @@
 # the full authorized-call -> dirty mark -> stop restore loop is observable.
 # It also covers partial field restores, LED retry, launcher and service death,
 # stale-stop isolation, the cleaned flag, and overlong identity rejection.
+# This test uses --require-grants so its unauthorized-call expectations stay
+# covered; devserv production defaults to installed-app allow.
 #
 # No device, ADB, LED hardware, sleep or power action is used.
 set -euo pipefail
@@ -39,7 +41,7 @@ start_devserv() {
     REVIEW_WRITES="$WLOG" \
     REVIEW_BRIGHTNESS_FAILS="${REVIEW_BRIGHTNESS_FAILS:-0}" \
     REVIEW_LED_FAILS="${REVIEW_LED_FAILS:-0}" \
-    "$BUILD_DIR/devserv" --socket "$SOCKET" --grants "$GRANTS" > "$WORK_DIR/devserv.log" 2>&1 &
+    "$BUILD_DIR/devserv" --require-grants --socket "$SOCKET" --grants "$GRANTS" > "$WORK_DIR/devserv.log" 2>&1 &
     PID=$!
     for _ in $(seq 1 100); do
         [[ -S "$SOCKET" ]] && return 0
@@ -92,6 +94,7 @@ tests="$common/tests"
 "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 -I"$common" \
     "$ROOT/workspace/all/devserv/devserv.c" \
     "$common/device_backend.c" \
+    "$common/device_backend_display_audio.c" \
     "$common/device_backend_leds.c" \
     "$common/device_caps.c" \
     "$common/device_gate.c" \
@@ -148,6 +151,7 @@ EOF
 "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 -I"$common" \
     "$BUILD_DIR/grant_tool.c" \
     "$common/device_backend.c" \
+    "$common/device_backend_display_audio.c" \
     "$common/device_caps.c" \
     "$common/device_gate.c" \
     "$common/device_grants.c" \

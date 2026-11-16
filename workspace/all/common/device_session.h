@@ -50,7 +50,10 @@ typedef enum
     DEVICE_SESSION_ALREADY_ACTIVE,
     DEVICE_SESSION_STALE,
     DEVICE_SESSION_PARTIAL,
-    DEVICE_SESSION_BAD_ARGUMENT
+    DEVICE_SESSION_BAD_ARGUMENT,
+    /* The adapted app owns this action in-process; the service must not
+     * translate it into an exit. */
+    DEVICE_SESSION_APP_HANDLED
 } DeviceSessionResult;
 
 typedef struct
@@ -80,6 +83,26 @@ typedef struct
     char app[DEVICE_SESSION_APP_MAX];
     char pak[DEVICE_SESSION_PAK_MAX];
     long started_at;
+    /* Monotonic milliseconds, used to reject an FN event that was generated
+     * before this session existed. Wall-clock time is not comparable across a
+     * keymon/devserv restart; CLOCK_MONOTONIC is on the same boot. */
+    unsigned long long started_mono_ms;
+    /* The pak manifest declared "overlay": the foreground app hosts the shared
+     * overlay and consumes FN2/HOME itself. */
+    int overlay_host;
+
+    /* C4 session-scoped exit request. The service records the request; the
+     * launch parent, which alone owns the child PID, performs TERM/KILL. No
+     * client ever supplies a PID. */
+    int exit_requested;
+    int exit_completed;
+    int exit_forced;
+    char exit_action[16];
+    unsigned long long exit_requested_at_ms;
+    unsigned long long exit_deadline_ms;
+    char exit_result[32];
+    char exit_detail[DEVICE_SESSION_DETAIL_MAX];
+
     DeviceSessionFieldState fields[DEVICE_SESSION_FIELD_COUNT];
     int led_available;
     int led_used; /* a successful led.control call was observed */
@@ -140,11 +163,47 @@ int device_session_is_active(const DeviceSession* session);
 /*
  * Record a successful gated call. Only mutating capabilities are mapped:
  * display.brightness/set, display.colortemp/set, audio.volume/set,
- * audio.sink/set, and any successful led.control action. Unknown capabilities,
- * read-only get calls and failed calls change nothing.
+ * audio.volume/setmute, audio.sink/set, and any successful led.control action.
+ * Unknown capabilities, read-only get calls and failed calls change nothing.
  */
 void device_session_note_capability(DeviceSession* session, const char* capability,
                                     const char* action);
+
+/*
+ * Record that this session's application declared "overlay" and therefore
+ * hosts the shared overlay. devserv calls this once after begin(), using the
+ * manifest it already loaded for identity; the value is never accepted from an
+ * app request.
+ */
+void device_session_note_overlay_host(DeviceSession* session, int overlay_host);
+
+/*
+ * C4 exit request, scoped to one session generation.
+ *
+ * expected_id == 0 accepts the active session; a non-zero id must match it or
+ * the request is stale and nothing is recorded. event_ms is the keymon press
+ * timestamp (CLOCK_MONOTONIC milliseconds); 0 means "use now". An event older
+ * than this session is stale, so a delayed request cannot tear down a newer
+ * session. The first request wins; repeated requests are idempotent.
+ *
+ * The service only records the request and its deadline. It never accepts a
+ * PID and never signals a process here.
+ */
+DeviceSessionResult device_session_request_exit(DeviceSession* session,
+                                                unsigned long long expected_id,
+                                                const char* action,
+                                                unsigned long long event_ms,
+                                                unsigned long long grace_ms);
+
+/* Record what the launch parent observed after its bounded wait. expected_id is
+ * the same generation guard as session-stop. A late report is stale and does
+ * not modify a newer session. */
+DeviceSessionResult device_session_note_exit_outcome(DeviceSession* session,
+                                                     unsigned long long expected_id,
+                                                     int forced, const char* detail);
+
+/* CLOCK_MONOTONIC milliseconds; exposed for the launch/protocol tests. */
+unsigned long long device_session_monotonic_ms(void);
 
 #ifdef __cplusplus
 }

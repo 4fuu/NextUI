@@ -2,10 +2,16 @@
 # C3 shared launch-time device session helper.
 #
 # Sourced by skeleton/SYSTEM/*/paks/MinUI.pak/launch.sh. It starts devserv once
-# with an explicit persistent grants path, opens a session after the pre-launch
-# hooks, closes it immediately after the app command, and closes it again from
-# the EXIT trap. It never rewrites /tmp/next, never removes /tmp/nextui_exec, and
-# never kills devserv.
+# with an explicit legacy grants path (default-allow does not read it; no grant
+# file needs to exist), opens a session after the pre-launch hooks, runs the app
+# under a bounded C4 supervisor, closes the session after the app command, and
+# closes it again from the EXIT trap. It never rewrites /tmp/next, never removes
+# /tmp/nextui_exec, and never kills devserv.
+#
+# C4 ownership: devserv records an exit request only for the active session and
+# rejects a delayed request that predates it. This helper is the app's parent,
+# so it alone performs SIGTERM/SIGKILL on the child process group. No client
+# ever supplies a PID, and a late request cannot tear down a newer session.
 #
 # Every failure is best effort: a missing service, missing binary or rejected
 # request must never block the app launch.
@@ -141,6 +147,115 @@ nextui_session_stop() {
 	NEXTUI_SESSION_ACTIVE=0
 	NEXTUI_SESSION_ID=""
 	return 0
+}
+
+# One status query. A missing service is not an app failure.
+nextui_session_status() {
+	[ -x "$SYSTEM_PATH/bin/nextdev.elf" ] || return 0
+	nextui_session_nextdev --wait-ms 0 --socket "$(nextui_session_socket)" session-status 2>/dev/null || true
+}
+
+# C4 bounded grace. The app is a child process group created with setsid; only
+# this parent waits and signals it. devserv decides *whether* an exit was
+# requested for this session; the parent decides *how* to end its child.
+nextui_session_supervise() {
+	_nextui_pid=$1
+	_nextui_grace_ms=${NEXTUI_APP_EXIT_GRACE_MS:-1500}
+	_nextui_poll_ms=200
+	_nextui_term_sent=0
+	_nextui_forced=0
+
+	case "$_nextui_grace_ms" in
+		''|*[!0-9]*) _nextui_grace_ms=1500 ;;
+	esac
+	if ! sleep 0.01 >/dev/null 2>&1; then
+		_nextui_poll_ms=1000
+	fi
+	_nextui_ticks=$(( (_nextui_grace_ms + _nextui_poll_ms - 1) / _nextui_poll_ms ))
+	[ "$_nextui_ticks" -gt 0 ] || _nextui_ticks=1
+
+	while kill -0 "$_nextui_pid" 2>/dev/null \
+		|| { [ "$_nextui_term_sent" = "1" ] && kill -0 -"$_nextui_pid" 2>/dev/null; }; do
+		_nextui_status=$(nextui_session_status)
+		case "$_nextui_status" in
+			*'"exit_requested":true'*) _nextui_requested=1 ;;
+			*) _nextui_requested=0 ;;
+		esac
+		case "$_nextui_status" in
+			*'"session":"active"'*) _nextui_active=1 ;;
+			*) _nextui_active=0 ;;
+		esac
+
+		if [ "$_nextui_requested" = "1" ] && [ "$_nextui_active" = "1" ]; then
+			_nextui_id=$(printf '%s\n' "$_nextui_status" | sed -n 's/.*"session_id":"\([0-9a-fA-F]*\)".*/\1/p')
+			# The id is the stale-request guard. If the service omitted it,
+			# the request cannot be attributed and is ignored.
+			if [ -n "$_nextui_id" ] && [ "$_nextui_id" = "$NEXTUI_SESSION_ID" ]; then
+				if [ "$_nextui_term_sent" = "0" ]; then
+					_nextui_term_sent=1
+					kill -TERM -"$_nextui_pid" 2>/dev/null || kill -TERM "$_nextui_pid" 2>/dev/null
+				fi
+			fi
+		fi
+
+		if [ "$_nextui_term_sent" = "1" ]; then
+			if [ "$_nextui_ticks" -le 0 ]; then
+				_nextui_forced=1
+				kill -KILL -"$_nextui_pid" 2>/dev/null || kill -KILL "$_nextui_pid" 2>/dev/null
+				break
+			fi
+			_nextui_ticks=$((_nextui_ticks - 1))
+		fi
+
+		if [ "$_nextui_poll_ms" = "1000" ]; then
+			sleep 1
+		else
+			sleep 0.2
+		fi
+	done
+
+	if [ "$_nextui_term_sent" = "1" ] && [ -n "$NEXTUI_SESSION_ID" ]; then
+		_nextui_socket=$(nextui_session_socket)
+		if [ "$_nextui_forced" = "1" ]; then
+			nextui_session_nextdev --wait-ms 0 --socket "$_nextui_socket" --session-id "$NEXTUI_SESSION_ID" --forced app-exit-result >/dev/null 2>&1 || true
+		else
+			nextui_session_nextdev --wait-ms 0 --socket "$_nextui_socket" --session-id "$NEXTUI_SESSION_ID" app-exit-result >/dev/null 2>&1 || true
+		fi
+	fi
+}
+
+# Run the app command. Desktop and failed sessions keep the old foreground
+# eval. A live device session gets the bounded supervisor so FN2/HOME can end a
+# normal app and a stuck app is still cleaned up without a PID from any client.
+nextui_session_run() {
+	_nextui_cmd=$1
+	if [ -z "$_nextui_cmd" ]; then
+		return 0
+	fi
+
+	if [ "$NEXTUI_SESSION_ACTIVE" != "1" ] || [ -z "$NEXTUI_SESSION_ID" ]; then
+		eval "$_nextui_cmd"
+		return $?
+	fi
+
+	if ! command -v setsid >/dev/null 2>&1; then
+		if command -v busybox >/dev/null 2>&1 && busybox --list 2>/dev/null | grep -qx setsid; then
+			_nextui_setsid="busybox setsid"
+		else
+			# No process-group isolation: fall back to the previous behavior rather
+			# than signal a PID that might not own the app's children.
+			eval "$_nextui_cmd"
+			return $?
+		fi
+	else
+		_nextui_setsid="setsid"
+	fi
+
+	$_nextui_setsid sh -c "$_nextui_cmd" &
+	_nextui_pid=$!
+	nextui_session_supervise "$_nextui_pid"
+	wait "$_nextui_pid"
+	return $?
 }
 
 nextui_session_on_exit() {

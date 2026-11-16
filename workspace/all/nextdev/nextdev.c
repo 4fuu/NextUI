@@ -28,12 +28,17 @@ static void usage(FILE* stream)
             "  session-start                snapshot a device session (--pak recommended)\n"
             "  session-stop                 restore a session; --session-id is the guard\n"
             "  session-status               report the current or last session\n"
+            "  app-action <home|overlay>    request an app exit (at_ms is the press time)\n"
+            "  app-exit-result              report the launch parent's bounded wait\n"
+            "                               (--forced when the grace expired)\n"
             "\n"
             "options:\n"
             "  --socket PATH      devserv socket (default $NEXTUI_DEVSERV_SOCKET or %s)\n"
             "  --pak DIR          pak directory (default $NEXTUI_PAK_PATH)\n"
             "  --app ID           expected app id; devserv rejects a mismatch\n"
-            "  --session-id ID    hex generation id for session-stop\n"
+            "  --session-id ID    hex generation id for session-stop/app-action\n"
+            "  --at-ms N          monotonic press time for app-action (default now)\n"
+            "  --forced           app-exit-result was a SIGKILL after the grace\n"
             "  --wait-ms N        bounded connect wait, 0..10000 (default %d)\n"
             "\n"
             "Prints the raw JSON response. Exit codes: 0 allowed/served, 1 denied or\n"
@@ -142,12 +147,16 @@ int main(int argc, char* argv[])
     const char* args = NULL;
     const char* session_id = NULL;
     const char* op;
+    unsigned long long at_ms = 0;
+    int forced = 0;
     char request[DEVICE_PROTOCOL_LINE_MAX];
     char response[DEVICE_PROTOCOL_LINE_MAX];
     int descriptor;
     int argument = 1;
     int socket_overridden = 0;
     int session_command = 0;
+    int app_action_command = 0;
+    int exit_result_command = 0;
     int ok;
 
     snprintf(socket_path, sizeof socket_path, "%s", DEFAULT_SOCKET_PATH);
@@ -180,6 +189,23 @@ int main(int argc, char* argv[])
         {
             session_id = argv[argument + 1];
             argument += 2;
+        }
+        else if (strcmp(argv[argument], "--at-ms") == 0 && argument + 1 < argc)
+        {
+            char* end = NULL;
+
+            at_ms = strtoull(argv[argument + 1], &end, 10);
+            if (end == argv[argument + 1] || *end != '\0')
+            {
+                fprintf(stderr, "nextdev: --at-ms must be a non-negative integer\n");
+                return 2;
+            }
+            argument += 2;
+        }
+        else if (strcmp(argv[argument], "--forced") == 0)
+        {
+            forced = 1;
+            argument += 1;
         }
         else if (strcmp(argv[argument], "--wait-ms") == 0 && argument + 1 < argc)
         {
@@ -287,6 +313,37 @@ int main(int argc, char* argv[])
             return 2;
         }
     }
+    else if (strcmp(command, "app-action") == 0)
+    {
+        op = "app-action";
+        app_action_command = 1;
+        if (argument >= argc)
+        {
+            fprintf(stderr, "nextdev: app-action needs home or overlay\n");
+            return 2;
+        }
+        action = argv[argument++];
+        if (strcmp(action, "home") != 0 && strcmp(action, "overlay") != 0)
+        {
+            fprintf(stderr, "nextdev: app-action must be home or overlay\n");
+            return 2;
+        }
+        if (argument != argc)
+        {
+            fprintf(stderr, "nextdev: too many arguments\n");
+            return 2;
+        }
+    }
+    else if (strcmp(command, "app-exit-result") == 0)
+    {
+        op = "app-exit-result";
+        exit_result_command = 1;
+        if (argument != argc)
+        {
+            fprintf(stderr, "nextdev: too many arguments\n");
+            return 2;
+        }
+    }
     else
     {
         fprintf(stderr, "nextdev: unknown command: %s\n", command);
@@ -294,7 +351,25 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    if (session_command)
+    if (app_action_command)
+    {
+        if (!device_protocol_build_app_action_request(action, at_ms, session_id, request,
+                                                      sizeof request))
+        {
+            fprintf(stderr, "nextdev: request is too long\n");
+            return 2;
+        }
+    }
+    else if (exit_result_command)
+    {
+        if (!device_protocol_build_app_exit_result_request(session_id, forced, request,
+                                                           sizeof request))
+        {
+            fprintf(stderr, "nextdev: request is too long\n");
+            return 2;
+        }
+    }
+    else if (session_command)
     {
         if (!device_protocol_build_session_request(op, app, pak, session_id, request,
                                                    sizeof request))

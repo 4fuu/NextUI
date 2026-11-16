@@ -13,28 +13,31 @@ extern "C" {
 #endif
 
 /*
- * Authorization and dispatch gate for the device service (plan C1).
+ * Dispatch and legacy authorization gate for the device service (plan C1).
  *
- * Every call is resolved in this order:
- *   1. pak directory and manifest at that exact path (the client cannot supply
- *      a capability list; declarations are read from pak.json)
+ * Default policy: an installed pak may use every capability this build
+ * implements. `pak.json` declarations describe what the app supports; they are
+ * not an authorization request and never block the default path. A backend
+ * that is not implemented still reports `unavailable`; an unknown capability
+ * is still rejected.
+ *
+ * `device_gate_set_default_allow(1)` selects that policy. The legacy
+ * grant/identity checks below remain available for explicit compatibility
+ * builds (`device_gate_set_default_allow(0)`, used by the old gate tests);
+ * devserv selects default-allow unless started with --require-grants.
+ *
+ * Legacy grant path (when default-allow is off): every call is resolved as
+ *   1. pak directory and manifest at that exact path
  *   2. known capability name
  *   3. declared request (gated capabilities only)
  *   4. exact grant: app id + canonical path + manifest version + capability
- *   5. pak content identity: metadata signature, then SHA-256 content hash when
- *      metadata changed; a same-version content replacement is rejected
- *   6. backend availability (hardware present?)
+ *   5. pak content identity: metadata signature, then SHA-256 content hash
+ *   6. backend availability
  *   7. backend dispatch
  *
- * Authorization decides the error before availability, but responses still
- * report the backend's availability for that capability. Clients therefore see
- * available and authorized separately: a granted call on absent hardware
- * returns "unavailable" (authorized true, available false), while a missing
- * grant returns "unauthorized" even when the hardware exists.
- *
- * Only the settings layer calls device_gate_grant/revoke/reset. The app-facing
- * protocol exposes status and call only, so a device request cannot grant
- * itself anything.
+ * With default-allow on, steps 3-5 are skipped; capability validity,
+ * availability and dispatch are unchanged. The settings layer owns the legacy
+ * grant store; the app-facing protocol still exposes no grant operation.
  */
 
 #define DEVICE_GATE_DETAIL_MAX 160
@@ -139,6 +142,15 @@ typedef struct
 void device_call_request_init(DeviceCallRequest* request);
 void device_call_result_init(DeviceCallResult* result);
 void device_status_result_init(DeviceStatusResult* status);
+
+/*
+ * Select the permission policy for this process. 1 (devserv default): installed
+ * apps may call every known, implemented capability without a grant or a
+ * manifest declaration. 0: legacy grant/identity enforcement remains available
+ * for compatibility tests and explicit --require-grants builds.
+ */
+void device_gate_set_default_allow(int enabled);
+int device_gate_default_allow(void);
 
 DeviceGateError device_gate_call(const DeviceCallRequest* request, const char* grants_path,
                                  const DeviceBackend* backend, DeviceCallResult* result);

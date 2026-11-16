@@ -3,17 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh test-session test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render clean
 
-test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-session test-updater test-led-i18n test-boot-strings
-
-# The render proofs drive the real binaries headless (SDL dummy video driver
-# plus an LD_PRELOAD capture shim), which is Linux-only; CI's host job is
-# Linux. The fontTools cmap proof stays manual (pinned venv): see
-# workspace/all/ledcontrol/tests/run_led_font_coverage.sh.
-ifeq ($(shell uname -s),Linux)
-test: test-led-render test-show2-render
-endif
+test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -37,10 +29,23 @@ test-app-capabilities:
 test-device:
 	../workspace/all/common/tests/run_device_gate_test.sh
 	../workspace/all/common/tests/run_devserv_test.sh
+	../workspace/all/common/tests/run_devserv_default_allow_test.sh
+
+test-keymon:
+	../workspace/all/common/tests/run_keymon_fn_forward_test.sh
+
+test-home:
+	../workspace/all/common/tests/run_home_key_replay_test.sh
+
+test-clock:
+	../workspace/all/clock/tests/run_clock_fn_test.sh
 
 test-led:
 	../workspace/all/common/tests/run_led_lease_test.sh
 	../workspace/all/common/tests/run_led_backend_test.sh
+
+test-display-audio:
+	../workspace/all/common/tests/run_display_audio_backend_test.sh
 
 # Needs the desktop SDL/msettings build dependencies.
 test-led-refresh:
@@ -49,10 +54,13 @@ test-led-refresh:
 test-led-profile: test-led-refresh
 	../workspace/all/common/tests/run_led_profile_test.sh
 
-test-session:
+test-session: test-session-race
 	../workspace/all/common/tests/run_device_session_test.sh
 	../workspace/all/common/tests/run_launch_session_test.sh
 	../workspace/all/common/tests/run_session_e2e_test.sh
+
+test-session-race:
+	../workspace/all/common/tests/run_launch_session_race_test.sh
 
 test-session-e2e:
 	../workspace/all/common/tests/run_session_e2e_test.sh

@@ -1,6 +1,7 @@
 // tg5040
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <linux/fb.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -33,10 +34,64 @@ void PLAT_initPlatform(void) {
 	is_brickpro = exactMatch("brickpro", device);
 }
 
+/*
+ * Brick Pro reports KEY_HOMEPAGE (172) on the TRIMUI Player1 evdev node, but
+ * that node is a combined keyboard+joystick and SDL exposes only its joystick
+ * buttons (js0 has no HOME). SDL's evdev keyboard backend skips joystick-class
+ * devices, so HOME never becomes an SDL key or joystick button.
+ *
+ * We do not add a second event reader and do not grab. We open the node that
+ * advertises KEY_HOMEPAGE and query EVIOCGKEY for its state each poll. That
+ * ioctl reads the kernel's key bitmap and does not consume the event queue, so
+ * NextUI/keymon/inputd keep their existing ownership and no press is repeated.
+ * The real keycode is used directly; no joystick button index is guessed.
+ */
+static int home_key_fd = -1;
+
+/* Avoid including <linux/input.h> here: its BTN_* macros collide with NextUI's
+ * BTN_* bitmask enum. These three values are the kernel ABI used by the real
+ * event3 record: EV_KEY=1, KEY_MAX=0x2ff, KEY_HOMEPAGE=172. */
+#define HOME_KEY_EVENT_TYPE 0x01
+#define HOME_KEY_CODE 172
+#define HOME_KEY_MAX 0x2ff
+#define HOME_KEY_BITS (HOME_KEY_MAX / 8 + 1)
+#define HOME_KEY_EVIOCGBIT(len) _IOC(_IOC_READ, 'E', 0x20 + HOME_KEY_EVENT_TYPE, len)
+#define HOME_KEY_EVIOCGKEY(len) _IOC(_IOC_READ, 'E', 0x18, len)
+
+static int open_home_key_device(void) {
+	char path[32];
+	unsigned char keybits[HOME_KEY_BITS];
+
+	for (int i = 0; i < 32; i++) {
+		int fd;
+		snprintf(path, sizeof path, "/dev/input/event%i", i);
+		fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd < 0) continue;
+
+		memset(keybits, 0, sizeof keybits);
+		if (ioctl(fd, HOME_KEY_EVIOCGBIT(sizeof keybits), keybits) >= 0
+			&& (keybits[HOME_KEY_CODE / 8] & (1 << (HOME_KEY_CODE % 8)))) {
+			return fd;
+		}
+		close(fd);
+	}
+	return -1;
+}
+
+int PLAT_getHomeKeyPressed(void) {
+	unsigned char keys[HOME_KEY_BITS];
+
+	if (home_key_fd < 0) return 0;
+	memset(keys, 0, sizeof keys);
+	if (ioctl(home_key_fd, HOME_KEY_EVIOCGKEY(sizeof keys), keys) < 0) return 0;
+	return (keys[HOME_KEY_CODE / 8] & (1 << (HOME_KEY_CODE % 8))) ? 1 : 0;
+}
+
 static SDL_Joystick **joysticks = NULL;
 static int num_joysticks = 0;
 void PLAT_initInput(void) {
 	PLAT_initPlatform();
+	if (home_key_fd < 0) home_key_fd = open_home_key_device();
 	if(SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0)
 		LOG_error("Failed initializing joysticks: %s\n", SDL_GetError());
 	num_joysticks = SDL_NumJoysticks();
@@ -61,7 +116,11 @@ void PLAT_quitInput(void) {
         joysticks = NULL;
         num_joysticks = 0;
     }
-	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+    if (home_key_fd >= 0) {
+        close(home_key_fd);
+        home_key_fd = -1;
+    }
+    SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
 }
 
 void PLAT_updateInput(const SDL_Event *event) {

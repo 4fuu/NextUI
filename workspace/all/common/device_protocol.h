@@ -21,6 +21,14 @@ extern "C" {
  *   {"op":"session-start","app":"id","pak":"/path/to/App.pak"}
  *   {"op":"session-stop","session_id":"0123456789abcdef"}
  *   {"op":"session-status"}
+ *   {"op":"app-action","action":"home|overlay","at_ms":12345,
+ *    "session_id":"0123456789abcdef"}
+ *   {"op":"app-exit-result","session_id":"0123456789abcdef","forced":true}
+ *
+ * app-action is the keymon seam: keymon supplies the monotonic press time so a
+ * delayed request cannot apply to a newer session. It never carries a PID.
+ * app-exit-result is the launch parent's bounded-wait report; a late report is
+ * rejected by the same session-id guard as session-stop.
  *
  * There is deliberately no grant/revoke operation here. The app-facing service
  * can only report status, dispatch already-authorized calls, and run the C3
@@ -39,6 +47,8 @@ typedef enum
     DEVICE_OP_SESSION_START,
     DEVICE_OP_SESSION_STOP,
     DEVICE_OP_SESSION_STATUS,
+    DEVICE_OP_APP_ACTION,
+    DEVICE_OP_APP_EXIT_RESULT,
 } DeviceOp;
 
 typedef struct
@@ -49,6 +59,9 @@ typedef struct
     char capability[DEVICE_GRANT_CAPABILITY_MAX];
     char action[DEVICE_GATE_ACTION_MAX];
     char session_id[DEVICE_SESSION_ID_MAX];
+    unsigned long long at_ms;
+    int forced;
+    int has_forced;
     int has_args;
     char args[DEVICE_PROTOCOL_ARGS_MAX];
 } DeviceRequestMessage;
@@ -67,6 +80,13 @@ int device_protocol_build_request(const char* op, const char* app, const char* p
 int device_protocol_build_session_request(const char* op, const char* app, const char* pak,
                                           const char* session_id, char* out, size_t out_size);
 
+/* C4 keymon request (no PID) and launch-parent outcome report. */
+int device_protocol_build_app_action_request(const char* action, unsigned long long at_ms,
+                                             const char* session_id, char* out,
+                                             size_t out_size);
+int device_protocol_build_app_exit_result_request(const char* session_id, int forced,
+                                                  char* out, size_t out_size);
+
 /* Response writers; each returns 1 when the whole line fit. */
 int device_protocol_write_ping_response(char* out, size_t out_size);
 int device_protocol_write_call_response(const DeviceCallResult* result, char* out, size_t out_size);
@@ -76,6 +96,11 @@ int device_protocol_write_session_response(const DeviceSession* session,
                                            DeviceSessionResult result, int cleaned,
                                            const char* error, const char* detail, char* out,
                                            size_t out_size);
+int device_protocol_write_app_action_response(const DeviceSession* session,
+                                              DeviceSessionResult result, const char* action,
+                                              int handled_by_app, const char* error,
+                                              const char* detail, char* out,
+                                              size_t out_size);
 int device_protocol_write_error_response(const char* error, const char* detail, char* out,
                                          size_t out_size);
 
