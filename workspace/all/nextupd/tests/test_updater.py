@@ -1090,6 +1090,21 @@ def test_install_missing_marker_refuses(key_der):
     expect_unchanged("ambiguous recovery writes nothing", target, before)
 
 
+def test_install_missing_live_before_backup_refuses(key_der):
+    staged = build_stage("install-missing-live-stage")
+    target = make_target("install-missing-live")
+    proc = run(install_args(staged, target),
+               env={"NEXTUPD_TEST_CRASH_PHASE": "prepared"})
+    if proc.returncode != 70:
+        fail("install missing live setup", "expected exit 70", proc)
+        return
+    shutil.rmtree(os.path.join(target, ".system"))
+    before = tree_manifest(target)
+    expect("recover refuses missing live before backup", run(recover_args(target)), 13,
+           "state_ambiguous")
+    expect_unchanged("missing live recovery writes nothing", target, before)
+
+
 def test_install_corrupt_transaction_record(key_der):
     staged = build_stage("install-corrupt-txn-stage")
     target = make_target("install-corrupt-txn")
@@ -1163,6 +1178,7 @@ def main():
     test_install_backup_corruption(key_der)
     test_install_rollback_crash(key_der)
     test_install_missing_marker_refuses(key_der)
+    test_install_missing_live_before_backup_refuses(key_der)
     test_install_corrupt_transaction_record(key_der)
     test_install_backup_retention(key_der)
 

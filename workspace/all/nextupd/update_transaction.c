@@ -1085,7 +1085,7 @@ static int restore_live_from_backup(const UpdPaths* paths, const TxnRecord* reco
     return 1;
 }
 
-static int rollback_precommit(const UpdPaths* paths, TxnRecord* record,
+static int rollback_precommit(const UpdPaths* paths, TxnRecord* record, int require_live,
                               UpdTransactionResult* result, UpdError* error)
 {
     int live_exists = 0;
@@ -1109,6 +1109,12 @@ static int rollback_precommit(const UpdPaths* paths, TxnRecord* record,
     }
     if (!live_exists)
     {
+        if (require_live)
+        {
+            upd_error_set(error, UPD_E_STATE, "state_ambiguous",
+                          "%s is missing before the backup phase", paths->live);
+            return 0;
+        }
         if (!restore_live_from_backup(paths, record, error)) return 0;
         backup_exists = 0;
     }
@@ -1365,10 +1371,11 @@ static int recover_internal(const char* root, int force_rollback,
             return 0;
         }
         if (strcmp(record.state, TXN_STATE_PREPARING) == 0
-            || strcmp(record.state, TXN_STATE_PREPARED) == 0
-            || strcmp(record.state, TXN_STATE_BACKING_UP) == 0
+            || strcmp(record.state, TXN_STATE_PREPARED) == 0)
+            return rollback_precommit(&paths, &record, 1, result, error);
+        if (strcmp(record.state, TXN_STATE_BACKING_UP) == 0
             || (strcmp(record.state, TXN_STATE_INSTALLING) == 0 && !live_exists))
-            return rollback_precommit(&paths, &record, result, error);
+            return rollback_precommit(&paths, &record, 0, result, error);
         if (strcmp(record.state, TXN_STATE_ROLLING_BACK) == 0)
             return complete_rollback(&paths, &record, result, error);
         if (strcmp(record.state, TXN_STATE_ROLLED_BACK) == 0)
@@ -1381,9 +1388,10 @@ static int recover_internal(const char* root, int force_rollback,
         return rollback_installed(&paths, &record, result, error);
     }
     if (strcmp(record.state, TXN_STATE_PREPARING) == 0
-        || strcmp(record.state, TXN_STATE_PREPARED) == 0
-        || strcmp(record.state, TXN_STATE_BACKING_UP) == 0)
-        return rollback_precommit(&paths, &record, result, error);
+        || strcmp(record.state, TXN_STATE_PREPARED) == 0)
+        return rollback_precommit(&paths, &record, 1, result, error);
+    if (strcmp(record.state, TXN_STATE_BACKING_UP) == 0)
+        return rollback_precommit(&paths, &record, 0, result, error);
     if (strcmp(record.state, TXN_STATE_INSTALLING) == 0)
     {
         int live_exists = 0;
@@ -1394,7 +1402,7 @@ static int recover_internal(const char* root, int force_rollback,
                           "%s is not a plain directory", paths.live);
             return 0;
         }
-        if (!live_exists) return rollback_precommit(&paths, &record, result, error);
+        if (!live_exists) return rollback_precommit(&paths, &record, 0, result, error);
         return finalize_commit(&paths, &record, result, error);
     }
     if (strcmp(record.state, TXN_STATE_INSTALLED) == 0
@@ -1817,7 +1825,7 @@ int upd_install_execute(const UpdInstallRequest* request, UpdTransactionResult* 
             UpdError ignored;
             UpdTransactionResult ignored_result;
             upd_error_clear(&ignored);
-            (void)rollback_precommit(&paths, &record, &ignored_result, &ignored);
+            (void)rollback_precommit(&paths, &record, 1, &ignored_result, &ignored);
             return 0;
         }
     }
