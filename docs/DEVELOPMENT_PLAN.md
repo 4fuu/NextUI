@@ -329,7 +329,16 @@ Rules:
   launcher test compiles the real `nextui.c` and executes `launch.sh`, so the
   production-path host evidence is owner-verified; device boot and rendering
   remain unverified. The fix is with the source; a new exact head follows for
-  CI plus an independent re-review.
+  CI plus an independent re-review. The fix head is delivered 2026-11-16 as
+  `8ae60476393ef3c3dad22720a3091775c8b0c094` on the same branch, OPEN,
+  MERGEABLE and CLEAN per gh, with CI at the exact head green per gh (Feature
+  checks push and pull_request with Host tests at 634 passed / 0 failed per
+  the run log and the tg5040 target build; Development/Desktop with
+  build-linux and build-macos); source-claimed fixes cover all four blockers
+  with old-logic-failure regressions (the zh total moves to 27 with the
+  fixture 288 to 291), and the residual SD swap race stays honestly recorded
+  without any unreachability or staged-kind-gate claim; awaiting the merge
+  owner's independent re-review; not merged.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1414,9 +1423,11 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   refusal and rescan tests, and a production-path test that installs with the
   real nextupd, compiles the real `nextui.c`, and from the same isolated root
   discovers the installed app and executes its queued launch command; 25 new
-  zh entries plus the a4 fixture as the source claimed (the review measured 24
-  -- see the FAIL below), with the font verifier reporting 0 missing
-  and the width check passing. The launcher gap therefore changes from "only a
+  zh entries plus the a4 fixture as the source claimed at the first head (the
+  review measured 24; the fix head claims 27 with the fixture 288 to 291 --
+  see the FAIL and the fix head below), with the font verifier reporting 0
+  missing and the width check passing. The launcher gap therefore changes from
+  "only a
   copied scanner" to "the source has provided production-path host evidence",
   and the merge owner independently confirmed that the real launcher test
   really compiles the real `nextui.c` and executes `launch.sh`, so that
@@ -1438,9 +1449,30 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   a scan-to-stage SD swap race is not covered, so this schedule does not claim
   the system transaction is unreachable for that race -- the owner asks for
   either a staged-kind check or an honestly recorded boundary. The merge owner
-  has sent the fix to the source directly. The source then delivers a new
-  exact head for CI plus an independent re-review; no defect is recorded for
-  the existing Settings convention of having no page title.
+  has sent the fix to the source directly; no defect is recorded for the
+  existing Settings convention of having no page title.
+- Fix head delivered 2026-11-16 as `8ae60476393ef3c3dad22720a3091775c8b0c094`
+  on the same branch `feature/local-app-install-ui`, OPEN, MERGEABLE and CLEAN
+  per gh; CI at the exact head is green per gh (Feature checks push and
+  pull_request with Host tests at 634 passed / 0 failed per the run log and
+  the tg5040 target build; Development/Desktop with build-linux and
+  build-macos). Source-claimed fixes, each with an old-logic-failure
+  regression: `refreshItem` initialization and the construction order; a fixed
+  status/folder/packages/rescan order; the three zh strings plus their a4
+  lines, taking the new total to 27 and the fixture 288 to 291; and the
+  unconfigured-key state reworded to "No trusted key is configured." with
+  h700 600px reachable-state width tests in both languages. The source also
+  fixed the screenshot harness so it no longer crops the descriptions -- the
+  current images show the selected package's id/version -- and added
+  tool-path tests for both the with- and without-boot-payload cases.
+  Source-reported results, which are not acceptance: controller 58/0, the
+  four menu regressions, the real launcher 9/0, the full host suite with no
+  failures, and green CI at the exact head. The residual SD swap race is NOT
+  fixed: it is honestly recorded in UPDATES and in the code that a signed
+  system manifest could enter install, so this schedule does not claim
+  app-only unreachability for the race and does not claim a staged-kind gate
+  exists. Awaiting the merge owner's independent re-review; not merged; the
+  FAIL at `7418cf5` stays as history.
 - I10 mapping: PR #41's copy of this file records this slice as "I10 — Local
   application install UI (settings surface)" with the same owner thread and
   the same scope. It is the same task as F6b, not a second one; this schedule
@@ -1914,7 +1946,9 @@ as they happen; nothing is reported as passing without a run.
   `7418cf5`, awaiting the merge owner's independent review), with the source's
   I10 entry mapped to F6b so the slice stays one task; the independent review
   then FAILED the exact head `7418cf5` with four blockers and two non-blocking
-  boundaries, which are recorded with priority over the green CI),
+  boundaries, which are recorded with priority over the green CI; the fix head
+  `8ae6047` is now delivered with source-claimed fixes for all four blockers
+  and awaits an independent re-review),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
