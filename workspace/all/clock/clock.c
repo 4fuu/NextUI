@@ -1,12 +1,16 @@
 // loosely based on https://github.com/gameblabla/clock_sdl_app
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 #include <msettings.h>
 
 #include "defines.h"
 #include "api.h"
+#include "config.h"
+#include "fn_bridge.h"
 #include "utils.h"
 
 enum {
@@ -19,6 +23,68 @@ enum {
 	CURSOR_AMPM,
 };
 
+// B6 reference-app wiring. Clock is a real, shipped Tools pak; declaring
+// "overlay" in its pak.json is what makes devserv route HOME to this process
+// instead of treating it as an unadapted app.
+static int clock_request_exit(void* user) {
+	if (user) *(int*)user = 1;
+	return 1;
+}
+
+static void clock_reset_input(void* user) {
+	(void)user;
+	PAD_reset();
+}
+
+// Desktop preview has no physical FN keys. Use the same keyboard stand-ins the
+// existing B5 harness uses, but only when PLATFORM says this is the host build;
+// on a device these are ordinary Start/Menu keys and must not be hijacked.
+static const FnBridgeButtons* clock_fn_buttons(void) {
+	static const FnBridgeButtons host = { BTN_NONE, BTN_START, BTN_MENU };
+	const char* platform = getenv("PLATFORM");
+
+	if (platform && strcmp(platform, "desktop") == 0) return &host;
+	return NULL;
+}
+
+// Host-only scripted timeline. It drives the real Clock loop (and therefore the
+// real FnBridge/overlay path) with SDL key events, then writes the observable
+// result. Device runs never pass --report.
+static void clock_push_key_event(SDL_Scancode code, int down) {
+	SDL_Event event;
+	memset(&event, 0, sizeof event);
+	event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+	event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+	event.key.keysym.scancode = code;
+	(void)SDL_PushEvent(&event);
+}
+
+static void clock_push_key(SDL_Scancode code) {
+	clock_push_key_event(code, 1);
+	clock_push_key_event(code, 0);
+}
+
+static void clock_write_report(const char* path, int frame, int overlay_opens,
+                               int overlay_closes, int cursor_at_open,
+                               int cursor_at_close, int cursor_after_app_right,
+                               int system_frames, const char* exit_reason,
+                               int exit_requested, int process_exit) {
+	FILE* file;
+	if (!path || !path[0]) return;
+	file = fopen(path, "w");
+	if (!file) return;
+	fprintf(file,
+	        "{\"frame\":%d,\"overlay_opens\":%d,\"overlay_closes\":%d,"
+	        "\"cursor_at_open\":%d,\"cursor_at_close\":%d,"
+	        "\"cursor_after_app_right\":%d,\"system_frames\":%d,"
+	        "\"exit_reason\":\"%s\",\"exit_requested\":%s,"
+	        "\"process_exit\":%d}\n",
+	        frame, overlay_opens, overlay_closes, cursor_at_open, cursor_at_close,
+	        cursor_after_app_right, system_frames, exit_reason,
+	        exit_requested ? "true" : "false", process_exit);
+	fclose(file);
+}
+
 int main(int argc , char* argv[]) {
 	PWR_setCPUSpeed(CPU_SPEED_AUTO);
 	
@@ -26,6 +92,42 @@ int main(int argc , char* argv[]) {
 	PAD_init();
 	PWR_init();
 	InitSettings();
+	CFG_init(NULL, NULL);
+
+	int quit = 0;
+	OverlayAppHooks overlay_hooks = {0};
+	overlay_hooks.user = &quit;
+	overlay_hooks.capabilities = UI_OVERLAY_CAP_EXIT;
+	overlay_hooks.app_name = "Clock";
+	overlay_hooks.exit_to_desktop = clock_request_exit;
+	overlay_hooks.input_reset = clock_reset_input;
+
+	FnBridgeConfig bridge_config = {0};
+	bridge_config.user = &quit;
+	bridge_config.exit_to_home = clock_request_exit;
+	bridge_config.overlay_hooks = &overlay_hooks;
+	FnBridge* fn_bridge = FnBridge_create(&bridge_config);
+
+	const char* report_path = NULL;
+	const char* capture_path = NULL;
+	for (int arg = 1; arg < argc; arg++) {
+		if (strcmp(argv[arg], "--report") == 0 && arg + 1 < argc) {
+			report_path = argv[++arg];
+		}
+		else if (strcmp(argv[arg], "--capture") == 0 && arg + 1 < argc) {
+			capture_path = argv[++arg];
+		}
+	}
+	int script = report_path != NULL;
+	int script_frame = 0;
+	int script_overlay_opens = 0;
+	int script_overlay_closes = 0;
+	int script_cursor_at_open = -1;
+	int script_cursor_at_close = -1;
+	int script_cursor_after_app_right = -1;
+	int script_system_frames = 0;
+	int script_timed_out = 0;
+	int script_captured = 0;
 	
 	// TODO: make use of SCALE1()
 	SDL_Surface* digits =  SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE, SCALE1(120), SCALE1(16), 32, screen->format->format);
@@ -51,7 +153,6 @@ int main(int argc , char* argv[]) {
 	}
 	
 	SDL_Event event;
-	int quit = 0;
 	int save_changes = 0;
 	int select_cursor = 0;
 	int show_24hour = exists(USERDATA_PATH "/show_24hour");
@@ -141,12 +242,52 @@ int main(int argc , char* argv[]) {
 
 	int dirty = 1;
 	int show_setting = 0;
+	int overlay_was_open = 0;
 	int was_online = PWR_isOnline();
     int had_bt = PLAT_btIsConnected();
 	while(!quit) {
 		GFX_startFrame();
+
+		if (script) {
+			script_frame++;
+			if (script_frame == 5) clock_push_key(CODE_MENU);
+			else if (script_frame == 8) clock_push_key(CODE_RIGHT);
+			else if (script_frame == 12) clock_push_key(CODE_MENU);
+			else if (script_frame == 15) clock_push_key_event(CODE_RIGHT, 1);
+			else if (script_frame == 16) clock_push_key_event(CODE_RIGHT, 0);
+			else if (script_frame == 17) script_cursor_after_app_right = select_cursor;
+			else if (script_frame == 19) clock_push_key(CODE_MENU);
+			else if (script_frame == 23) clock_push_key(CODE_START);
+			else if (script_frame == 31) {
+				script_timed_out = 1;
+				quit = 1;
+			}
+		}
+
 		PAD_poll();
-		
+
+		// B6: FN2/HOME are system keys only when this app declared the
+		// overlay capability. The bridge consumes the key frame and the
+		// overlay while open; otherwise Clock owns its normal input.
+		FnBridgeActions fn_actions = {
+			CFG_getFnAction(0), CFG_getFnAction(1), CFG_getFnAction(2),
+		};
+		int system_input = FnBridge_poll(fn_bridge, &fn_actions, clock_fn_buttons());
+		int overlay_open = FnBridge_overlayOpen(fn_bridge);
+		if (system_input) script_system_frames++;
+		if (overlay_open != overlay_was_open) {
+			if (overlay_open) {
+				script_overlay_opens++;
+				if (script_cursor_at_open < 0) script_cursor_at_open = select_cursor;
+			}
+			else {
+				script_overlay_closes++;
+				if (script_cursor_at_close < 0) script_cursor_at_close = select_cursor;
+			}
+			dirty = 1;
+		}
+
+		if (!system_input) {
 		if (PAD_justRepeated(BTN_UP)) {
 			dirty = 1;
 			switch(select_cursor) {
@@ -233,6 +374,7 @@ int main(int argc , char* argv[]) {
 				system("rm " USERDATA_PATH "/show_24hour");
 			}
 		}
+		}
 		
 		PWR_update(&dirty, NULL, NULL,NULL);
 		
@@ -246,7 +388,7 @@ int main(int argc , char* argv[]) {
             dirty = 1;
         had_bt = has_bt;
 		
-		if (dirty) {
+		if (dirty || overlay_open) {
 			validate();
 
 			GFX_clear(screen);
@@ -309,13 +451,31 @@ int main(int argc , char* argv[]) {
 			}
 			blitBar(x,y, (select_cursor==CURSOR_YEAR ? SCALE1(40) : (select_cursor==CURSOR_AMPM ? ampm_w : SCALE1(20))));
 		
+			FnBridge_draw(fn_bridge, screen);
+			if (script && capture_path && overlay_open && !script_captured) {
+				(void)SDL_SaveBMP(screen, capture_path);
+				script_captured = 1;
+			}
 			GFX_flip(screen);
 			dirty = 0;
 		}
 		else GFX_sync();
+		overlay_was_open = overlay_open;
 	}
 	
 	SDL_FreeSurface(digits);
+
+	if (script) {
+		const char* exit_reason = script_timed_out ? "timeout"
+			: (FnBridge_exitRequested(fn_bridge) ? "fn2-home" : "overlay-exit");
+		clock_write_report(report_path, script_frame, script_overlay_opens,
+		                   script_overlay_closes, script_cursor_at_open,
+		                   script_cursor_at_close, script_cursor_after_app_right,
+		                   script_system_frames, exit_reason,
+		                   FnBridge_exitRequested(fn_bridge), 0);
+	}
+
+	FnBridge_destroy(fn_bridge);
 	
 	QuitSettings();
 	PWR_quit();

@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh test-session test-session-e2e clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-keymon test-clock test-led test-led-profile test-led-refresh test-session test-session-e2e clean
 
-test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-session
+test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-keymon test-clock test-led test-session
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -29,6 +29,12 @@ test-app-capabilities:
 test-device:
 	../workspace/all/common/tests/run_device_gate_test.sh
 	../workspace/all/common/tests/run_devserv_test.sh
+
+test-keymon:
+	../workspace/all/common/tests/run_keymon_fn_forward_test.sh
+
+test-clock:
+	../workspace/all/clock/tests/run_clock_fn_test.sh
 
 test-led:
 	../workspace/all/common/tests/run_led_lease_test.sh
