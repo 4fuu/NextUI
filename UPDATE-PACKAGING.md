@@ -36,13 +36,15 @@ Run `update-package` **before** `make package`: `make package` moves
 packages no longer exists afterwards.
 
 The target builds the host `nextupd` binary and runs
-[`scripts/package-update.sh`](scripts/package-update.sh), which writes into
-`releases/` (override with `UPDATE_OUT_DIR`), replacing any previous outputs:
+[`scripts/package-update.sh`](scripts/package-update.sh), which publishes into
+`releases/` (override with `UPDATE_OUT_DIR`) as one atomic set:
 
 - `nextui-system-<platform>.zip` — the archive
 - `nextui-system-<platform>.manifest.json` — the `nextui-update-v1` manifest
 - `nextui-system-<platform>.manifest.sig` — the detached Ed25519 signature,
   only when `UPDATE_KEY`/`UPDATE_KEY_ID` are supplied
+- `nextui-system-<platform>.manifest.set` — the commit marker recording the set
+  (see [Atomic output](#atomic-output))
 
 Inputs, all overridable through the matching `UPDATE_*` variables:
 
@@ -113,6 +115,53 @@ The `.system` tree is copied as built, so the shared libraries (for example
 `libsamplerate`) and everything the recovery tool needs survive packaging
 untouched. Output paths with spaces are supported.
 
+### Atomic output
+
+The archive, manifest and signature are published together as **one artifact
+set**. The script builds and self-checks the whole set in a staging directory
+*inside* the output directory, then moves each file into place with a
+same-filesystem rename and writes a commit marker last. A flat set of three
+names cannot be swapped in a single syscall, so the guarantee is split by *when*
+a run is interrupted:
+
+- **Before the publish** (a `zip`, manifest, signature or self-check failure, or
+  bad input): the published names are never touched, so the previous set is left
+  byte-for-byte and no staging directory is left behind. This is the strong
+  guarantee, and it is what the old `rm`-then-rebuild order broke (it deleted the
+  prior manifest on any such failure).
+- **During the publish renames** (a `SIGKILL` between two `mv`s): one of three
+  windows is left, and `nextupd check` — the verifier, not this script — decides
+  each. Archive new + manifest old → `archive_hash_mismatch` (exit 6); archive
+  and manifest new + signature old → `signature_invalid` (exit 8, or exit 0 but
+  *unauthenticated* under `--integrity-only`); all three new → a valid set that
+  checks, stages and installs. No window is a set that silently passes as a valid
+  release it is not, because the archive hash and then the signature are what
+  `nextupd` enforces. The previous complete set is **not** preserved across an
+  interrupted publish — the first rename already replaces the old archive — and
+  the next run rebuilds a fresh, complete set over whatever is there.
+
+- An unsigned run replaces a signed set and drops the stale signature, so no
+  signature is left beside a manifest it does not belong to.
+- `<base>.manifest.set` is the commit marker: the file names and sha256s of the
+  set the last completed publish wrote. It is an **operator completeness
+  record** (checkable without a signing key) and this script's own
+  interrupted-publish signal — a marker that does not match the published files
+  makes the script warn and rebuild. It is **not** read by `nextupd` and is not a
+  safety mechanism; `nextupd check` is. Consumers must verify with `nextupd check`
+  (or install, which does), not assume that three present files are a consistent
+  set.
+- SHA-256 uses `sha256sum`, falling back to `shasum` (macOS) then `openssl`;
+  `NEXTUI_SHA256` forces one for testing. (`build-macos` only compiles `nextupd`
+  and does not run this script, so the `shasum`/`openssl` fallback is covered by
+  the host test that forces each backend.)
+
+`make -C tests test-update-package-atomic` guards all of this: injected
+`zip`/manifest/signature/self-check failures that must preserve the previous set,
+an unsigned rerun dropping a stale signature, the three interrupted-publish
+windows asserted against the real `nextupd` (`exit 6` / `exit 8` / installs), a
+corrupt archive, bad input, a swept leftover staging directory, each SHA-256
+backend, and the legacy-version refusal.
+
 ## Verifying without a device
 
 The host test suite drives the real script and the real `nextupd` binary over
@@ -164,12 +213,50 @@ Nothing here installs to a device.
 
 ## Not included
 
-- Two release-time items this packaging work surfaces but does not decide:
-  the bootstrap `MinUI.zip` writes `.system/version.txt` as
-  `NextUI-<date>-<n>`, which `nextupd` rejects as a target version
-  (`target_version_missing`), so the first transactional update onto a
-  bootstrapped card needs a policy for that file; and outputs are replaced
-  per run rather than written atomically, so an interrupted run can leave a
-  partial archive behind (the next run replaces it).
+- How a bootstrapped card gets a real, machine-readable version. See
+  [Bootstrap version policy](#bootstrap-version-policy-owner-decision) below: a
+  product decision this packaging work documents but does not make.
 - Wiring the archive into `ci.yaml`/`release.yaml`. Those workflows stay with
   the CI owner; the package-content evidence above is the test-only check.
+
+## Bootstrap version policy (owner decision)
+
+The bootstrap `MinUI.zip` built by `make package` writes `.system/version.txt`
+as the human-readable display string `NextUI-<date>-<n>` (followed by the build
+hash). The transactional archive built by `make update-package` instead writes
+the machine-readable `vX.Y.Z` that `nextupd` requires, and `nextupd install`
+reads the *installed* `.system/version.txt` as the target version. A card first
+installed from the bootstrap therefore carries a version `nextupd` cannot parse,
+and the first transactional update onto it is refused with
+`target_version_missing` (exit 13) before anything is written.
+
+That refusal is deliberate and this work does not change it: it does not invent
+a date-to-semver mapping, does not treat an unknown version as `v0.0.0` (which
+would let a package's `min_system` be bypassed), and does not relax signature,
+ZIP, platform or root validation. `make -C tests test-update-package-atomic`
+locks the behavior: the legacy text is refused and the target is left untouched,
+while the same package installs onto a valid `vX.Y.Z` target.
+
+Choosing how bootstrapped cards get a real version is a product decision. The
+options, and what each requires:
+
+1. **Give `make package` a real version source.** Add a canonical `vX.Y.Z` (a
+   `VERSION` file, a tag, or a release variable) and have `make package` write
+   it into `.system/version.txt` beside the display string, so future bootstrap
+   cards carry a machine-readable version from the start. This is the clean fix,
+   but it needs an agreed source of truth for the number; the repository has
+   none today (`v6.16.0` appears only in docs as an example).
+2. **Accept the legacy format as a target version, under an explicit policy.**
+   Teach `nextupd` to map a known legacy `NextUI-<date>-<n>` (or a `<date>-<n>`
+   build stamp) to a baseline `vX.Y.Z` for comparison only. Validation stays
+   intact, but the mapping is a product decision: which date corresponds to
+   which release, and what an unknown stamp maps to, directly affect `min_system`
+   and downgrade checks. It must not silently map unknown stamps to `v0.0.0`.
+3. **One-time bootstrap migration.** Ship a small, signed step (or document a
+   manual step) that rewrites a bootstrapped card's `.system/version.txt` to the
+   matching `vX.Y.Z` before the first transactional update. No change to
+   `nextupd`'s version contract, but it needs the same date/version mapping to
+   know what to write.
+
+Until one is chosen, the first transactional update onto a bootstrapped card is
+refused clearly rather than applied against an unknown version.
