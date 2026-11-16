@@ -9,6 +9,10 @@
 #include "utils.h"
 
 NextUISettings settings = {0};
+// True only while CFG_init() is reading minuisettings.txt. Setters called by the
+// parser must update memory without writing the file back into its own read
+// loop; that could truncate or corrupt the remaining settings.
+static int loadingSettings;
 
 // deprecated
 uint32_t THEME_COLOR1_255;
@@ -219,8 +223,22 @@ static void loadFontFile(void)
 // Defined below, alongside the rest of the palette-name accessors.
 static void setPaletteNameRaw(const char *name);
 
+// Used only while reading the settings file. Unlike CFG_setFnAction(), this
+// must not call CFG_sync(): writing the file from inside its own read loop can
+// truncate or corrupt the remaining settings.
+static void setFnActionRaw(int index, const char *action)
+{
+    if (index < 0 || index >= FN_BUTTON_COUNT)
+        return;
+    if (!action)
+        action = "";
+    strncpy(settings.fnAction[index], action, sizeof(settings.fnAction[index]) - 1);
+    settings.fnAction[index][sizeof(settings.fnAction[index]) - 1] = '\0';
+}
+
 void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
 {
+    loadingSettings = 1;
     CFG_defaults(&settings);
     settings.onFontChange = cb;
     settings.onColorSet = ccb;
@@ -444,21 +462,21 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
             {
                 char *value = line + 10;
                 value[strcspn(value, "\r\n")] = 0;
-                CFG_setFnAction(0, value);
+                setFnActionRaw(0, value);
                 continue;
             }
             if (strncmp(line, "fn2action=", 10) == 0)
             {
                 char *value = line + 10;
                 value[strcspn(value, "\r\n")] = 0;
-                CFG_setFnAction(1, value);
+                setFnActionRaw(1, value);
                 continue;
             }
             if (strncmp(line, "fn3action=", 10) == 0)
             {
                 char *value = line + 10;
                 value[strcspn(value, "\r\n")] = 0;
-                CFG_setFnAction(2, value);
+                setFnActionRaw(2, value);
                 continue;
             }
             if (sscanf(line, "artWidth=%i", &temp_value) == 1)
@@ -653,6 +671,7 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
 
     // Load the resolved font once, after language and explicit-choice parsing.
     loadFontFile();
+    loadingSettings = 0;
 }
 
 const char* CFG_getFontFile(void)
@@ -1719,6 +1738,10 @@ void CFG_get(const char *key, char *value)
 
 void CFG_sync(void)
 {
+    // A setter invoked by the parser must not write the file it is reading.
+    if (loadingSettings)
+        return;
+
     // write to file
     char settingsPath[MAX_PATH];
     const char *shared_userdata = getenv("SHARED_USERDATA_PATH");

@@ -1,38 +1,79 @@
-# Device API (C1: service and permission core; C2: LED app lease)
+# Device API (C1: service and dispatch; C2: LED app lease)
 
 This document defines the app-facing device control contract implemented by
-`devserv` and `nextdev`. It is a cooperative permission gate for applications
-that declare device capabilities in `pak.json`; it is **not** a security
-sandbox. Applications are not isolated by this service.
+`devserv` and `nextdev`. The default policy is **install grants access**: an
+installed pak may call every capability this build implements. `pak.json`
+declares what the app supports; it is not an authorization request and a
+missing declaration never blocks the call. This is **not** a security sandbox;
+applications are not isolated by this service.
 
 A client that knows another app's pak path and id can present them on the
 socket; without process identity or package signing the service cannot tell
-that apart from the real app. The gate prevents accidental capability use,
-makes revocation and replacement explicit, and gives clients stable reasons.
-It does not isolate processes and must not be described as a security
-boundary.
+that apart from the real app. Default-allow is a product decision, not an
+isolation claim. The legacy grant/identity gate remains in the code for
+compatibility tests and explicit `--require-grants` builds, but it is not on
+devserv's default path.
 
-C1 ships the service, client, manifest requests, grant storage, and dispatch
-gate. Grants bind the app id, canonical pak path, manifest version, capability,
-and the pak's current content fingerprint, so a same-path/same-version package
-replacement cannot silently inherit an old authorization. It deliberately does
-not ship the settings authorization UI, the LED app lease (C2), device session
-snapshots/restore (C3), app exit (C4), or hardware backends. The production
-backend is `none`, so every hardware capability reports `unavailable` until a
-later task plugs in the existing NextUI device paths.
+C3 adds launch-scoped device session snapshots/restore; C4 adds a
+session-scoped app-exit request fed by keymon and enforced by the launch parent.
+The settings authorization UI is not part of this build. The host test backend
+is `none`; production devserv composes the C2 LED backend with the R1/R2
+display/audio backend. Display/audio report `unavailable` when the platform or
+msettings path cannot implement them, never fake success. Other hardware
+capabilities remain `unavailable` until a later task plugs in the existing
+NextUI device paths.
 
 ## Session lifecycle
 
 C3 adds one launch-scoped device session around an application, with
 dirty-only snapshot/restore and stale-stop protection. Its contract, backend
 matrix, C2 LED session-end hook and partial-restore rules are defined in
-[SESSION-API.md](SESSION-API.md). Sessions do not change C1 grants: a session
-stop neither authorizes nor revokes a capability.
+[SESSION-API.md](SESSION-API.md). A session stop neither authorizes nor
+revokes anything; default-allow is independent of the session lifecycle.
 
-## Manifest: request capabilities in pak.json
+## C4 application exit
 
-`pak.json` is the only manifest (plan X1). Device requests live in the optional
-`device` object:
+C4 has two processes on purpose:
+
+- **keymon observes and forwards FN1/FN2.** It reads the same SDL joystick
+  events the app's `PAD_poll` reads, applies the stored `fn[123]action` value,
+  and sends an `app-action` request. It never signals a process and never puts a
+  PID in a request. Brick Pro HOME is not a joystick button: the real js0 capture
+  exposes only buttons 0-10, so keymon does not forward a guessed `JOY_MENU_ALT`
+  index.
+- **the platform maps HOME from the kernel key state.** The TRIMUI Player1
+  keyboard/joystick node advertises `KEY_HOMEPAGE` (172) and SDL's evdev keyboard
+  backend skips that joystick-class device. `platform.c` opens the node that
+  advertises key 172 and polls `EVIOCGKEY`; it does not read, grab, or create a
+  second event stream. `PAD_setHomePressed()` edge-detects the state into
+  `BTN_HOME`/`BTN_FN3`, so a held HOME produces one press and one release. The
+  launcher and adapted apps both consume that platform key. This is source and
+  host-replay evidence; physical HOME remains a device-batch item.
+- **devserv records the request for one session.** A request carries the
+  monotonic press time and may carry the generation id. A request from a previous
+  session, or one whose press predates the active session, returns
+  `session_stale` and leaves the new session untouched. The first request wins;
+  repeats are idempotent.
+- **the launch parent enforces it.** `nextui_session_run` starts the app in a
+  new process group with `setsid`, polls `session-status`, sends `SIGTERM` to
+  that group, waits the bounded grace (default 1500 ms), then sends `SIGKILL`.
+  Only the parent owns the child, so no client-supplied PID can be used to kill
+  an arbitrary process. It reports the outcome with `app-exit-result`.
+
+An adapted application declares `"overlay"` in `pak.json`. devserv reads that
+declaration at `session-start` and answers `handled_by_app` for HOME/`overlay`;
+the app's own FnBridge toggles the shared overlay. For an unadapted app HOME is
+the plan's return-to-desktop fallback and becomes an exit request. The service
+never draws into, or injects an overlay into, another process.
+
+The path never removes `/tmp/nextui_exec`; removing it is power-off semantics.
+A forced exit stops only the app's process group, then the normal
+`nextui_session_stop` path restores the C3 snapshot.
+
+## Manifest: declare supported capabilities in pak.json
+
+`pak.json` is the only manifest (plan X1). Device support declarations live in
+the optional `device` object:
 
 ```json
 {
@@ -46,9 +87,11 @@ stop neither authorizes nor revokes a capability.
 
 - `device.capabilities` is an array of capability names. Duplicates collapse;
   non-string entries and overlong names are ignored. At most 16 names are kept.
-- A declaration is only a **request**. It never authorizes anything.
-- No `device` object or no manifest means no gated capability. A legacy pak
-  (`launch.sh` only) keeps access to read-only defaults.
+- A declaration describes what the app **supports**. It is not an authorization
+  request and does not gate the default path.
+- No `device` object or no manifest is fine: a legacy pak (`launch.sh` only) can
+  still call implemented capabilities. `status` reports its declarations as
+  false, but `authorized` is true.
 - Other `device` keys (future LED profile/restore preferences) are validated
   and ignored by this build.
 - Unknown capability names are preserved and reported by `status` as
@@ -56,39 +99,41 @@ stop neither authorizes nor revokes a capability.
 
 ## Capabilities
 
-| Name | Grant required | Notes |
+| Name | Default access | Notes |
 | --- | --- | --- |
-| `battery.read` | no | read-only default |
-| `power.info` | no | read-only default |
-| `display.get` | no | read-only default |
-| `display.brightness` | yes | |
-| `display.colortemp` | yes | |
-| `audio.volume` | yes | |
-| `audio.sink` | yes | speaker/Bluetooth/USB routing |
-| `led.control` | yes | app-profile lease, see the C2 section |
-| `net.wifi` | yes | |
-| `net.bluetooth` | yes | |
-| `power.sleep` | yes | session semantics are C3 |
-| `input.rumble` | yes | |
-| `time.set` | yes | |
+| `battery.read` | allowed | read-only |
+| `power.info` | allowed | read-only |
+| `display.get` | allowed | read-only |
+| `display.brightness` | allowed | backend-dependent |
+| `display.colortemp` | allowed | backend-dependent |
+| `audio.volume` | allowed | backend-dependent |
+| `audio.sink` | allowed | speaker/Bluetooth/USB routing |
+| `led.control` | allowed | app-profile lease, see the C2 section |
+| `net.wifi` | allowed | backend-dependent |
+| `net.bluetooth` | allowed | backend-dependent |
+| `power.sleep` | allowed | session semantics are C3 |
+| `input.rumble` | allowed | backend-dependent |
+| `time.set` | allowed | backend-dependent |
 
 Names are exact; there are no aliases. A capability the system does not know is
-rejected with `unknown_capability`.
+rejected with `unknown_capability`. A known capability whose backend is not
+implemented returns `unavailable`, never a fake success.
 
-## Grant storage
+## Legacy grant store (not on the default path)
 
-Location (device):
+`--require-grants` restores the old per-capability grant/identity checks for
+compatibility testing. Production devserv does not select it; the settings UI
+and per-item authorization flow are not part of this build.
+
+Location when legacy mode is used:
 
 ```text
 $SHARED_USERDATA_PATH/device_grants.json
 ```
 
 `devserv --grants PATH`, `NEXTUI_DEVICE_GRANTS`, or `SHARED_USERDATA_PATH`
-must configure it. **There is no implicit `/tmp` fallback:** the socket is
-ephemeral, but grants are persistent state, and `devserv` refuses to start when
-no persistent path is configured. Tests pass a temporary `--grants` path
-explicitly; production relies on launch.sh exporting `SHARED_USERDATA_PATH`
-(C3 wiring).
+may configure it. Default-allow starts without a grant path; `--require-grants`
+requires one. **There is no implicit `/tmp` fallback** for the legacy store.
 
 Format (schema version 2):
 
@@ -111,9 +156,10 @@ Format (schema version 2):
 
 The store is written atomically (temporary file, `fsync`, rename) and is
 limited to 128 records / 256 KiB. Only the settings layer writes it; the app-facing
-service opens it read-only for every request. Schema version 1 (pre-fingerprint
-C1) is invalid and fails closed; no C1 build shipped grants, so re-grant after
-updating.
+service opens it read-only in legacy mode. Schema version 1 (pre-fingerprint
+C1) is invalid and fails closed in legacy mode; no C1 build shipped grants, so
+re-grant after updating. **Everything below this point in this section applies
+only when `--require-grants` selected the legacy gate.**
 
 ### Content identity
 
@@ -226,11 +272,11 @@ Requests:
   "app": "com.example.player",
   "pak": "/mnt/SDCARD/Tools/tg5040/Player.pak",
   "manifest": "ok",
-  "grants": "ok",
+  "grants": "missing",
   "identity": "ok",
   "backend": "none",
   "capabilities": [
-    {"name":"display.brightness","supported":true,"grant_required":true,
+    {"name":"display.brightness","supported":true,"grant_required":false,
      "declared":true,"available":false,"authorized":true}
   ]
 }
@@ -239,24 +285,25 @@ Requests:
 `available` and `authorized` are independent:
 
 - `available` — the backend reports the hardware/platform path is present.
-- `authorized` — the exact grant (or a read-only default) is in effect.
+- `authorized` — default-allow is in effect for this installed app. In legacy
+`--require-grants` mode it means the exact grant (or a read-only default).
 
-A granted call on missing hardware returns `ok: false`, `error: "unavailable"`,
+A call on missing hardware returns `ok: false`, `error: "unavailable"`,
 `available: false`, `authorized: true`. It never returns success.
 
 `call` success:
 
 ```json
 {"ok":true,"capability":"display.brightness","available":true,
- "authorized":true,"value":{"level":5}}
+"authorized":true,"value":{"level":5}}
 ```
 
-`call` denial:
+A legacy-mode denial (not produced by default devserv):
 
 ```json
 {"ok":false,"error":"unauthorized","capability":"display.brightness",
- "supported":true,"declared":true,"available":false,"authorized":false,
- "detail":"capability is not granted for this app installation"}
+"supported":true,"declared":true,"available":false,"authorized":false,
+"detail":"capability is not granted for this app installation"}
 ```
 
 ### Stable error codes
@@ -265,33 +312,41 @@ A granted call on missing hardware returns `ok: false`, `error: "unavailable"`,
 | --- | --- |
 | `bad_request` | malformed request, pak path, action, or id |
 | `unknown_capability` | name is not in this system's registry |
-| `invalid_manifest` | `pak.json` exists but cannot be parsed |
-| `not_declared` | the pak did not request this gated capability |
-| `grant_store_invalid` | grant file is corrupt/unsupported; all gated calls denied |
-| `grant_store_error` | grant file could not be read/written |
-| `identity_unavailable` | pak content identity is unreadable, unsupported (symlink/special file), or over limits |
-| `identity_mismatch` | app id differs from the manifest, or a grant belongs to another installation/version, or the pak content changed |
-| `unauthorized` | declared but no matching grant |
-| `unavailable` | authorized, but hardware/backend is absent |
+| `invalid_manifest` | legacy mode only: `pak.json` exists but cannot be parsed |
+| `not_declared` | legacy mode only: the pak did not request this gated capability |
+| `grant_store_invalid` | legacy mode only: grant file is corrupt/unsupported |
+| `grant_store_error` | legacy mode only: grant file could not be read/written |
+| `identity_unavailable` | legacy mode only: pak content identity is unreadable/unsupported |
+| `identity_mismatch` | legacy mode only: app id or grant installation/version/content differs |
+| `unauthorized` | legacy mode only: declared but no matching grant |
+| `unavailable` | permitted, but hardware/backend is absent |
 | `backend_error` | the backend failed or returned an invalid value |
 
-Authorization decides the error before availability; the response still
-reports the backend's availability, so clients can tell "not granted" from
-"granted but this hardware is absent" without a separate probe.
+Default-allow checks capability validity and availability, then dispatches. It
+does not read the legacy grant store, so a missing or corrupt store cannot block
+an installed app.
 
 ## Client: nextdev
 
 ```text
-nextdev [--socket PATH] [--pak DIR] [--app ID] <ping|status|call> [args...]
+nextdev [--socket PATH] [--pak DIR] [--app ID] [--session-id ID]
+        <ping|status|call|session-start|session-stop|session-status|
+         app-action|app-exit-result> [args...]
 ```
 
 - `nextdev ping`
 - `nextdev --pak DIR status`
 - `nextdev --pak DIR call <capability> [action] [args-json]`
+- `nextdev --pak DIR session-start`
+- `nextdev --session-id ID session-stop`
+- `nextdev [--at-ms N] [--session-id ID] app-action home|overlay`
+- `nextdev [--forced] [--session-id ID] app-exit-result`
 
 `--pak` falls back to `$NEXTUI_PAK_PATH`; `--app` falls back to
 `$NEXTUI_APP_ID` (useful once launch.sh exports per-app identity in C3). The
-client prints the raw JSON response.
+client prints the raw JSON response. `app-action` never takes a PID; keymon is
+the production sender and the launch helper is the only producer of
+`app-exit-result`.
 
 Exit codes: `0` allowed/served, `1` denied or unavailable, `2` usage error,
 `3` communication error.
@@ -312,9 +367,9 @@ DeviceGateError device_gate_reset_grants(const char* grants_path, char* detail,
 
 `grant` re-reads `pak.json`, computes the current content fingerprint, and
 refuses unknown, undeclared, and read-only capabilities. It fails with
-`identity_unavailable` when the pak cannot be fingerprinted. The settings UI
-(not part of C1) will call this API and then show the per-capability
-`available`/`authorized` and status-level `identity` values.
+`identity_unavailable` when the pak cannot be fingerprinted. This is legacy
+compatibility API only; the default installed-app path does not call it, and the
+settings authorization UI/per-item flow is not part of this build.
 
 ## Backend seam
 
@@ -494,13 +549,15 @@ does not prove any hardware effect.
 
 ## Not in C1
 
-- Settings authorization UI and translations.
-- Session start/stop, device snapshots, launch.sh hooks — C3.
-- Foreign-app exit/force-quit — C4.
+- Settings authorization UI, per-item prompts, and translations. Installed apps
+  use the default-allow path; the old grant store is compatibility-only.
+- Device session internals, snapshots and launch hooks — C3 (see
+  [SESSION-API.md](SESSION-API.md)); C4 app exit is implemented on top of C3.
 - Real hardware backends for network, rumble, power and time; display/audio
   are R1/R2 above.
-- Service supervision/autostart; launch.sh will start `devserv` in C3. Until
-  then it can be started manually or by a package.
+- Service supervision/autostart is launch.sh's job; it starts `devserv` in C3.
+  Until then it can be started manually or by a package.
 
-C2 adds the LED app lease and the `nextui-leds` backend. Automatic release on
-app crash remains C3; see the limitation above.
+C2 adds the LED app lease and the `nextui-leds` backend. C3 adds session-end
+release; C4 adds the bounded app-exit path described above. Device behavior of
+both remains unverified until the physical-key/device batch.

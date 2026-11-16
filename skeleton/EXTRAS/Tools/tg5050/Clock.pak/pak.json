@@ -1,0 +1,6 @@
+{
+  "id": "nextui.clock",
+  "name": "Clock",
+  "version": "v1.0.0",
+  "capabilities": ["overlay"]
+}

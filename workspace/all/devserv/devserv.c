@@ -1,4 +1,5 @@
 #include "device_backend.h"
+#include "device_backend_display_audio.h"
 #include "device_backend_leds_platform.h"
 #include "device_gate.h"
 #include "device_protocol.h"
@@ -45,7 +46,10 @@ static void usage(FILE* stream)
             "Backend: led.control through the existing NextUI LED path; every other\n"
             "hardware capability reports unavailable.\n"
             "Sessions: session-start/stop/status restore only fields the service saw\n"
-            "change; haptics is unavailable and LED teardown is delegated to C2.\n",
+            "change; app-action records a session-scoped home/overlay request and\n"
+            "never accepts a PID; the launch parent performs the bounded TERM/KILL.\n"
+            "Policy: installed apps may use every implemented capability without a\n"
+            "grant; --require-grants enables the legacy grant/identity gate.\n",
             DEFAULT_SOCKET_PATH);
 }
 
@@ -265,7 +269,8 @@ static int parse_session_id(const char* text, unsigned long long* out)
  * grant describe the same installation. An identity that does not fit the
  * session fields is rejected, exactly like the gate, instead of truncated. */
 static int session_identity(const char* claimed_app, const char* pak, char* app_out,
-                            size_t app_size, char* pak_out, size_t pak_size)
+                            size_t app_size, char* pak_out, size_t pak_size,
+                            int* overlay_host)
 {
     char resolved[PATH_MAX];
     PakManifest manifest;
@@ -274,6 +279,7 @@ static int session_identity(const char* claimed_app, const char* pak, char* app_
     if (app_out == NULL || app_size == 0 || pak_out == NULL || pak_size == 0) return -1;
     app_out[0] = '\0';
     pak_out[0] = '\0';
+    if (overlay_host != NULL) *overlay_host = 0;
 
     if (pak != NULL && pak[0] != '\0')
     {
@@ -283,12 +289,18 @@ static int session_identity(const char* claimed_app, const char* pak, char* app_
         if (strlen(canonical) >= pak_size) return -1;
         snprintf(pak_out, pak_size, "%s", canonical);
 
-        if (pak_manifest_load(pak_out, &manifest) == PAK_MANIFEST_OK && manifest.id[0] != '\0')
+        if (pak_manifest_load(pak_out, &manifest) == PAK_MANIFEST_OK)
         {
-            if (strlen(manifest.id) >= app_size) return -1;
-            snprintf(app_out, app_size, "%s", manifest.id);
+            if (overlay_host != NULL)
+                *overlay_host =
+                    pak_manifest_has_capability(&manifest, PAK_CAPABILITY_OVERLAY) != 0;
+            if (manifest.id[0] != '\0')
+            {
+                if (strlen(manifest.id) >= app_size) return -1;
+                snprintf(app_out, app_size, "%s", manifest.id);
+            }
         }
-        else
+        if (app_out[0] == '\0')
         {
             base = strrchr(pak_out, '/');
             if (base != NULL && strlen(base + 1) >= app_size) return -1;
@@ -406,9 +418,10 @@ static void handle_connection(int descriptor, const char* grants_path,
             const char* error = NULL;
             const char* detail = NULL;
             int identity;
+            int overlay_host = 0;
 
             identity = session_identity(message.app, message.pak, app, sizeof app, pak,
-                                        sizeof pak);
+                                        sizeof pak, &overlay_host);
             if (identity < 0)
             {
                 send_error(descriptor, "bad_request", "invalid session identity");
@@ -430,6 +443,12 @@ static void handle_connection(int descriptor, const char* grants_path,
             {
                 error = "bad_request";
                 detail = "invalid session arguments";
+            }
+            else
+            {
+                /* The manifest is authoritative: an app cannot claim the
+                 * overlay capability through the session request. */
+                device_session_note_overlay_host(session, overlay_host);
             }
             if (!device_protocol_write_session_response(session, result, 0, error, detail,
                                                         response, sizeof response))
@@ -489,6 +508,109 @@ static void handle_connection(int descriptor, const char* grants_path,
                          "\"detail\":\"response too large\"}");
             break;
 
+        case DEVICE_OP_APP_ACTION:
+        {
+            unsigned long long expected = 0;
+            DeviceSessionResult result;
+            const char* error = NULL;
+            const char* detail = NULL;
+            int handled_by_app = 0;
+
+            if (message.session_id[0] != '\0'
+                && !parse_session_id(message.session_id, &expected))
+            {
+                send_error(descriptor, "bad_request", "invalid session id");
+                return;
+            }
+
+            if (session->active && expected != 0 && expected != session->id)
+            {
+                result = DEVICE_SESSION_STALE;
+                error = "session_stale";
+                detail = "session id does not match the active session";
+            }
+            else if (session->active && session->overlay_host
+                     && strcmp(message.action, "overlay") == 0)
+            {
+                /* The adapted app consumes HOME in-process. Do not translate it
+                 * into an exit and do not draw anything from this process. */
+                result = DEVICE_SESSION_APP_HANDLED;
+                handled_by_app = 1;
+                detail = "the application hosts the overlay";
+            }
+            else
+            {
+                result = device_session_request_exit(session, expected, message.action,
+                                                     message.at_ms, 1500);
+                if (result == DEVICE_SESSION_STALE)
+                {
+                    error = "session_stale";
+                    detail = session->exit_detail[0] != '\0'
+                                 ? session->exit_detail
+                                 : "session id or event time does not match";
+                }
+                else if (result == DEVICE_SESSION_NOT_ACTIVE)
+                {
+                    error = "not_active";
+                    detail = "no application session is active";
+                }
+                else if (result == DEVICE_SESSION_BAD_ARGUMENT)
+                {
+                    error = "bad_request";
+                    detail = "app-action needs home or overlay";
+                }
+            }
+
+            if (!device_protocol_write_app_action_response(session, result, message.action,
+                                                           handled_by_app, error, detail,
+                                                           response, sizeof response))
+                snprintf(response, sizeof response,
+                         "{\"ok\":false,\"error\":\"backend_error\","
+                         "\"detail\":\"response too large\"}");
+            break;
+        }
+
+        case DEVICE_OP_APP_EXIT_RESULT:
+        {
+            unsigned long long expected = 0;
+            DeviceSessionResult result;
+            const char* error = NULL;
+            const char* detail = NULL;
+            int forced = message.has_forced ? message.forced : 0;
+
+            if (message.session_id[0] != '\0'
+                && !parse_session_id(message.session_id, &expected))
+            {
+                send_error(descriptor, "bad_request", "invalid session id");
+                return;
+            }
+
+            result = device_session_note_exit_outcome(session, expected, forced,
+                                                      "launch parent reported the outcome");
+            if (result == DEVICE_SESSION_STALE)
+            {
+                error = "session_stale";
+                detail = "exit result does not belong to the active session";
+            }
+            else if (result == DEVICE_SESSION_NOT_ACTIVE)
+            {
+                error = "not_active";
+                detail = "no application session is active";
+            }
+            else if (result == DEVICE_SESSION_BAD_ARGUMENT)
+            {
+                error = "bad_request";
+                detail = "no exit request is pending for this session";
+            }
+
+            if (!device_protocol_write_session_response(session, result, 0, error, detail,
+                                                        response, sizeof response))
+                snprintf(response, sizeof response,
+                         "{\"ok\":false,\"error\":\"backend_error\","
+                         "\"detail\":\"response too large\"}");
+            break;
+        }
+
         default:
             send_error(descriptor, "bad_request", "unknown operation");
             return;
@@ -507,6 +629,7 @@ int main(int argc, char* argv[])
     struct sigaction action;
     int listener;
     int socket_overridden = 0;
+    int require_grants = 0;
     int i;
 
     snprintf(socket_path, sizeof socket_path, "%s", DEFAULT_SOCKET_PATH);
@@ -533,6 +656,10 @@ int main(int argc, char* argv[])
             }
             snprintf(grants_path, sizeof grants_path, "%s", argv[++i]);
         }
+        else if (strcmp(argv[i], "--require-grants") == 0)
+        {
+            require_grants = 1;
+        }
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
         {
             usage(stdout);
@@ -552,19 +679,26 @@ int main(int argc, char* argv[])
 
     if (grants_path[0] == '\0' && !resolve_grants_path(grants_path, sizeof grants_path))
     {
-        fprintf(stderr,
-                "devserv: grants path is not configured; set SHARED_USERDATA_PATH,\n"
-                "         NEXTUI_DEVICE_GRANTS, or pass --grants PATH.\n"
-                "         Persistent grants are never stored in /tmp implicitly.\n");
-        return 2;
+        if (require_grants)
+        {
+            fprintf(stderr,
+                    "devserv: --require-grants needs SHARED_USERDATA_PATH,\n"
+                    "         NEXTUI_DEVICE_GRANTS, or --grants PATH.\n");
+            return 2;
+        }
+        /* Default-allow does not read the legacy store; no path is required. */
     }
+
+    /* Installed apps get implemented capabilities by default. The grant store
+     * is legacy compatibility state, not a prerequisite for this path. */
+    device_gate_set_default_allow(require_grants ? 0 : 1);
 
 #ifdef NEXTUI_DEVSERV_BACKEND_NONE
     /* Host gate tests build this file without the LED stack. Production uses
      * the LED backend below; this keeps the C1 none-backend test meaningful. */
     backend = device_backend_none();
 #else
-    backend = device_backend_leds();
+    backend = device_backend_display_audio_compose(device_backend_leds());
     (void)atexit(device_backend_leds_shutdown);
 #endif
 
@@ -584,7 +718,10 @@ int main(int argc, char* argv[])
     if (listener < 0) return 1;
 
     printf("devserv: listening on %s\n", socket_path);
-    printf("devserv: grants %s\n", grants_path);
+    printf("devserv: grants %s\n",
+           grants_path[0] != '\0' ? grants_path : "(none; legacy store unused)");
+    printf("devserv: policy %s\n",
+           device_gate_default_allow() ? "default-allow" : "legacy-grants");
     printf("devserv: backend %s\n", backend->name);
     printf("devserv: session %s\n", session_ops != NULL ? session_ops->name : "none");
     fflush(stdout);

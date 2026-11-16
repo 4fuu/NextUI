@@ -22,6 +22,8 @@ TARGET = devserv
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 SOURCE = $(TARGET).c \
 	../common/device_backend.c \
+	../common/device_backend_display_audio.c \
+	../common/device_backend_display_audio_platform.c \
 	../common/device_backend_leds.c \
 	../common/device_backend_leds_platform.c \
 	../common/device_caps.c \
@@ -46,9 +48,14 @@ CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 LDFLAGS += -lmsettings -lsamplerate
+# device_session_monotonic_ms uses CLOCK_MONOTONIC. Older glibc needs librt;
+# macOS has no librt and already provides clock_gettime in libSystem.
+ifneq ($(UNAME_S),Darwin)
+LDFLAGS += -lrt
+endif
 
 ifeq ($(PLATFORM), desktop)
-CFLAGS += -DNEXTUI_SESSION_DESKTOP=1 -DNEXTUI_SESSION_NO_MUTE=1
+CFLAGS += -DNEXTUI_SESSION_DESKTOP=1 -DNEXTUI_SESSION_NO_MUTE=1 -DNEXTUI_DISPLAY_AUDIO_NO_MUTE=1
 endif
 ifeq ($(PLATFORM), h700)
 CFLAGS += -DNEXTUI_SESSION_NO_MUTE=1

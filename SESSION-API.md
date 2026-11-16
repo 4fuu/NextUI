@@ -1,14 +1,14 @@
 # Device sessions (C3)
 
-Status: host-only C3 implementation on top of `integration/batch4` (`63f6f5b`,
-which contains frozen batch3 + C2). No device, ADB, LED-hardware or stock-boot
-verification has been performed. The only compiled target here is
-`PLATFORM=desktop`, which is a development preview and deliberately reports no
-device fields.
+Status: host-only C3 session implementation plus the C4 launch-parent exit
+supervisor on `integration/batch7` (`de697811fd96990705b9d69719ca479d8d0c7127`).
+No device, ADB, physical-FN, LED-hardware or stock-boot verification has been
+performed. The only compiled target here is `PLATFORM=desktop`, which is a
+development preview and deliberately reports no device fields.
 
-This document is the C3 contract only. It does not replace `DEVICE-API.md`;
-C1 grants, capability authorization and `ping`/`status`/`call` remain defined
-there.
+This document is the C3 contract plus the C4 additions. It does not replace
+`DEVICE-API.md`; C1's default-allow policy, legacy grant mode and
+`ping`/`status`/`call` remain defined there.
 
 ## What a session is
 
@@ -23,8 +23,10 @@ This is **not** B3 application state:
 - No application save format is parsed or changed.
 - No process is stopped, frozen or signalled. "Session" never means `SIGSTOP`.
 
-C3 also does not implement C4 force-quit/PID watching, a settings UI, an LED
-palette, or real display/audio/rumble backends.
+C4 adds a session-scoped exit request and a bounded launch-parent supervisor;
+it is documented in [DEVICE-API.md](DEVICE-API.md#c4-application-exit). A
+session still never freezes a process; C4 only ends the app's own process group
+after a recorded request and a grace period.
 
 ## Lifecycle wiring
 
@@ -34,7 +36,7 @@ palette, or real display/audio/rumble backends.
 parse_hook_cmd "$CMD"                 # unchanged B3 parser
 run_hooks.sh pre-launch.d             # unchanged
 nextui_session_start                  # after pre-launch, before the app
-eval $CMD                             # unchanged command text
+nextui_session_run "$CMD"             # supervised on a live device session
 nextui_session_stop                   # immediately after the app returns
 run_hooks.sh post-launch.d            # unchanged
 ```
@@ -48,9 +50,10 @@ it uses the already-parsed `HOOK_EMU_PATH` (or an explicitly supplied
 `launch.sh` starts `devserv` once, before the desktop loop:
 
 - It first checks for a live socket; an already-running service is reused.
-- The grant store is always explicit:
-  `--grants "$SHARED_USERDATA_PATH/device_grants.json"`.
-  There is no `/tmp` grant fallback.
+- The helper still passes `--grants "$SHARED_USERDATA_PATH/device_grants.json"`
+  for compatibility. Default-allow does not read it, so no grant file is
+  required; legacy `--require-grants` mode still rejects an implicit `/tmp`
+  store.
 - Start failure, a missing binary or a rejected session request is logged by
   the service/helper and never blocks the application.
 - `desktop` is a preview platform; the helper does not start a device service
@@ -182,18 +185,33 @@ a failed C2 LED release is retried.
 
 ## Protocol
 
-The C1 socket contract is extended with three operations. Existing
-`ping`/`status`/`call` behavior and the C1 grant/identity checks are unchanged.
+The C1 socket contract is extended with session/exit operations. Existing
+`ping`/`status`/`call` behavior is unchanged; the default-allow call path needs
+no grant, while `--require-grants` keeps the legacy grant/identity checks.
 
 ```json
 {"op":"session-start","app":"id","pak":"/path/App.pak"}
 {"op":"session-stop","session_id":"0123456789abcdef"}
 {"op":"session-status"}
+{"op":"app-action","action":"home|overlay","at_ms":12345,"session_id":"0123456789abcdef"}
+{"op":"app-exit-result","session_id":"0123456789abcdef","forced":true}
 ```
 
+`app-action` requires an active session. It never carries a PID. The `at_ms`
+value is the keymon press time on `CLOCK_MONOTONIC`; a value older than the
+active session is `session_stale`. A supplied `session_id` must match the
+active generation; this is what stops a delayed request from tearing down a
+newer session. An adapted app (`"overlay"` in `pak.json`) owns HOME, so devserv
+returns `handled_by_app:true` and records no exit. For an unadapted app,
+`overlay` becomes the return-to-desktop fallback.
+
+`app-exit-result` is written by the launch parent after its bounded wait. A late
+report is rejected by the same generation guard and never changes a newer
+session. `forced:true` means the grace expired and the parent sent `SIGKILL`.
+
 `session-start` does not require a grant. It is lifecycle state, not a
-capability. Session operations do not go through C1 grant/identity
-authorization and never authorize a `call`. They are a cooperative lifecycle
+capability. Session operations never authorize or revoke a `call`; the default
+installed-app path already allows implemented capabilities. They are a cooperative lifecycle
 channel for local processes, not a security boundary (apps already run as root
 and can write sysfs directly). The concrete isolation guarantee is narrower:
 a stale or unknown generation id cannot stop a newer session or release its
@@ -213,6 +231,13 @@ Response fields:
   "result": "ok",
   "last_result": "ok",
   "cleaned": false,
+  "exit_requested": false,
+  "exit": {
+    "requested": false, "completed": false, "forced": false,
+    "action": "home", "requested_at_ms": 0, "deadline_ms": 0,
+    "result": "normal", "detail": "child exited normally"
+  },
+  "overlay_host": false,
   "restored": 0,
   "skipped": 0,
   "failed": 0,
@@ -235,19 +260,21 @@ Errors are stable strings:
 - `unavailable`/`backend_error` — unchanged C1 meanings for `call`
 
 `nextdev` exposes `session-start`, `session-stop`, `session-status`,
-`--session-id ID` and a bounded `--wait-ms N` (0–10000 ms, default 2000).
-The launch helper uses 200 ms; session failure can delay, but never block, the
-app launch.
+`app-action`, `app-exit-result`, `--session-id ID`, `--at-ms N`, `--forced` and
+a bounded `--wait-ms N` (0–10000 ms, default 2000). The launch helper uses
+200 ms for session start/stop and 0 for the supervisor's status polls; session
+failure can delay, but never block, the app launch.
 
 ## Boundaries
 
-- C4 force-quit/PID supervision is not implemented. A stop is sent after the
-  app command returns and from the EXIT trap. `SIGKILL` of `launch.sh`, a
-  `devserv` crash, or a power loss can lose the in-memory session. If only
-  `launch.sh` was killed and `devserv` survived, the next launch's pre-start
-  ID-less stop restores the stale session before opening a new one.
-- Session state is runtime-only. No session file is written; grants remain the
-  only C3-adjacent persistent file and are C1-owned.
+- C4 is a launch-parent supervisor. devserv records the session-scoped request;
+  the parent uses `setsid` and signals the child's process group, never a PID
+  supplied by a client. If `setsid` is unavailable the helper falls back to the
+  old foreground `eval` and no force path is claimed. A `devserv` crash or power
+  loss can still lose the in-memory request; the next launch's pre-start
+  ID-less stop restores the stale session.
+- Session state is runtime-only. No session file is written. The legacy grant
+  store remains C1-owned and is diagnostic/compatibility-only in default mode.
 - C2 owns the LED app profile. C3 owns the session association and teardown
   call. R1/R2 add the display/audio capability backend on the same msettings
   seam; no second brightness ioctl, mixer or sysfs controller is added. There
@@ -267,9 +294,24 @@ app launch.
   persistent grants path, one devserv start, live-socket reuse, `NEXTUI_PAK_PATH`
   with spaces, rejected/missing service non-blocking, EXIT trap, repeated stop,
   and all four `launch.sh` files preserving B3 hook parsing and hook order.
-- `run_devserv_test.sh`: real Unix-socket E2E — start/status/duplicate/stale/
-  stop/repeat, raw socket requests, no grant required for sessions, no fake
-  field success.
+- `run_devserv_test.sh`: legacy `--require-grants` Unix-socket E2E —
+  start/status/duplicate/stale/stop/repeat, raw socket requests, grant and
+  identity enforcement, no fake field success.
+- `run_devserv_default_allow_test.sh`: default policy — no grant file, no
+  manifest declaration, legacy pak access, `grant_required:false` and
+  `authorized:true`; unknown capability still unsupported, no backend still
+  `unavailable`, corrupt legacy store cannot block.
+- `run_launch_session_test.sh`: C4 normal (SIGTERM exits) and stuck (grace
+  expires -> SIGKILL) apps, bounded elapsed time, no surviving child, one
+  id-bearing stop, and `app-exit-result` normal/forced reporting.
+- `run_keymon_fn_forward_test.sh`: includes the real keymon.c and drives its
+  forwarding seam against a temp socket: legacy FN2/FN3 defaults, live
+  `minuisettings.txt` override, `none`/`pak:` no-ops, any-slot rebinding, press
+  time preserved, and no PID/kill field in the request.
+- `run_clock_fn_test.sh`: the real Clock Tools pak on the desktop preview.
+  Scripted host keys exercise the shared overlay: two opens/closes, app cursor
+  unchanged while open, input returns after close, FN2 normal exit, and a
+  captured panel. This is not physical FN evidence.
 - `run_session_e2e_test.sh`: 12-group adversarial E2E with a writable fake
   session/backend. Covers granted set -> dirty mark -> stop restore, read-only
   and unauthorized calls, field-failure finality, LED retry (single and

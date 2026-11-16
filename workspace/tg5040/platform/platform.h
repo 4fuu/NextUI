@@ -100,7 +100,10 @@ extern int is_brickpro;
 #define JOY_R4          (is_brickpro?12:JOY_NA)
 
 #define JOY_MENU		8
-#define JOY_MENU_ALT    (is_brickpro?15:JOY_NA)
+/* Brick Pro HOME is KEY_HOMEPAGE on the TRIMUI Player1 evdev node, not a
+ * joystick button. The real js0 capture exposes only buttons 0-10; do not
+ * retain the old guessed index 15 as an alternate HOME source. */
+#define JOY_MENU_ALT    JOY_NA
 #define JOY_POWER		102
 #define JOY_PLUS		(is_brick||is_brickpro?14:128)
 #define JOY_MINUS		(is_brick||is_brickpro?13:129)

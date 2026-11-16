@@ -13,6 +13,7 @@
 #include "config.h"
 #include "app_capabilities.h"
 #include "i18n.h"
+#include "ui_overlay.h"
 #include <sys/resource.h>
 #include <pthread.h>
 #include <assert.h>
@@ -1433,22 +1434,92 @@ static int launchPakFnAction(void* user, const char* rel) {
 	return 1;
 }
 
+static UIOverlay* home_overlay;
+static int home_overlay_dirty;
+
+static int home_overlay_wifi_get(void* user) {
+	(void)user;
+	if (!WIFI_supported()) return -1;
+	return WIFI_enabled() ? 1 : 0;
+}
+static int home_overlay_wifi_set(void* user, int on) {
+	(void)user;
+	WIFI_enable(on ? 1 : 0);
+	return WIFI_enabled() == (on ? 1 : 0);
+}
+static int home_overlay_bluetooth_get(void* user) {
+	(void)user;
+	if (!BT_supported()) return -1;
+	return BT_enabled() ? 1 : 0;
+}
+static int home_overlay_bluetooth_set(void* user, int on) {
+	(void)user;
+	BT_enable(on ? 1 : 0);
+	return BT_enabled() == (on ? 1 : 0);
+}
+static int home_overlay_device_available(void* user) {
+	(void)user;
+	return 1;
+}
+static void home_overlay_input_reset(void* user) {
+	(void)user;
+	PAD_reset();
+}
+
+/* The launcher and adapted apps use the same shared overlay module. On the
+ * launcher this owns the panel directly; adapted apps create their own
+ * FnBridge/UIOverlay instance in their process. No pixels are injected into an
+ * unadapted app. */
+static void home_overlay_init(void) {
+	static const UIOverlayDeviceHooks device = {
+		.user = NULL,
+		.available = home_overlay_device_available,
+		.wifi_get = home_overlay_wifi_get,
+		.wifi_set = home_overlay_wifi_set,
+		.bluetooth_get = home_overlay_bluetooth_get,
+		.bluetooth_set = home_overlay_bluetooth_set,
+	};
+	OverlayAppHooks hooks;
+
+	memset(&hooks, 0, sizeof hooks);
+	hooks.app_name = "NextUI";
+	hooks.device = &device;
+	hooks.input_reset = home_overlay_input_reset;
+	if (WIFI_supported()) hooks.capabilities |= UI_OVERLAY_CAP_WIFI;
+	if (BT_supported()) hooks.capabilities |= UI_OVERLAY_CAP_BLUETOOTH;
+
+	home_overlay = UIOverlay_create(&hooks, NULL);
+}
+
+static int home_overlay_toggle(void) {
+	if (!home_overlay) return 0;
+	if (UIOverlay_isOpen(home_overlay))
+		UIOverlay_close(home_overlay);
+	else
+		UIOverlay_open(home_overlay);
+	home_overlay_dirty = 1;
+	return 1;
+}
+
 // Run the action bound to a user-assignable button (0 == FN1, 1 == FN2,
-// 2 == FN3/HOME). Returns 1 if something was launched.
+// 2 == FN3/HOME). Returns 1 if the action was handled.
 //
-// The launcher owns only `pak:` actions. `home` and `overlay` are valid
-// application-runtime bindings, but there is no foreground app here (and the
-// app-side handlers are not wired yet), so fnActionDispatch() reports them
-// unsupported and this is a deliberate no-op.
+// The launcher owns `pak:` and `overlay` actions. `home` is an application
+// action: there is no foreground app here, so it remains a deliberate no-op.
+// FN2 keeps its built-in home default, and side HOME opens the shared overlay.
 static int runFnAction(int index) {
+	const char* action = CFG_getEffectiveFnAction(index);
+
+	if (fnActionParse(action, NULL) == FN_ACTION_KIND_OVERLAY)
+		return home_overlay_toggle();
+
 	FnActionHandlers handlers = {
 		.user = NULL,
 		.launch_pak = launchPakFnAction,
 		.exit_to_home = NULL,
 		.open_overlay = NULL,
 	};
-	return fnActionDispatch(CFG_getEffectiveFnAction(index),
-							FN_ACTION_SCOPE_DESKTOP, &handlers)
+	return fnActionDispatch(action, FN_ACTION_SCOPE_DESKTOP, &handlers)
 		   == FN_ACTION_DISPATCH_HANDLED;
 }
 static void openRom(char* path, char* last) {
@@ -2451,6 +2522,7 @@ int main (int argc, char *argv[]) {
 // LOG_info("- graphics init: %lu\n", SDL_GetTicks() - main_begin);
 
 	PAD_init();
+	home_overlay_init();
 	// LOG_info("- input init: %lu\n", SDL_GetTicks() - main_begin);
 	VIB_init();
 	PWR_init();
@@ -2534,6 +2606,15 @@ int main (int argc, char *argv[]) {
 			else if (PAD_justPressed(BTN_FN3)) runFnAction(2);
 		}
 
+		int home_overlay_owns_input = 0;
+		int gsanimdir = ANIM_NONE;
+		if (home_overlay && UIOverlay_isOpen(home_overlay)) {
+			UIOverlay_pollInput(home_overlay);
+			home_overlay_owns_input = 1;
+		}
+		if (home_overlay_owns_input) {
+			dirty = 1;
+		} else {
 		int is_online = PWR_isOnline();
 		if (was_online!=is_online)
 			dirty = 1;
@@ -2548,8 +2629,6 @@ int main (int argc, char *argv[]) {
 		if (had_sink != has_sink)
 			dirty = 1;
 		had_sink = has_sink;
-
-		int gsanimdir = ANIM_NONE;
 
 		if (currentScreen == SCREEN_QUICKMENU) {
 			int qm_total = qm_row == 0 ? quick->count : quickActions->count;
@@ -2831,6 +2910,12 @@ int main (int argc, char *argv[]) {
 
 				if (total>0) readyEntryResume(top->entries->items[top->selected]);
 			}
+		}
+		}
+
+		if (home_overlay_dirty) {
+			dirty = 1;
+			home_overlay_dirty = 0;
 		}
 
 		if(dirty) {
@@ -3467,6 +3552,8 @@ int main (int argc, char *argv[]) {
 				}
 				SDL_UnlockMutex(animMutex);
 			}
+			if (home_overlay && UIOverlay_isOpen(home_overlay))
+				UIOverlay_draw(home_overlay, screen);
 			if(!startgame) // dont flip if game gonna start
 				GFX_flip(screen);
 
@@ -3613,6 +3700,8 @@ int main (int argc, char *argv[]) {
 		}
 	}
 
+	UIOverlay_destroy(home_overlay);
+	home_overlay = NULL;
 	Menu_quit();
 	PWR_quit();
 	PAD_quit();

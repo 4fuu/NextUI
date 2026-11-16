@@ -2,7 +2,9 @@
 
 #include "json_lite.h"
 
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct
@@ -94,6 +96,14 @@ static void writer_session_id(Writer* writer, unsigned long long value)
     writer_raw(writer, text);
 }
 
+static void writer_ull(Writer* writer, unsigned long long value)
+{
+    char text[32];
+
+    snprintf(text, sizeof text, "%llu", value);
+    writer_raw(writer, text);
+}
+
 static void writer_key(Writer* writer, const char* key)
 {
     writer_string(writer, key);
@@ -147,6 +157,8 @@ int device_protocol_parse_request(const char* line, DeviceRequestMessage* messag
         SEEN_ACTION = 1u << 4,
         SEEN_ARGS = 1u << 5,
         SEEN_SESSION_ID = 1u << 6,
+        SEEN_AT_MS = 1u << 7,
+        SEEN_FORCED = 1u << 8,
     };
     JsonLiteCursor cursor;
     char op[16];
@@ -278,6 +290,60 @@ int device_protocol_parse_request(const char* line, DeviceRequestMessage* messag
                 return 0;
             }
         }
+        else if (key_length < sizeof key && strcmp(key, "at_ms") == 0)
+        {
+            if (!(seen & SEEN_AT_MS))
+            {
+                const char* start;
+                char number[32];
+                char* end = NULL;
+                size_t number_length;
+                unsigned long long value;
+
+                seen |= SEEN_AT_MS;
+                if (!json_lite_capture_value(&cursor, &start, &number_length)) return 0;
+                if (number_length == 0 || number_length >= sizeof number) return 0;
+                memcpy(number, start, number_length);
+                number[number_length] = '\0';
+                if (number[0] == '-') return 0;
+                errno = 0;
+                value = strtoull(number, &end, 10);
+                if (errno != 0 || end == number || *end != '\0') return 0;
+                message->at_ms = value;
+            }
+            else if (!json_lite_skip_value(&cursor, 2))
+            {
+                return 0;
+            }
+        }
+        else if (key_length < sizeof key && strcmp(key, "forced") == 0)
+        {
+            if (!(seen & SEEN_FORCED))
+            {
+                seen |= SEEN_FORCED;
+                if (cursor.p + 4 <= cursor.end && strncmp(cursor.p, "true", 4) == 0)
+                {
+                    message->forced = 1;
+                    message->has_forced = 1;
+                    cursor.p += 4;
+                }
+                else if (cursor.p + 5 <= cursor.end
+                         && strncmp(cursor.p, "false", 5) == 0)
+                {
+                    message->forced = 0;
+                    message->has_forced = 1;
+                    cursor.p += 5;
+                }
+                else
+                {
+                    return 0;
+                }
+            }
+            else if (!json_lite_skip_value(&cursor, 2))
+            {
+                return 0;
+            }
+        }
         else if (!json_lite_skip_value(&cursor, 2))
         {
             return 0;
@@ -327,6 +393,16 @@ int device_protocol_parse_request(const char* line, DeviceRequestMessage* messag
     if (strcmp(op, "session-status") == 0)
     {
         message->op = DEVICE_OP_SESSION_STATUS;
+        return 1;
+    }
+    if (strcmp(op, "app-action") == 0)
+    {
+        message->op = DEVICE_OP_APP_ACTION;
+        return message->action[0] != '\0';
+    }
+    if (strcmp(op, "app-exit-result") == 0)
+    {
+        message->op = DEVICE_OP_APP_EXIT_RESULT;
         return 1;
     }
     return 0;
@@ -398,6 +474,60 @@ int device_protocol_build_session_request(const char* op, const char* app, const
         writer_prefix(&writer, &first);
         writer_field_string(&writer, "session_id", session_id);
     }
+    writer_char(&writer, '}');
+    return writer_finish(&writer);
+}
+
+int device_protocol_build_app_action_request(const char* action, unsigned long long at_ms,
+                                             const char* session_id, char* out,
+                                             size_t out_size)
+{
+    Writer writer;
+    int first = 1;
+    char timestamp[32];
+
+    writer_init(&writer, out, out_size);
+    writer_char(&writer, '{');
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "op", "app-action");
+    if (action != NULL && action[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "action", action);
+    }
+    if (at_ms != 0)
+    {
+        snprintf(timestamp, sizeof timestamp, "%llu", at_ms);
+        writer_prefix(&writer, &first);
+        writer_key(&writer, "at_ms");
+        writer_raw(&writer, timestamp);
+    }
+    if (session_id != NULL && session_id[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "session_id", session_id);
+    }
+    writer_char(&writer, '}');
+    return writer_finish(&writer);
+}
+
+int device_protocol_build_app_exit_result_request(const char* session_id, int forced,
+                                                  char* out, size_t out_size)
+{
+    Writer writer;
+    int first = 1;
+
+    writer_init(&writer, out, out_size);
+    writer_char(&writer, '{');
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "op", "app-exit-result");
+    if (session_id != NULL && session_id[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "session_id", session_id);
+    }
+    writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "forced", forced);
     writer_char(&writer, '}');
     return writer_finish(&writer);
 }
@@ -622,6 +752,50 @@ int device_protocol_write_session_response(const DeviceSession* session,
     writer_prefix(&writer, &first);
     writer_field_bool(&writer, "cleaned", cleaned);
     writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "exit_requested", session->exit_requested);
+    writer_prefix(&writer, &first);
+    writer_key(&writer, "exit");
+    writer_char(&writer, '{');
+    {
+        int exit_first = 1;
+        writer_prefix(&writer, &exit_first);
+        writer_field_bool(&writer, "requested", session->exit_requested);
+        writer_prefix(&writer, &exit_first);
+        writer_field_bool(&writer, "completed", session->exit_completed);
+        writer_prefix(&writer, &exit_first);
+        writer_field_bool(&writer, "forced", session->exit_forced);
+        if (session->exit_action[0] != '\0')
+        {
+            writer_prefix(&writer, &exit_first);
+            writer_field_string(&writer, "action", session->exit_action);
+        }
+        if (session->exit_requested_at_ms != 0)
+        {
+            writer_prefix(&writer, &exit_first);
+            writer_key(&writer, "requested_at_ms");
+            writer_ull(&writer, session->exit_requested_at_ms);
+        }
+        if (session->exit_deadline_ms != 0)
+        {
+            writer_prefix(&writer, &exit_first);
+            writer_key(&writer, "deadline_ms");
+            writer_ull(&writer, session->exit_deadline_ms);
+        }
+        if (session->exit_result[0] != '\0')
+        {
+            writer_prefix(&writer, &exit_first);
+            writer_field_string(&writer, "result", session->exit_result);
+        }
+        if (session->exit_detail[0] != '\0')
+        {
+            writer_prefix(&writer, &exit_first);
+            writer_field_string(&writer, "detail", session->exit_detail);
+        }
+    }
+    writer_char(&writer, '}');
+    writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "overlay_host", session->overlay_host);
+    writer_prefix(&writer, &first);
     writer_key(&writer, "restored");
     writer_int(&writer, session->restored_count);
     writer_prefix(&writer, &first);
@@ -696,6 +870,97 @@ int device_protocol_write_session_response(const DeviceSession* session,
         writer_field_string(&writer, "detail", effective_detail);
     }
 
+    writer_char(&writer, '}');
+    return writer_finish(&writer);
+}
+
+int device_protocol_write_app_action_response(const DeviceSession* session,
+                                              DeviceSessionResult result, const char* action,
+                                              int handled_by_app, const char* error,
+                                              const char* detail, char* out,
+                                              size_t out_size)
+{
+    Writer writer;
+    int first = 1;
+    int ok;
+    unsigned long long id;
+
+    writer_init(&writer, out, out_size);
+    if (session == NULL)
+    {
+        writer_raw(&writer, "{\"ok\":false,\"error\":\"bad_request\","
+                            "\"detail\":\"missing session\"}");
+        return writer_finish(&writer);
+    }
+
+    ok = error == NULL && (result == DEVICE_SESSION_OK
+                           || result == DEVICE_SESSION_APP_HANDLED);
+    id = session->active ? session->id
+                         : (session->last_id != 0 ? session->last_id : session->id);
+
+    writer_char(&writer, '{');
+    writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "ok", ok);
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "service", "devserv");
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "session", session->active ? "active" : "inactive");
+    if (id != 0)
+    {
+        writer_prefix(&writer, &first);
+        writer_key(&writer, "session_id");
+        writer_char(&writer, '"');
+        writer_session_id(&writer, id);
+        writer_char(&writer, '"');
+    }
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "action", action != NULL ? action : "");
+    writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "handled_by_app", handled_by_app);
+    writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "exit_requested", session->exit_requested);
+    writer_prefix(&writer, &first);
+    writer_key(&writer, "exit");
+    writer_char(&writer, '{');
+    {
+        int exit_first = 1;
+        writer_prefix(&writer, &exit_first);
+        writer_field_bool(&writer, "requested", session->exit_requested);
+        writer_prefix(&writer, &exit_first);
+        writer_field_bool(&writer, "completed", session->exit_completed);
+        writer_prefix(&writer, &exit_first);
+        writer_field_bool(&writer, "forced", session->exit_forced);
+        if (session->exit_action[0] != '\0')
+        {
+            writer_prefix(&writer, &exit_first);
+            writer_field_string(&writer, "action", session->exit_action);
+        }
+        if (session->exit_deadline_ms != 0)
+        {
+            writer_prefix(&writer, &exit_first);
+            writer_key(&writer, "deadline_ms");
+            writer_ull(&writer, session->exit_deadline_ms);
+        }
+        if (session->exit_detail[0] != '\0')
+        {
+            writer_prefix(&writer, &exit_first);
+            writer_field_string(&writer, "detail", session->exit_detail);
+        }
+    }
+    writer_char(&writer, '}');
+    writer_prefix(&writer, &first);
+    writer_field_string(&writer, "result", device_session_result_name(result));
+    if (!ok)
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "error",
+                            error != NULL ? error : device_session_result_name(result));
+    }
+    if (detail != NULL && detail[0] != '\0')
+    {
+        writer_prefix(&writer, &first);
+        writer_field_string(&writer, "detail", detail);
+    }
     writer_char(&writer, '}');
     return writer_finish(&writer);
 }
