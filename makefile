@@ -216,6 +216,39 @@ package: tidy
 	# compound zip (brew install libzip needed) 
 	cd ./releases && zipmerge $(RELEASE_NAME)-all.zip $(RELEASE_NAME)-base.zip  && zipmerge $(RELEASE_NAME)-all.zip $(RELEASE_NAME)-extras.zip
 	
+# Transactional system update archive: exactly the roots the installer applies
+# (.system plus the signed .tmp_update boot payload), its nextui-update-v1
+# manifest, and the detached signature. This is a different artifact from the
+# bootstrap MinUI.zip built by `package`, which also carries Tools/ and stays
+# unchanged; see UPDATE-PACKAGING.md.
+#
+#   make update-package PLATFORM=tg5040 UPDATE_VERSION=v6.16.0
+#
+# Build the platform first (`make tg5040 && make special`), or point
+# UPDATE_SYSTEM_DIR / UPDATE_BOOT_DIR at an existing tree. UPDATE_MIN_SYSTEM is
+# optional. Without UPDATE_KEY/UPDATE_KEY_ID the manifest is written unsigned
+# for the release owner to sign; never commit a production key to this repo.
+.PHONY: update-package
+update-package:
+	@if [ -z "$(UPDATE_VERSION)" ]; then \
+		echo "update-package: set UPDATE_VERSION=vX.Y.Z; the manifest version must match .system/version.txt" >&2; \
+		exit 1; \
+	fi
+	@if [ -n "$(UPDATE_KEY)" ] && [ -z "$(UPDATE_KEY_ID)" ]; then \
+		echo "update-package: UPDATE_KEY also needs UPDATE_KEY_ID" >&2; \
+		exit 1; \
+	fi
+	make -C workspace/all/nextupd PLATFORM=desktop
+	./scripts/package-update.sh \
+		--platform $(PLATFORM) \
+		--version $(UPDATE_VERSION) \
+		$(if $(UPDATE_MIN_SYSTEM),--min-system $(UPDATE_MIN_SYSTEM),) \
+		$(if $(UPDATE_SYSTEM_DIR),--system-dir $(UPDATE_SYSTEM_DIR),) \
+		$(if $(UPDATE_BOOT_DIR),--boot-dir $(UPDATE_BOOT_DIR),) \
+		--out-dir ./releases \
+		--name nextui-system-$(PLATFORM).zip \
+		$(if $(UPDATE_KEY),--key $(UPDATE_KEY) --key-id $(UPDATE_KEY_ID),)
+
 ###########################################################
 
 .DEFAULT:
