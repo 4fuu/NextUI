@@ -16,9 +16,9 @@ listed nothing. This test locks in the removal:
   - a real `zip -r` with the base and extras package name lists over synthetic
     build trees emits no "name not matched" warning, so every packaged name
     exists at package time
-  - the base package still has a route for the tg5040 Bluetooth upgrade pakz,
-    which the btmanager build stages into BASE and which the old boot
-    `.pakz` extraction installs; "no pakz at all" is not a correct condition
+  - the base package names the tg5040 Bluetooth upgrade pakz explicitly and
+    globs nothing, which the btmanager build stages into BASE and the old boot
+    `.pakz` extraction installs
 
 Everything runs inside throwaway directories: no device, no real SD card, no
 release feed, no production key.
@@ -255,22 +255,26 @@ def test_base_zip_names_exist():
 
 
 def test_bluetooth_upgrade_pakz_still_ships():
-    """The base package must keep a route for the Bluetooth upgrade pakz.
+    """The base package must name the Bluetooth upgrade pakz explicitly.
 
     The tg5040 Bluetooth upgrade is an ordinary pakz installed by the old boot
-    extraction, so the base package may not drop pakz files wholesale. Either
-    the recipe globs them or it names the upgrade package explicitly.
+    extraction. With the store download gone, the recipe must name it
+    explicitly: a glob both hides what actually ships and lets a store pakz
+    ride in behind it again.
     """
     static, globs = zip_name_list("makefile", "-base.zip")
     if static is None:
         fail("the Bluetooth upgrade pakz still ships", "no active base zip recipe found")
         return
-    if globs or BLUEZ_PAKZ_NAME in static:
-        ok("the Bluetooth upgrade pakz still ships")
+    problems = []
+    if BLUEZ_PAKZ_NAME not in static:
+        problems.append("the recipe does not name %s" % BLUEZ_PAKZ_NAME)
+    if globs:
+        problems.append("the recipe still globs %s" % ", ".join(globs))
+    if problems:
+        fail("the Bluetooth upgrade pakz still ships", "; ".join(problems))
     else:
-        fail("the Bluetooth upgrade pakz still ships",
-             "the base package no longer carries any pakz, which drops %s"
-             % BLUEZ_PAKZ_NAME)
+        ok("the Bluetooth upgrade pakz still ships")
 
 
 def test_extras_zip_names_exist():
