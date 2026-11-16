@@ -228,7 +228,10 @@ whether `.system` is the old or new tree.
 
 `nextupd recover --target-root <dir>` is the offline arbitration entry point. It
 reads only the target root and never touches staging, the network, or the
-running system. It is not called automatically: a later activation task must
+running system. `install` and `recover` take an exclusive `flock` on the target
+root directory; a concurrent command exits `busy` (12) without writing, and the
+lock is released when the holding process exits. There is no extra lock file in
+the target tree. It is not called automatically: a later activation task must
 call it before anything uses `.system`. `recover --rollback` explicitly returns
 a committed or installed tree to its recorded previous version when
 `.system.bak` exists.
@@ -236,6 +239,14 @@ a committed or installed tree to its recorded previous version when
 A missing or version-mismatched `.system.bak` fails with `backup_corrupt` before
 anything is moved. A live tree without the matching marker in `installing`
 fails with `state_ambiguous`. Neither case is guessed through.
+
+Rollback depth is intentionally asymmetric. A pre-commit rollback can restore
+an older backup that was evicted while preparing the candidate, leaving one
+`.system.bak` behind. A rollback of an `installed`/`committed` tree consumes
+the immediate `.system.bak` and does not synthesize a new backup from an older
+tree: the rollback target is exactly the transaction's previous system, and
+retaining a differently-versioned older backup would make later recovery
+ambiguous.
 
 ## Exit codes
 

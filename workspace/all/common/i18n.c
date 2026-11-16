@@ -49,6 +49,72 @@ static const I18nEntry zhTable[] = {
     {"The interface language. Takes effect after returning to the desktop.", "界面显示语言。返回桌面后生效。"},
     {"Simplified Chinese", "简体中文"},
 
+    // Settings: Appearance page labels, hints and values.
+    {"Font", "字体"},
+    {"The font to render all UI text.", "用于呈现界面文字的字体。"},
+    {"Font style", "字体样式"},
+    {"The style to render the UI font (e.g. bold)", "界面字体样式（例如加粗）"},
+    {"Bold", "加粗"},
+    {"Color Palette", "调色板"},
+    {"Custom", "自定义"},
+    {"Pick a predefined color palette or edit the colors below.", "选择预设调色板，或在下方修改各项颜色。"},
+    {"Main Color", "主色"},
+    {"The color used to render main UI elements.", "主要界面元素所用的颜色。"},
+    {"Primary Accent Color", "主强调色"},
+    {"The color used to highlight important things in the user interface.", "用于突出显示界面中重要信息的颜色。"},
+    {"Secondary Accent Color", "次强调色"},
+    {"A secondary highlight color.", "次要的强调颜色。"},
+    {"List Text", "列表文字"},
+    {"List text color", "列表文字颜色。"},
+    {"List Text Selected", "列表选中文字"},
+    {"List selected text color", "列表选中文字的颜色。"},
+    {"Hint info Color", "提示信息颜色"},
+    {"Color for button hints and info", "按钮提示与信息的颜色。"},
+    {"Background Color", "背景颜色"},
+    {"Background color used when no background image is set.", "未设置背景图片时使用的背景颜色。"},
+    {"Show battery percentage", "显示电池百分比"},
+    {"Show battery level as percent in the status pill", "在状态栏中以百分比显示电量。"},
+    {"Show menu animations", "显示菜单动画"},
+    {"Enable or disable menu animations", "启用或禁用菜单动画。"},
+    {"Menu transitions", "菜单过渡"},
+    {"Style of animated transition when navigating menus", "菜单切换时的过渡动画风格。"},
+    {"Off", "关"},
+    {"On", "开"},
+    {"Snappy", "轻快"},
+    {"Comfy", "舒缓"},
+    {"Game art corner radius", "游戏图片圆角"},
+    {"Set the radius for the rounded corners of game art", "设置游戏图片圆角的半径。"},
+    {"Game art width", "游戏图片宽度"},
+    // Multi-line English hints collapse to one Chinese line: the font subset has
+    // no U+000A glyph and GFX_blitText does not wrap, so a zh value must stay a
+    // single line that fits the description area.
+    {"Set the percentage of screen width used for game art.\nUI elements might overrule this to avoid clipping.", "游戏图片占屏幕宽度的百分比，界面元素可自行调整以避免裁切。"},
+    {"Show folder names at root", "根目录显示文件夹名"},
+    {"Show folder names at root directory", "在根目录中显示文件夹名称。"},
+    {"Show Recents", "显示最近游玩"},
+    {"Show \"Recently Played\" menu entry in game list.", "在游戏列表中显示“最近游玩”入口。"},
+    {"Show Tools", "显示工具"},
+    {"Show \"Tools\" menu entry in game list.", "在游戏列表中显示“工具”入口。"},
+    {"Show game art", "显示游戏图片"},
+    {"Show game artwork in the main menu", "在主菜单中显示游戏图片。"},
+    {"Use folder background for ROMs", "ROM 使用文件夹背景"},
+    {"If enabled, used the emulator background image. Otherwise uses the default.", "启用时使用模拟器背景图片，否则使用默认背景。"},
+    {"Show Quickswitcher UI", "显示切换器界面"},
+    {"Show/hide Quickswitcher UI elements.\nWhen hidden, will only draw background images.", "显示或隐藏切换器界面元素，隐藏时仅绘制背景图片。"},
+    {"Game switcher curtain opacity", "切换器遮罩不透明度"},
+    {"Show/hide curtain overlay. Helps UI elements to \nstand out when using transparent backgrounds.", "显示或隐藏遮罩层，使界面元素在透明背景下更醒目。"},
+    {"Input prompt style", "按键提示样式"},
+    {"Select the style of input prompts.", "选择按键提示的样式。"},
+    {"Text", "文字"},
+    {"Cardinals", "方向"},
+    {"Shapes", "形状"},
+
+    // Settings: color picker button hints.
+    {"APPLY", "应用"},
+    {"FINE", "微调"},
+    {"COARSE", "粗调"},
+    {"COPY", "复制"},
+
     // Settings: Display page labels and hints.
     {"Brightness", "亮度"},
     {"Display brightness (0 to 10)", "显示亮度（0 到 10）"},
@@ -118,7 +184,8 @@ static const I18nEntry zhTable[] = {
     {"Select the fan speed percentage (Quiet/Normal/Performance or 0-100%)", "选择风扇转速百分比(安静/标准/性能或 0-100%)"},
 
     // Settings: System page value labels (shared with the FN switch volume rows
-    // where noted; the shared on_off labels stay English on purpose).
+    // where noted; the shared on_off labels are translated through
+    // translateLabels at menu build time).
     {"Muted", "静音"},
     {"Content List", "内容列表"},
     {"Game Switcher", "游戏切换器"},

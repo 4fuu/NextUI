@@ -1130,6 +1130,68 @@ static void print_transaction_result(const Options* options,
     if (staged_dir != NULL) printf("staged: %s\n", staged_dir);
 }
 
+typedef struct
+{
+    int descriptor;
+} TargetLock;
+
+/* Serialize install and recover on one target root. The lock lives beside the
+ * live tree, never inside it, and is advisory: a crashed holder releases it
+ * when the process exits. A missing root is left to upd_install_execute() so
+ * it can report target_missing instead of a misleading lock error. */
+static int target_lock_acquire(const char* root, TargetLock* lock, UpdError* error)
+{
+    struct stat status;
+    int descriptor;
+
+    lock->descriptor = -1;
+    if (root == NULL || root[0] == '\0') return 1;
+    if (stat(root, &status) != 0 || !S_ISDIR(status.st_mode)) return 1;
+    descriptor = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (descriptor < 0)
+    {
+        upd_error_set(error, UPD_E_IO, "io_error", "cannot open %s: %s", root,
+                      strerror(errno));
+        return 0;
+    }
+    if (flock(descriptor, LOCK_EX | LOCK_NB) != 0)
+    {
+        upd_error_set(error, UPD_E_BUSY, "busy",
+                      errno == EWOULDBLOCK ? "another install or recovery is running"
+                                           : "cannot lock target root");
+        close(descriptor);
+        return 0;
+    }
+#ifdef NEXTUPD_TESTING
+    {
+        const char* marker = getenv("NEXTUPD_TEST_LOCK_MARKER");
+        const char* hold = getenv("NEXTUPD_TEST_HOLD_LOCK_MS");
+
+        if (marker != NULL && marker[0] != '\0')
+        {
+            int marker_fd = open(marker, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+            if (marker_fd >= 0) close(marker_fd);
+        }
+        if (hold != NULL && hold[0] != '\0')
+        {
+            long milliseconds = strtol(hold, NULL, 10);
+            if (milliseconds > 0) usleep((useconds_t)milliseconds * 1000);
+        }
+    }
+#endif
+    lock->descriptor = descriptor;
+    return 1;
+}
+
+static void target_lock_release(TargetLock* lock)
+{
+    if (lock->descriptor >= 0)
+    {
+        close(lock->descriptor);
+        lock->descriptor = -1;
+    }
+}
+
 static int run_install(const Options* options)
 {
     UpdStaged staged;
@@ -1138,6 +1200,7 @@ static int run_install(const Options* options)
     UpdTransactionResult result;
     Options check_options;
     UpdError error;
+    TargetLock target_lock;
     char archive[PATH_MAX];
     char manifest[PATH_MAX];
     char signature[PATH_MAX];
@@ -1183,12 +1246,20 @@ static int run_install(const Options* options)
     request.platform = options->platform;
     request.system_version = options->system_version;
     request.manifest = &verified.manifest;
-    if (!upd_install_execute(&request, &result, &error))
+    if (!target_lock_acquire(options->target_root, &target_lock, &error))
     {
         code = report_error(&error, options->json);
         upd_manifest_free(&verified.manifest);
         return code;
     }
+    if (!upd_install_execute(&request, &result, &error))
+    {
+        target_lock_release(&target_lock);
+        code = report_error(&error, options->json);
+        upd_manifest_free(&verified.manifest);
+        return code;
+    }
+    target_lock_release(&target_lock);
     print_transaction_result(options, &result, verified.manifest.id, options->target_root,
                              options->staged_dir);
     upd_manifest_free(&verified.manifest);
@@ -1199,10 +1270,17 @@ static int run_recover(const Options* options)
 {
     UpdTransactionResult result;
     UpdError error;
+    TargetLock target_lock;
 
     upd_error_clear(&error);
-    if (!upd_install_recover(options->target_root, options->rollback, &result, &error))
+    if (!target_lock_acquire(options->target_root, &target_lock, &error))
         return report_error(&error, options->json);
+    if (!upd_install_recover(options->target_root, options->rollback, &result, &error))
+    {
+        target_lock_release(&target_lock);
+        return report_error(&error, options->json);
+    }
+    target_lock_release(&target_lock);
     print_transaction_result(options, &result, NULL, options->target_root, NULL);
     return 0;
 }

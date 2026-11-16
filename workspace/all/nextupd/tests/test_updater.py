@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import zipfile
 
 BIN = os.path.abspath(sys.argv[1])
@@ -620,10 +621,11 @@ def package_entries(version):
     ]
 
 
-def build_stage(name, version="v6.16.0", min_system="v6.0.0", stage_system="v6.15.0"):
+def build_stage(name, version="v6.16.0", min_system="v6.0.0", stage_system="v6.15.0",
+                package_version=None):
     directory = fresh(name)
     package = os.path.join(directory, "MinUI.zip")
-    write_zip(package, package_entries(version))
+    write_zip(package, package_entries(package_version or version))
     manifest = os.path.join(directory, "MinUI.manifest.json")
     manifest_for(package, manifest, identity={"version": version},
                  extra=["--min-system", min_system])
@@ -1144,6 +1146,86 @@ def test_install_corrupt_transaction_record(key_der):
     expect_unchanged("corrupt transaction recovery writes nothing", target, before)
 
 
+def test_install_semantic_cleanup(key_der):
+    staged = build_stage("install-semantic-cleanup-stage", version="v6.16.0",
+                         package_version="v6.15.1")
+    target = make_target("install-semantic-cleanup")
+    before = tree_manifest(os.path.join(target, ".system"))
+    proc = run(install_args(staged, target))
+    expect("install candidate version mismatch", proc, 6, "version_file_mismatch")
+    if tree_manifest(os.path.join(target, ".system")) != before:
+        fail("install semantic cleanup", "live system changed", proc)
+    elif os.path.exists(os.path.join(target, ".nextupd-txn", "new")):
+        fail("install semantic cleanup", "candidate tree was left behind", proc)
+    elif os.path.exists(os.path.join(target, ".nextupd-txn", "previous.bak")):
+        fail("install semantic cleanup", "evicted backup was left behind", proc)
+    else:
+        ok("install semantic cleanup removes the candidate")
+    if os.path.exists(os.path.join(target, ".nextupd-txn", "txn.json")):
+        txn = read_txn(target)
+        if txn.get("state") != "rolled_back":
+            fail("install semantic cleanup", f"unexpected transaction state: {txn}", proc)
+        else:
+            ok("install semantic cleanup records rolled_back")
+
+
+def wait_for_file(path, timeout=5.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if os.path.exists(path):
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_target_lock(key_der):
+    staged = build_stage("install-lock-stage")
+    target = make_target("install-lock")
+    marker = os.path.join(WORK, "lock-held")
+    env = os.environ.copy()
+    env["NEXTUPD_TEST_LOCK_MARKER"] = marker
+    env["NEXTUPD_TEST_HOLD_LOCK_MS"] = "1200"
+    first = subprocess.Popen([BIN] + install_args(staged, target) + ["--json"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, env=env)
+    if not wait_for_file(marker):
+        first.kill()
+        output = first.communicate()[0]
+        fail("target lock", f"first installer did not acquire the lock: {output}")
+        return
+    second = run(install_args(staged, target) + ["--json"])
+    expect("second installer is busy", second, 12, "busy")
+    recover = run(recover_args(target))
+    expect("recover is busy during install", recover, 12, "busy")
+    output = first.communicate(timeout=15)[0]
+    if first.returncode != 0:
+        fail("target lock", f"first installer failed: {output}", first)
+    else:
+        ok("target lock serializes install and recover")
+    after = run(recover_args(target))
+    if after.returncode != 0:
+        fail("target lock release", "recover failed after installer exit", after)
+    else:
+        ok("target lock is released on install exit")
+
+    target2 = make_target("install-lock-kill")
+    marker2 = os.path.join(WORK, "lock-killed")
+    env2 = os.environ.copy()
+    env2["NEXTUPD_TEST_LOCK_MARKER"] = marker2
+    env2["NEXTUPD_TEST_HOLD_LOCK_MS"] = "5000"
+    holder = subprocess.Popen([BIN] + recover_args(target2), stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, env=env2)
+    if not wait_for_file(marker2):
+        holder.kill()
+        holder.wait()
+        fail("target lock kill", "recover holder did not acquire the lock")
+        return
+    holder.kill()
+    holder.wait(timeout=5)
+    proc = run(install_args(staged, target2) + ["--json"])
+    expect("install succeeds after lock holder death", proc, 0, "installed")
+
+
 def test_install_backup_retention(key_der):
     staged = build_stage("install-retention-stage")
     target = make_target("install-retention", previous="v6.10.0")
@@ -1204,6 +1286,8 @@ def main():
     test_install_missing_live_before_backup_refuses(key_der)
     test_install_corrupt_transaction_record(key_der)
     test_install_backup_retention(key_der)
+    test_install_semantic_cleanup(key_der)
+    test_target_lock(key_der)
 
     print(f"\n{PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0
