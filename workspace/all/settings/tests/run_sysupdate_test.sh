@@ -32,14 +32,16 @@ NU=workspace/all/nextupd
     "$build_dir/tweetnacl.o" \
     -o "$build_dir/nextupd" -lz
 
-# Build the controller test: the SDL-free Controller plus the json_lite scanner
-# (compiled as C, linked against the extern "C" declarations in sysupdate.cpp).
+# Build the controller test: the SDL-free Controller plus the shared tool runner
+# and the json_lite scanner (compiled as C, linked against the extern "C"
+# declarations in toolrunner.cpp).
 "$CC" -c workspace/all/common/json_lite.c -o "$build_dir/json_lite.o" \
     -O2 -std=gnu99 -Iworkspace/all/common
 "$CXX" -std=c++17 -O2 -Wall -Wextra -Wno-unused-parameter \
     -Iworkspace/all/settings -Iworkspace/all/common \
     workspace/all/settings/tests/sysupdate_controller_test.cpp \
     workspace/all/settings/sysupdate.cpp \
+    workspace/all/settings/toolrunner.cpp \
     "$build_dir/json_lite.o" \
     -o "$build_dir/sysupdate_controller_test" -pthread
 
