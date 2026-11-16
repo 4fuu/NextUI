@@ -1151,12 +1151,26 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U10 — First update contract and package output safety
 - Owner thread: https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652
   (Step Medium; dispatched 2026-11-16).
-- Status: first head delivered and open; not merged. PR #36
+- Status: the first head failed the independent review; a fix head is pushed
+  and its review is pending. PR #36
   (https://github.com/4fuu/NextUI/pull/36, branch
-  `fix/update-package-atomic-output`), head
-  `ed7b9de5e4aa7a57fe0f6d697bf2333652aefa87`, based on main `3a0b048`, OPEN,
+  `fix/update-package-atomic-output`) is open; the first head
+  `ed7b9de5e4aa7a57fe0f6d697bf2333652aefa87` (based on main `3a0b048`) failed
+  the independent review per the merge owner (2026-11-16 14:04): the commit
+  marker is not consumed by nextupd, so a window with three new files plus the
+  old marker passes check, stage, and install all the same; during publish the
+  old archive is replaced and the old whole set is not recoverable, so the
+  source's "never silently valid / the previous group is always kept" wording
+  cannot be carried as fixed; the new tests do not cover the real
+  mixed-consumer boundary; and the `sha256sum` dependency is hard and missing
+  on macOS. The fix items handed to the source are a precise window, a
+  portable hash, and either a documentation downgrade or a `.previous` backup
+  recovery. The head is now
+  `bbb60bd730d77bcbcb73337064d824cdccea3628` (supersedes `ed7b9de`), OPEN,
   MERGEABLE and CLEAN per gh, with CI green on that head per gh (Feature
-  checks push and pull_request, Development/Desktop). It covers the pre-release
+  checks push and pull_request, Development/Desktop); the new-head review is
+  pending, so no review result is recorded for it and the pull request is not
+  merged. It covers the pre-release
   code gaps recorded earlier: the bootstrap `NextUI-<date>-<n>` `version.txt`
   versus nextupd's `vX.Y.Z` semver in the first-install contract, and
   `package-update`'s interruption safety when the whole ZIP/manifest/signature
@@ -1198,9 +1212,11 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   interrupted-group failure path, plus an independent pull request; a run
   without a pull request is not a delivery. At this head the atomic-output
   suite is 36/36 and fails 6 against the pre-fix script.
-- Next: the merge owner reviews and merges PR #36; the owner decision on the
-  version policy is the only item blocking first-update-on-bootstrap, and the
-  packaging atomicity work is complete and mergeable.
+- Next: the merge owner runs the new-head review on `bbb60bd`, then decides.
+  The version policy suggestion in the documentation (one future version, three
+  existing ones) is a suggestion only, not user-approved; the owner decision on
+  the version policy remains the only item blocking
+  first-update-on-bootstrap.
 
 ### P3 — Full UI translation remainder
 
