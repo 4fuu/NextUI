@@ -117,33 +117,50 @@ untouched. Output paths with spaces are supported.
 
 ### Atomic output
 
-The archive, manifest and signature are published as **one artifact set**. The
-script builds and self-checks the whole set in a staging directory *inside* the
-output directory, then publishes it with same-filesystem renames and writes a
-commit marker last:
+The archive, manifest and signature are published together as **one artifact
+set**. The script builds and self-checks the whole set in a staging directory
+*inside* the output directory, then moves each file into place with a
+same-filesystem rename and writes a commit marker last. A flat set of three
+names cannot be swapped in a single syscall, so the guarantee is split by *when*
+a run is interrupted:
 
-- `<base>.manifest.set` lists the set's file names and their sha256s. A set is
-  complete exactly when the marker is present and every file it lists matches
-  its recorded hash. This needs no signing key, so an operator can confirm a
-  release without one.
-- The previous complete output is never removed or overwritten until a complete,
-  self-checked set exists. A run that fails at the `zip`, manifest, signature or
-  self-check step, or on bad input, leaves the previous set byte-for-byte intact
-  and leaves no staging directory behind (the old `rm`-then-rebuild order
-  destroyed the prior manifest on any such failure).
+- **Before the publish** (a `zip`, manifest, signature or self-check failure, or
+  bad input): the published names are never touched, so the previous set is left
+  byte-for-byte and no staging directory is left behind. This is the strong
+  guarantee, and it is what the old `rm`-then-rebuild order broke (it deleted the
+  prior manifest on any such failure).
+- **During the publish renames** (a `SIGKILL` between two `mv`s): one of three
+  windows is left, and `nextupd check` — the verifier, not this script — decides
+  each. Archive new + manifest old → `archive_hash_mismatch` (exit 6); archive
+  and manifest new + signature old → `signature_invalid` (exit 8, or exit 0 but
+  *unauthenticated* under `--integrity-only`); all three new → a valid set that
+  checks, stages and installs. No window is a set that silently passes as a valid
+  release it is not, because the archive hash and then the signature are what
+  `nextupd` enforces. The previous complete set is **not** preserved across an
+  interrupted publish — the first rename already replaces the old archive — and
+  the next run rebuilds a fresh, complete set over whatever is there.
+
 - An unsigned run replaces a signed set and drops the stale signature, so no
   signature is left beside a manifest it does not belong to.
-- A run killed mid-publish (even `SIGKILL`) can only leave a state the marker
-  flags as incomplete; `nextupd check` rejects any manifest/archive hash
-  mismatch, so a partial set is never mistaken for a complete package. The next
-  run detects the interrupted publish, warns, and republishes a complete set.
-  Each file moves with an atomic rename; the marker is the artifact-set
-  contract and is written after the moves, so it never advertises a set the
-  renames have not finished.
+- `<base>.manifest.set` is the commit marker: the file names and sha256s of the
+  set the last completed publish wrote. It is an **operator completeness
+  record** (checkable without a signing key) and this script's own
+  interrupted-publish signal — a marker that does not match the published files
+  makes the script warn and rebuild. It is **not** read by `nextupd` and is not a
+  safety mechanism; `nextupd check` is. Consumers must verify with `nextupd check`
+  (or install, which does), not assume that three present files are a consistent
+  set.
+- SHA-256 uses `sha256sum`, falling back to `shasum` (macOS) then `openssl`;
+  `NEXTUI_SHA256` forces one for testing. (`build-macos` only compiles `nextupd`
+  and does not run this script, so the `shasum`/`openssl` fallback is covered by
+  the host test that forces each backend.)
 
-`make -C tests test-update-package-atomic` guards this contract with injected
-`zip`, manifest, signature and self-check failures, an unsigned rerun, a
-simulated interrupted publish, bad input, and a leftover staging directory.
+`make -C tests test-update-package-atomic` guards all of this: injected
+`zip`/manifest/signature/self-check failures that must preserve the previous set,
+an unsigned rerun dropping a stale signature, the three interrupted-publish
+windows asserted against the real `nextupd` (`exit 6` / `exit 8` / installs), a
+corrupt archive, bad input, a swept leftover staging directory, each SHA-256
+backend, and the legacy-version refusal.
 
 ## Verifying without a device
 

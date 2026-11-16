@@ -1,41 +1,48 @@
 #!/usr/bin/env python3
-"""Host regressions for atomic update-package output and the legacy version gap.
+"""Host regressions for update-package output durability and the version gap.
 
 These tests drive the real packaging script (`scripts/package-update.sh`) and the
 real `nextupd` binary over synthetic trees inside throwaway roots. They never
 touch /mnt/SDCARD, a device, a release feed, or a production key: signing uses
 the committed test-only Ed25519 seed under
-`workspace/all/nextupd/tests/fixtures`, and every failure is injected with a
-wrapper script so no real crash is required.
+`workspace/all/nextupd/tests/fixtures`, and build failures are injected with
+wrapper scripts so no real crash is required.
 
-They are a companion to `update_package_test.py`, which owns the archive-shape
-and install-lifecycle contract; this file owns the output-durability and
-version-format contract:
+Companion to `update_package_test.py` (archive shape and install lifecycle).
+This file owns output durability and the version-format contract, stated the way
+the code actually behaves:
 
-  - a completed publish writes a commit marker (`<base>.manifest.set`) whose
-    listed files and sha256s match the archive, manifest and signature exactly
-  - a run that fails at the zip, manifest, signature or self-check step leaves
-    the previous complete output byte-for-byte intact and no staging directory
-    behind -- the old `rm`-then-rebuild behaviour destroyed the prior manifest
+  - a failure BEFORE the publish (zip, manifest, signature or self-check step, or
+    bad input) never touches the published names: the previous set is left
+    byte-for-byte and no staging directory is left behind
   - an unsigned run over a signed set drops the stale signature and rewrites the
-    marker, leaving no signature that verifies nothing
-  - a publish interrupted between renames (simulated) is detected through the
-    marker and the next run republishes a complete, self-consistent set
-  - bad input (a version that is not vX.Y.Z, a missing shared resource tree)
-    fails before anything is published and leaves the previous output intact
-  - a leftover staging directory from an earlier kill is swept before building
+    marker
+  - a SIGKILL between the publish renames leaves one of three windows, and
+    `nextupd check` -- not the commit marker, which nextupd never reads -- decides
+    each: archive new + manifest old -> archive_hash_mismatch (exit 6); archive
+    and manifest new + signature old -> signature_invalid (exit 8, or exit 0
+    unauthenticated under --integrity-only); all three new -> a valid set that
+    checks, stages and installs. The previous set is NOT preserved across such an
+    interrupt; the next run rebuilds a fresh set
+  - a corrupt archive is flagged by the marker AND rejected by nextupd
+  - the commit marker records the last completed set (names + sha256); a
+    mismatch makes the script warn and rebuild. It is an operator completeness
+    record, not a safety mechanism
+  - the commit marker is correct under each SHA-256 backend (sha256sum, shasum,
+    openssl) -- sha256sum is absent on macOS
   - the legacy bootstrap version text `NextUI-<date>-<n>` in the target's
     `.system/version.txt` makes `nextupd install` refuse with
     `target_version_missing` and write nothing, while a valid `vX.Y.Z` target
     installs the same package -- the format, not the package, is the difference
 """
 
+import base64
 import hashlib
+import json
 import os
 import shutil
 import subprocess
 import sys
-import zipfile
 
 BIN = os.path.abspath(sys.argv[1])
 REPO = os.path.abspath(sys.argv[2])
@@ -116,6 +123,11 @@ def write_file(path, data, mode=0o644):
     os.chmod(path, mode)
 
 
+def read_json(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 def fresh(name):
     path = os.path.join(WORK, name)
     shutil.rmtree(path, ignore_errors=True)
@@ -143,7 +155,6 @@ def make_key():
     if proc.returncode != 0:
         fail("key fixture", "openssl could not convert the test key", proc)
         return None, None
-    import base64
     public_der = subprocess.run(
         ["openssl", "pkey", "-inform", "DER", "-in", key_der, "-pubout",
          "-outform", "DER"], capture_output=True).stdout
@@ -165,6 +176,13 @@ def build_source_tree(name="build"):
     write_file(os.path.join(system, "paks", "MinUI.pak", "launch.sh"),
                b"#!/bin/sh\nexec ./nextui.elf\n", 0o755)
     return system
+
+
+def build_set(version, out_dir, key=None, build_name=None):
+    """Package one version into out_dir; return (proc, final_paths)."""
+    system = build_source_tree(build_name or ("build-%s" % version.replace(".", "_")))
+    proc = run(package_args(system, out_dir, version=version, key=key))
+    return proc, final_paths(out_dir)
 
 
 def default_name():
@@ -210,6 +228,17 @@ def final_paths(out_dir, name=None):
     }
 
 
+def place_set(tag, archive_src, manifest_src, sig_src):
+    """Assemble an out_dir from chosen archive/manifest/signature files."""
+    directory = fresh("place-" + tag)
+    name = default_name()
+    shutil.copy(archive_src, os.path.join(directory, name))
+    shutil.copy(manifest_src, os.path.join(directory, name[:-4] + ".manifest.json"))
+    if sig_src:
+        shutil.copy(sig_src, os.path.join(directory, name[:-4] + ".manifest.sig"))
+    return final_paths(directory)
+
+
 def read_marker(path):
     signed = None
     entries = {}
@@ -226,9 +255,13 @@ def read_marker(path):
 
 
 def set_is_complete(paths):
-    """A published set is complete iff the marker exists and every file it lists
-    is present with the recorded hash, and no signature is listed for an
-    unsigned set."""
+    """Operator check: does the commit marker match the published files?
+
+    This is a completeness/consistency record for operators and this script's
+    own interrupted-publish signal. It is NOT a safety guarantee and nextupd does
+    not read it: a valid set with a stale marker still checks, stages and
+    installs, and a mixed set is caught by nextupd check, not here.
+    """
     if not os.path.isfile(paths["marker"]):
         return False, "no commit marker at %s" % paths["marker"]
     signed, entries = read_marker(paths["marker"])
@@ -245,7 +278,7 @@ def set_is_complete(paths):
             return False, "%s does not match its recorded hash" % kind
     if signed != "1" and "signature" in entries:
         return False, "unsigned set lists a signature"
-    return True, "complete"
+    return True, "marker matches the published files"
 
 
 def hashes(paths, keys):
@@ -295,27 +328,22 @@ def make_failing_zip_dir():
 
 def test_commit_marker(key_pem):
     """A completed publish writes a marker that matches the set exactly."""
-    system = build_source_tree("build-marker")
     out_dir = fresh("out-marker")
-    paths = final_paths(out_dir)
-
-    proc = run(package_args(system, out_dir, key=key_pem))
+    proc, paths = build_set(VERSION, out_dir, key=key_pem, build_name="build-marker")
     if not expect("marker: signed publish", proc, 0):
         return
     complete, why = set_is_complete(paths)
     if not complete:
-        fail("marker: signed publish", "signed set is not complete: %s" % why)
+        fail("marker: signed publish", "signed set is not marker-consistent: %s" % why)
         return
     signed, entries = read_marker(paths["marker"])
     if signed != "1" or "signature" not in entries:
         fail("marker: signed publish", "marker did not record a signed set")
         return
-    ok("marker: signed set is complete and records the signature")
+    ok("marker: signed set is marker-consistent and records the signature")
 
-    # An unsigned publish lists only archive and manifest, and writes no sig.
     out2 = fresh("out-marker-unsigned")
-    paths2 = final_paths(out2)
-    proc = run(package_args(system, out2, version=NEWER_VERSION))
+    proc, paths2 = build_set(NEWER_VERSION, out2, build_name="build-marker-unsigned")
     if not expect("marker: unsigned publish", proc, 0):
         return
     if os.path.exists(paths2["signature"]):
@@ -323,71 +351,69 @@ def test_commit_marker(key_pem):
         return
     complete, why = set_is_complete(paths2)
     if not complete:
-        fail("marker: unsigned publish", "unsigned set is not complete: %s" % why)
+        fail("marker: unsigned publish", "unsigned set is not marker-consistent: %s" % why)
         return
     signed, entries = read_marker(paths2["marker"])
     if signed != "0" or "signature" in entries:
         fail("marker: unsigned publish", "marker did not record an unsigned set")
         return
-    ok("marker: unsigned set is complete, lists no signature")
+    ok("marker: unsigned set is marker-consistent, lists no signature")
 
 
-def test_failure_preserves_previous(key_pem):
-    """A run that fails at any build step leaves the previous set byte-intact."""
-    system = build_source_tree("build-fail")
+def test_build_failure_preserves_previous(key_pem):
+    """A failure BEFORE the publish leaves the previous set byte-for-byte.
+
+    zip/manifest/signature/self-check all run before any published name is
+    touched, so the old set survives and no staging directory is left behind.
+    (An interrupt DURING the renames is a different case: see
+    test_publish_windows_boundary.)
+    """
     out_dir = fresh("out-fail")
-    paths = final_paths(out_dir)
-
-    proc = run(package_args(system, out_dir, key=key_pem))
-    if not expect("failure preserves: first signed publish", proc, 0):
+    proc, paths = build_set(VERSION, out_dir, key=key_pem, build_name="build-fail")
+    if not expect("build failure: first signed publish", proc, 0):
         return
     before = hashes(paths, ("archive", "manifest", "signature", "marker"))
     complete, why = set_is_complete(paths)
     if not complete:
-        fail("failure preserves: first signed publish", "baseline set not complete: %s" % why)
+        fail("build failure: first signed publish", "baseline not marker-consistent: %s" % why)
         return
-    ok("failure preserves: baseline signed set published")
+    ok("build failure: baseline signed set published")
 
     scenarios = [
         ("zip", {"env": {"PATH": make_failing_zip_dir() + ":" + os.environ["PATH"]}},
-         package_args(system, out_dir, version=NEWER_VERSION, key=key_pem)),
-        ("manifest", {}, package_args(system, out_dir, version=NEWER_VERSION, key=key_pem,
-                                       nextupd=make_nextupd_wrapper("manifest"))),
-        ("sign", {}, package_args(system, out_dir, version=NEWER_VERSION, key=key_pem,
+         package_args(build_source_tree("build-fail-zip"), out_dir,
+                      version=NEWER_VERSION, key=key_pem)),
+        ("manifest", {}, package_args(build_source_tree("build-fail-manifest"), out_dir,
+                                      version=NEWER_VERSION, key=key_pem,
+                                      nextupd=make_nextupd_wrapper("manifest"))),
+        ("sign", {}, package_args(build_source_tree("build-fail-sign"), out_dir,
+                                  version=NEWER_VERSION, key=key_pem,
                                   sign_script=make_failing_sign_script())),
-        ("check", {}, package_args(system, out_dir, version=NEWER_VERSION, key=key_pem,
+        ("check", {}, package_args(build_source_tree("build-fail-check"), out_dir,
+                                   version=NEWER_VERSION, key=key_pem,
                                    nextupd=make_nextupd_wrapper("check"))),
     ]
     for label, run_kwargs, args in scenarios:
         proc = run(args, env=run_kwargs.get("env"))
         if proc.returncode == 0:
-            fail("failure preserves: %s step" % label,
+            fail("build failure: %s step" % label,
                  "the injected %s failure did not fail the run" % label, proc)
             continue
         after = hashes(paths, ("archive", "manifest", "signature", "marker"))
         if after != before:
-            fail("failure preserves: %s step" % label,
-                 "the previous set changed: %s" % after, proc)
+            fail("build failure: %s step" % label, "the previous set changed", proc)
             continue
-        leftovers = staging_leftovers(out_dir)
-        if leftovers:
-            fail("failure preserves: %s step" % label,
-                 "staging left behind: %s" % leftovers)
+        if staging_leftovers(out_dir):
+            fail("build failure: %s step" % label,
+                 "staging left behind: %s" % staging_leftovers(out_dir))
             continue
-        complete, why = set_is_complete(paths)
-        if not complete:
-            fail("failure preserves: %s step" % label, "set no longer complete: %s" % why)
-            continue
-        ok("failure preserves: %s step left the previous set byte-for-byte intact" % label)
+        ok("build failure: %s step left the previous set byte-for-byte intact" % label)
 
 
 def test_unsigned_rerun_drops_stale_sig(key_pem):
     """An unsigned rerun over a signed set drops the stale signature."""
-    system = build_source_tree("build-unsigned")
     out_dir = fresh("out-unsigned")
-    paths = final_paths(out_dir)
-
-    proc = run(package_args(system, out_dir, key=key_pem))
+    proc, paths = build_set(VERSION, out_dir, key=key_pem, build_name="build-unsigned")
     if not expect("unsigned rerun: first signed publish", proc, 0):
         return
     if not os.path.isfile(paths["signature"]):
@@ -395,7 +421,8 @@ def test_unsigned_rerun_drops_stale_sig(key_pem):
         return
     ok("unsigned rerun: baseline signed set has a signature")
 
-    proc = run(package_args(system, out_dir, version=NEWER_VERSION))
+    proc = run(package_args(build_source_tree("build-unsigned-2"), out_dir,
+                            version=NEWER_VERSION))
     if not expect("unsigned rerun: second unsigned publish", proc, 0):
         return
     if os.path.exists(paths["signature"]):
@@ -406,7 +433,7 @@ def test_unsigned_rerun_drops_stale_sig(key_pem):
         return
     complete, why = set_is_complete(paths)
     if not complete:
-        fail("unsigned rerun", "the unsigned set is not complete: %s" % why)
+        fail("unsigned rerun", "the unsigned set is not marker-consistent: %s" % why)
         return
     expect("unsigned rerun: integrity check",
            run([BIN, "check", "--package", paths["archive"], "--manifest", paths["manifest"],
@@ -414,64 +441,162 @@ def test_unsigned_rerun_drops_stale_sig(key_pem):
     ok("unsigned rerun: stale signature dropped, marker rewritten, set verifies")
 
 
+def test_publish_windows_boundary(key_pem):
+    """nextupd, not the marker, decides each interrupted-publish window.
+
+    Builds two distinct valid sets and assembles the three windows a SIGKILL
+    between the publish renames can leave, then asserts the real nextupd outcome.
+    """
+    dir_a = fresh("win-a")
+    proc, pa = build_set(VERSION, dir_a, key=key_pem, build_name="build-win-a")
+    if not expect("windows: build A (v6.16.0)", proc, 0):
+        return
+    dir_b = fresh("win-b")
+    proc, pb = build_set(NEWER_VERSION, dir_b, key=key_pem, build_name="build-win-b")
+    if not expect("windows: build B (v6.17.0)", proc, 0):
+        return
+    if open(pa["archive"], "rb").read() == open(pb["archive"], "rb").read():
+        fail("windows: distinct builds", "the two archives are identical; windows would not differ")
+        return
+
+    def check(paths, sig, integrity_only=False, system=PREVIOUS_VERSION):
+        args = [BIN, "check", "--package", paths["archive"], "--manifest", paths["manifest"],
+                "--platform", PLATFORM, "--system-version", system]
+        if integrity_only:
+            args.append("--integrity-only")
+        elif sig is not None:
+            args += ["--signature", sig, "--trusted-key", PUBLIC_KEY]
+        return run(args)
+
+    # Window 1: archive new (B) + manifest old (A) + sig old (A) -> exit 6.
+    w1 = place_set("1", pb["archive"], pa["manifest"], pa["signature"])
+    expect("windows: archive new + manifest old -> archive_hash_mismatch",
+           check(w1, pa["signature"]), 6, "archive_hash_mismatch")
+
+    # Window 2: archive+manifest new (B) + sig old (A) -> exit 8; 0 unauthenticated.
+    w2 = place_set("2", pb["archive"], pb["manifest"], pa["signature"])
+    expect("windows: archive+manifest new + sig old -> signature_invalid",
+           check(w2, pa["signature"]), 8, "signature_invalid")
+    expect("windows: that window under --integrity-only -> exit 0 but unauthenticated",
+           check(w2, None, integrity_only=True), 0, "authenticity is NOT verified")
+
+    # Window 3: all three new (B) with a STALE A marker beside them -> valid set.
+    w3 = place_set("3", pb["archive"], pb["manifest"], pb["signature"])
+    shutil.copy(pa["marker"], w3["marker"])
+    if not expect("windows: all three new (stale marker) -> check verifies",
+                  check(w3, pb["signature"]), 0):
+        return
+    target = make_target("win-3-target", PREVIOUS_VERSION + "\n")
+    install, stage = stage_and_install(w3, target, PREVIOUS_VERSION)
+    if install is None:
+        fail("windows: all three new -> install", "staging failed", stage)
+        return
+    if not expect("windows: all three new -> install commits", install, 0, "committed"):
+        return
+    installed = open(os.path.join(target, ".system", "version.txt")).read().strip()
+    if installed != NEWER_VERSION:
+        fail("windows: all three new -> install",
+             "installed %s, expected %s (stale marker must not block a valid set)"
+             % (installed, NEWER_VERSION))
+    else:
+        ok("windows: all three new installs v6.17.0; the stale marker is irrelevant to nextupd")
+
+
 def test_interrupted_publish_self_heals(key_pem):
-    """A publish interrupted between renames is detected and republished."""
-    system = build_source_tree("build-heal")
-    out_dir = fresh("out-heal")
-    paths = final_paths(out_dir)
+    """An interrupted publish (window 1) makes the script warn and rebuild.
 
-    proc = run(package_args(system, out_dir, key=key_pem))
-    if not expect("self-heal: first signed publish", proc, 0):
+    Assemble the real window a SIGKILL after the archive rename leaves -- a new
+    archive beside the old manifest, signature and marker -- then run the packager
+    and assert it warns, rebuilds a NEW complete set, and does not restore the old
+    one (the rebuild is a different version, so a restore would be visible).
+    """
+    out_dir = fresh("heal")
+    proc, pa = build_set(VERSION, out_dir, key=key_pem, build_name="build-heal-a")
+    if not expect("self-heal: first publish (v6.16.0)", proc, 0):
         return
-    ok("self-heal: baseline signed set published")
+    ok("self-heal: baseline v6.16.0 set published")
 
-    # Simulate a kill after the archive rename but before the marker rewrite:
-    # the final archive no longer matches the manifest and marker.
-    with open(paths["archive"], "wb") as handle:
-        handle.write(b"partial archive written by an interrupted publish\n")
-    complete, _ = set_is_complete(paths)
+    # A second, different build; its archive stands in for the half-published one.
+    dir_b = fresh("heal-b")
+    proc_b, pb = build_set(NEWER_VERSION, dir_b, key=key_pem, build_name="build-heal-b")
+    if not expect("self-heal: second build (v6.17.0)", proc_b, 0):
+        return
+    if open(pa["archive"], "rb").read() == open(pb["archive"], "rb").read():
+        fail("self-heal", "the two builds are identical; the window would not differ")
+        return
+
+    # Window 1: the new archive landed; the old manifest, signature and marker
+    # are still in place. nextupd would reject this (archive_hash_mismatch), and
+    # the marker no longer matches the archive.
+    shutil.copy(pb["archive"], pa["archive"])
+    complete, _ = set_is_complete(pa)
     if complete:
-        fail("self-heal: corrupt the archive", "the tampered set still looks complete")
+        fail("self-heal", "the half-published window still looks marker-consistent")
         return
-    ok("self-heal: a half-written archive is not a complete set")
+    ok("self-heal: window 1 (new archive, old manifest) is not marker-consistent")
 
-    proc = run(package_args(system, out_dir, key=key_pem))
-    if not expect("self-heal: republish", proc, 0, "previous publish"):
+    proc = run(package_args(build_source_tree("build-heal-c"), out_dir,
+                            version=NEWER_VERSION, key=key_pem))
+    if not expect("self-heal: rebuild warns and succeeds", proc, 0,
+                  "commit marker does not match"):
         return
+    paths = final_paths(out_dir)
+    if read_json(paths["manifest"]).get("version") != NEWER_VERSION:
+        fail("self-heal", "the rebuilt set is not the new version (was the old set restored?)")
+        return
+    ok("self-heal: rebuilt the new v6.17.0 set, did not restore the old v6.16.0 one")
     complete, why = set_is_complete(paths)
     if not complete:
-        fail("self-heal: republish", "the republished set is not complete: %s" % why)
+        fail("self-heal", "the rebuilt set is not marker-consistent: %s" % why)
         return
-    expect("self-heal: republished set verifies",
+    expect("self-heal: rebuilt set verifies",
            run([BIN, "check", "--package", paths["archive"], "--manifest", paths["manifest"],
                 "--platform", PLATFORM, "--signature", paths["signature"],
                 "--trusted-key", PUBLIC_KEY]), 0)
-    ok("self-heal: the next run republished a complete, self-consistent set")
+    ok("self-heal: new complete set verifies with nextupd")
+
+
+def test_corrupt_archive_is_not_complete(key_pem):
+    """A corrupt archive is flagged by the marker AND rejected by nextupd."""
+    out_dir = fresh("corrupt")
+    proc, paths = build_set(VERSION, out_dir, key=key_pem, build_name="build-corrupt")
+    if not expect("corrupt: publish", proc, 0):
+        return
+    with open(paths["archive"], "rb") as handle:
+        data = bytearray(handle.read())
+    data[len(data) // 2] ^= 0xFF  # same size, different bytes -> hash mismatch, not size
+    with open(paths["archive"], "wb") as handle:
+        handle.write(bytes(data))
+    complete, why = set_is_complete(paths)
+    if complete:
+        fail("corrupt", "a corrupt archive still looks marker-consistent")
+    else:
+        ok("corrupt: the marker flags the corrupt archive (%s)" % why)
+    expect("corrupt: nextupd rejects the corrupt archive",
+           run([BIN, "check", "--package", paths["archive"], "--manifest", paths["manifest"],
+                "--platform", PLATFORM, "--signature", paths["signature"],
+                "--trusted-key", PUBLIC_KEY]), 6, "archive_hash_mismatch")
 
 
 def test_bad_input_preserves_previous(key_pem):
     """Bad input fails before publishing and leaves the previous set intact."""
-    system = build_source_tree("build-badinput")
     out_dir = fresh("out-badinput")
-    paths = final_paths(out_dir)
-
-    proc = run(package_args(system, out_dir, key=key_pem))
+    proc, paths = build_set(VERSION, out_dir, key=key_pem, build_name="build-badinput")
     if not expect("bad input: baseline publish", proc, 0):
         return
     before = hashes(paths, ("archive", "manifest", "signature", "marker"))
     ok("bad input: baseline signed set published")
 
-    # A version that is not vX.Y.Z is refused during argument parsing.
-    proc = run(package_args(system, out_dir, version="6.16.0", key=key_pem))
+    proc = run(package_args(build_source_tree("build-badinput-ver"), out_dir,
+                            version="6.16.0", key=key_pem))
     expect("bad input: non-semver version refused", proc, 64, "vX.Y.Z")
     if hashes(paths, ("archive", "manifest", "signature", "marker")) != before:
         fail("bad input: non-semver version", "the previous set changed", proc)
     else:
         ok("bad input: non-semver version left the previous set intact")
 
-    # A missing shared resource tree (without --no-res) fails during staging.
-    proc = run(package_args(system, out_dir, version=NEWER_VERSION, key=key_pem,
-                            no_res=False))
+    proc = run(package_args(build_source_tree("build-badinput-res"), out_dir,
+                            version=NEWER_VERSION, key=key_pem, no_res=False))
     if proc.returncode == 0:
         fail("bad input: missing resource tree", "packaging succeeded without a resource tree")
     else:
@@ -488,14 +613,13 @@ def test_bad_input_preserves_previous(key_pem):
 
 def test_stale_staging_swept():
     """A leftover staging directory from an earlier kill is swept."""
-    system = build_source_tree("build-sweep")
     out_dir = fresh("out-sweep")
     paths = final_paths(out_dir)
     leftover = os.path.join(out_dir, ".package-update.DEADBEEF")
     write_file(os.path.join(leftover, "nextui-system-%s.zip" % PLATFORM),
                b"junk from a killed run\n")
 
-    proc = run(package_args(system, out_dir))
+    proc = run(package_args(build_source_tree("build-sweep"), out_dir))
     if not expect("sweep: publish", proc, 0):
         return
     if os.path.exists(leftover):
@@ -503,9 +627,42 @@ def test_stale_staging_swept():
         return
     complete, why = set_is_complete(paths)
     if not complete:
-        fail("sweep", "the published set is not complete: %s" % why)
+        fail("sweep", "the published set is not marker-consistent: %s" % why)
         return
     ok("sweep: leftover staging directory removed, set published")
+
+
+def test_sha256_backends():
+    """The commit marker is correct under each SHA-256 backend.
+
+    sha256sum is absent on macOS (shasum); openssl is the last resort. Force each
+    backend through the real script and check the marker hashes equal Python's.
+    """
+    backends = []
+    for candidate in ("openssl", "shasum", "sha256sum"):
+        if shutil.which(candidate):
+            backends.append(candidate)
+    if not backends:
+        skip("sha256 backends", "no sha256 tool found")
+        return
+    for backend in backends:
+        out_dir = fresh("sha-%s" % backend)
+        system = build_source_tree("build-sha-%s" % backend)
+        proc = run(package_args(system, out_dir), env={"NEXTUI_SHA256": backend})
+        if not expect("sha256 %s: publish" % backend, proc, 0):
+            continue
+        paths = final_paths(out_dir)
+        _, entries = read_marker(paths["marker"])
+        wrong = []
+        for kind in ("archive", "manifest"):
+            recorded = entries[kind][1]
+            actual = sha256_file(paths[kind])
+            if actual != recorded:
+                wrong.append("%s marker=%s actual=%s" % (kind, recorded, actual))
+        if wrong:
+            fail("sha256 %s" % backend, "marker hashes wrong: %s" % "; ".join(wrong))
+        else:
+            ok("sha256 %s: marker hashes match the files" % backend)
 
 
 def make_target(name, version_text):
@@ -555,16 +712,12 @@ def stage_and_install(package_paths, target, system_version):
 
 def test_legacy_version_target_refused(key_pem):
     """The legacy bootstrap version text is refused; a valid one installs."""
-    system = build_source_tree("build-legacy")
     out_dir = fresh("out-legacy")
-    package_paths = final_paths(out_dir)
-
-    proc = run(package_args(system, out_dir, key=key_pem))
+    proc, package_paths = build_set(VERSION, out_dir, key=key_pem, build_name="build-legacy")
     if not expect("legacy version: build package", proc, 0):
         return
     ok("legacy version: valid v6.16.0 package built")
 
-    # Legacy bootstrap card: .system/version.txt is NextUI-<date>-<n>.
     legacy = make_target("legacy-target", LEGACY_VERSION_TEXT)
     before = tree_state(os.path.join(legacy, ".system"))
     install, stage = stage_and_install(package_paths, legacy, PREVIOUS_VERSION)
@@ -580,8 +733,6 @@ def test_legacy_version_target_refused(key_pem):
     else:
         ok("legacy version: refused with target_version_missing, target untouched")
 
-    # The same package installs onto a valid vX.Y.Z target: the format, not the
-    # package, is what the legacy card lacks.
     valid = make_target("valid-target", PREVIOUS_VERSION + "\n")
     install, stage = stage_and_install(package_paths, valid, PREVIOUS_VERSION)
     if install is None:
@@ -606,11 +757,14 @@ def main():
         return 1
 
     test_commit_marker(key_pem)
-    test_failure_preserves_previous(key_pem)
+    test_build_failure_preserves_previous(key_pem)
     test_unsigned_rerun_drops_stale_sig(key_pem)
+    test_publish_windows_boundary(key_pem)
     test_interrupted_publish_self_heals(key_pem)
+    test_corrupt_archive_is_not_complete(key_pem)
     test_bad_input_preserves_previous(key_pem)
     test_stale_staging_swept()
+    test_sha256_backends()
     test_legacy_version_target_refused(key_pem)
 
     print("%d passed, %d failed, %d skipped" % (PASS, FAIL, SKIPPED))

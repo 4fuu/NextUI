@@ -23,22 +23,38 @@
 # different artifact; this script never reads or rewrites it, and `nextupd
 # install` refuses an archive with an unhandled root before writing anything.
 #
-# Outputs, all inside --out-dir, published atomically as one set:
+# Outputs, all inside --out-dir, published together as one set:
 #
 #   <name>                  the archive, a .zip of .system [.tmp_update]
 #   <base>.manifest.json    nextui-update-v1 manifest (nextupd manifest)
 #   <base>.manifest.sig     detached Ed25519 signature (only with --key/--key-id)
 #   <base>.manifest.set     commit marker: this set's file names and sha256s
 #
-# The archive, manifest and signature are ONE artifact set. The script builds
-# and self-checks the whole set in a staging directory inside --out-dir, then
-# publishes it with same-filesystem renames and writes the commit marker last.
-# A failed or repeated run never damages the previous complete output. An
-# interrupted run (even SIGKILL) can leave a transient mixed set, but only one
-# the commit marker flags as incomplete: it never passes as a complete package,
-# because nextupd check rejects any manifest/archive hash mismatch, and the next
-# run republishes a complete set. The marker present with every listed file
-# matching its hash is what marks a set complete.
+# The archive, manifest and signature are ONE artifact set, published together.
+# The script builds and self-checks the whole set in a staging directory inside
+# --out-dir, then moves each file into place with a same-filesystem rename and
+# writes the commit marker last. A flat set of three names cannot be swapped in
+# one syscall, so what bounds an interrupted run is nextupd's own verification,
+# not this script:
+#
+#   - a failure before the publish (zip, manifest, signature or self-check)
+#     never touches the published names, so the previous set is left byte-for-byte
+#   - a kill during the three renames leaves one of three windows, and `nextupd
+#     check` decides each: archive new + manifest old -> archive_hash_mismatch
+#     (exit 6); archive+manifest new + signature old -> signature_invalid
+#     (exit 8, or exit 0 but unauthenticated under --integrity-only); all three
+#     new -> the set verifies and installs. No window is a set that silently
+#     passes as a valid release it is not.
+#   - the previous complete set is NOT preserved across an interrupted publish:
+#     the first rename already replaces the old archive. The next run rebuilds a
+#     fresh, complete set over whatever is there.
+#
+# The commit marker (<base>.manifest.set) records the set the last completed
+# publish wrote (file names and sha256s). It is an operator completeness record
+# and this script's own interrupted-publish signal; it is NOT read by nextupd
+# and is NOT a safety mechanism -- `nextupd check` is. A marker that does not
+# match the published files means a publish may not have finished, so the script
+# warns and rebuilds; it does not by itself prove the set is invalid.
 #
 # The manifest records the archive's final basename, so renaming the archive
 # afterwards requires regenerating and re-signing the manifest.
@@ -116,9 +132,33 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-for tool in zip find mktemp awk readlink sha256sum; do
+for tool in zip find mktemp awk readlink; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing $tool" 69
 done
+
+# SHA-256 for the commit marker. sha256sum is absent on macOS, which ships
+# shasum; openssl is the last resort. NEXTUI_SHA256 forces one (used by tests).
+case "${NEXTUI_SHA256:-}" in
+    sha256sum|shasum|openssl) sha256_tool=${NEXTUI_SHA256} ;;
+    '') sha256_tool= ;;
+    *) fail "NEXTUI_SHA256 must be sha256sum, shasum or openssl" 64 ;;
+esac
+if [ -z "$sha256_tool" ]; then
+    if command -v sha256sum >/dev/null 2>&1; then sha256_tool=sha256sum
+    elif command -v shasum >/dev/null 2>&1; then sha256_tool=shasum
+    elif command -v openssl >/dev/null 2>&1; then sha256_tool=openssl
+    else fail "need sha256sum, shasum or openssl for the commit marker" 69
+    fi
+fi
+
+# Hex SHA-256 of a file through the selected tool.
+sha256_file() {
+    case "$sha256_tool" in
+        sha256sum) sha256sum "$1" | cut -d' ' -f1 ;;
+        shasum) shasum -a 256 "$1" | cut -d' ' -f1 ;;
+        openssl) openssl dgst -sha256 "$1" | awk '{print $NF}' ;;
+    esac
+}
 
 [ -n "$platform" ] || fail "--platform is required" 64
 found=0
@@ -212,11 +252,11 @@ esac
 find "$absolute_out" -maxdepth 1 -type d -name '.package-update.*' \
     -exec rm -rf {} + 2>/dev/null || true
 
-# If a previous publish was interrupted, the final names can disagree with the
-# commit marker. That is never a valid set -- nextupd check rejects a
-# manifest/archive hash mismatch, so it cannot pass as a complete package -- and
-# this run rebuilds and republishes a complete set in its place. Warn so the
-# operator knows the earlier output was incomplete.
+# If the published files do not match the commit marker, a previous publish may
+# not have finished (or a newer set landed without its marker being rewritten).
+# That is not by itself proof the set is invalid -- `nextupd check` is what
+# decides that -- so warn and let this run rebuild a complete set over whatever
+# is present. The marker is an operator/packager signal; nextupd never reads it.
 if [ -f "$marker_out" ]; then
     marker_ok=1
     while read -r marker_kind marker_name marker_hash; do
@@ -226,12 +266,12 @@ if [ -f "$marker_out" ]; then
         esac
         marker_path="$out_dir/$marker_name"
         if [ ! -f "$marker_path" ] ||
-           [ "$(sha256sum "$marker_path" | cut -d' ' -f1)" != "$marker_hash" ]; then
+           [ "$(sha256_file "$marker_path")" != "$marker_hash" ]; then
             marker_ok=0
         fi
     done < "$marker_out"
     if [ "$marker_ok" = 0 ]; then
-        printf '%s: previous publish of %s was interrupted; rebuilding and replacing it\n' \
+        printf '%s: commit marker does not match the published %s set; a previous publish may not have finished, rebuilding\n' \
             "$PROGRAM" "$base" >&2
     fi
 fi
@@ -400,13 +440,13 @@ if [ "$signed" = 1 ]; then
 fi
 
 # Publish the artifact set. Each rename is atomic (same filesystem, mv uses
-# rename(2)); the previous complete output is replaced in place with no window
-# where a published name is missing. The commit marker is written LAST and
-# renamed into place, so "marker present and every listed file matches its
-# recorded hash" is the definition of a complete set. A kill between two renames
-# can only leave a state the marker flags as incomplete -- never a silently
-# valid set, because nextupd check rejects any manifest/archive mismatch -- and
-# the next run republishes a complete set over it.
+# rename(2)) and replaces the previous file in place, so no published name is
+# ever missing -- but the old set is replaced here, not preserved. A kill between
+# two renames leaves one of the three windows `nextupd check` disambiguates
+# (archive_hash_mismatch / signature_invalid / a valid set); see the header. The
+# commit marker is written last; nextupd never reads it, so it is an operator
+# completeness record, not a guard. The next run rebuilds a complete set over
+# whatever is present.
 mv -f "$archive" "$archive_out"
 mv -f "$manifest_build" "$manifest_out"
 if [ "$signed" = 1 ]; then
@@ -422,10 +462,10 @@ fi
 {
     printf 'nextui-package-set-v1\n'
     printf 'signed %s\n' "$signed"
-    printf 'archive %s %s\n' "$name" "$(sha256sum "$archive_out" | cut -d' ' -f1)"
-    printf 'manifest %s %s\n' "$base.manifest.json" "$(sha256sum "$manifest_out" | cut -d' ' -f1)"
+    printf 'archive %s %s\n' "$name" "$(sha256_file "$archive_out")"
+    printf 'manifest %s %s\n' "$base.manifest.json" "$(sha256_file "$manifest_out")"
     if [ "$signed" = 1 ]; then
-        printf 'signature %s %s\n' "$base.manifest.sig" "$(sha256sum "$signature_out" | cut -d' ' -f1)"
+        printf 'signature %s %s\n' "$base.manifest.sig" "$(sha256_file "$signature_out")"
     fi
 } > "$publish/$base.manifest.set"
 mv -f "$publish/$base.manifest.set" "$marker_out"
