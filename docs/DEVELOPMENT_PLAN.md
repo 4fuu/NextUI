@@ -1414,7 +1414,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   refusal and rescan tests, and a production-path test that installs with the
   real nextupd, compiles the real `nextui.c`, and from the same isolated root
   discovers the installed app and executes its queued launch command; 25 new
-  zh entries plus the a4 fixture, with the font verifier reporting 0 missing
+  zh entries plus the a4 fixture as the source claimed (the review measured 24
+  -- see the FAIL below), with the font verifier reporting 0 missing
   and the width check passing. The launcher gap therefore changes from "only a
   copied scanner" to "the source has provided production-path host evidence",
   and the merge owner independently confirmed that the real launcher test
