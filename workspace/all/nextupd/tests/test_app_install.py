@@ -755,6 +755,55 @@ def test_app_rollback_selector_with_system(key_der):
         fail("system rollback still reachable", str(value))
 
 
+def test_install_rejects_universal_target(key_der):
+    """The install target platform must be concrete: the launcher scans
+    Tools/<concrete-platform>/. A universal target would publish an app the
+    launcher never lists and create a transaction recover rejects, so it is
+    refused before anything is written."""
+    target = fresh("app-uni-target")
+    _p, _m, _s, r, proc = build_stage("app-uni-stage", "v1.0.0", key_der=key_der)
+    if proc.returncode != 0:
+        fail("stage app for universal target", "failed", proc)
+        return
+    staged = os.path.join(r, "com.example.demo-v1.0.0-universal")
+    before = tree_manifest(target)
+    expect("install rejects universal target",
+           run(install_args(staged, target, platform="universal")), 3, "invalid_platform")
+    expect_unchanged("universal target writes nothing", target, before)
+    if not os.path.exists(os.path.join(target, ".nextupd-app-txn")):
+        ok("universal target creates no transaction")
+    else:
+        fail("universal target creates no transaction", "txn dir created")
+
+
+def test_removed_app_recover_is_safe(key_der):
+    """A committed app whose live tree a user removed must not make a plain
+    recover (the boot-gate path) fail closed; it returns nothing_to_recover. The
+    explicit --app <id> --rollback route still rolls back from the backup."""
+    root = make_system_target("removed-app")
+    if not expect("removed-app system update", install_fixture_system(root), 0):
+        return
+    _p, _m, _s, r1, _ = build_stage("removed-app-v1", "v1.0.0", key_der=key_der)
+    assert run(install_args(os.path.join(r1, "com.example.demo-v1.0.0-universal"),
+                            root)).returncode == 0
+    _p, _m, _s, r2, _ = build_stage("removed-app-v2", "v2.0.0", key_der=key_der)
+    assert run(install_args(os.path.join(r2, "com.example.demo-v2.0.0-universal"),
+                            root)).returncode == 0
+    shutil.rmtree(pak_dir(root))  # a normal user removal of the live app
+    value = expect_json("plain recover after app removal", run(recover_args(root)), 0)
+    if value and value.get("outcome") == "nothing_to_recover":
+        ok("plain recover after app removal is a safe no-op (boot gate stays green)")
+    else:
+        fail("plain recover after app removal is a safe no-op (boot gate stays green)",
+             str(value))
+    value = expect_json("app rollback after removal",
+                        run(recover_args(root, rollback=True, app_id="com.example.demo")), 0)
+    if value and value.get("outcome") == "recovered_rollback" and pak_version(root) == "v1.0.0":
+        ok("explicit app rollback still restores v1.0.0 after removal")
+    else:
+        fail("explicit app rollback still restores v1.0.0 after removal", str(pak_version(root)))
+
+
 def test_launcher_discovery(key_der):
     """Run the launcher's discovery predicate against a real install and prove
     it lists the installed app and nothing that is not a launchable .pak."""
@@ -815,6 +864,8 @@ def main():
     test_recover_without_transaction()
     test_recover_coexists_with_system_txn(key_der)
     test_app_rollback_selector_with_system(key_der)
+    test_install_rejects_universal_target(key_der)
+    test_removed_app_recover_is_safe(key_der)
     test_launcher_discovery(key_der)
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)

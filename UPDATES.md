@@ -411,8 +411,12 @@ Destination policy:
 - The package must carry `launch.sh` (an executable entry) and `pak.json`. The
   installed `pak.json` version must equal the signed manifest version, so the
   launcher's metadata and version record match the signed package.
-- `platform` may be `universal`, in which case the app installs on any target
-  platform. A concrete-platform package installs only on that platform.
+- `platform` may be `universal` in the **manifest**, in which case the app
+  installs on any concrete target. The install **target** `--platform` must be a
+  concrete platform (`tg5040`, `h700`, `desktop`, ...): a `universal` target is
+  refused with `invalid_platform`, because the launcher only scans
+  `Tools/<concrete-platform>/` and a universal target would publish an app that
+  is never listed and a transaction that cannot be recovered.
 
 Version policy (the installed version is the live `pak.json` version):
 
@@ -441,10 +445,13 @@ App transaction layout (independent of the system transaction):
 
 The candidate carries a `.nextupd-app-install-txn` marker with the transaction
 id, removed only after the `installed` record is durable, so the window between
-the two directory renames is recoverable. The states mirror the system
-transaction (`preparing`, `prepared`, `backing_up`, `installing`, `installed`,
-`committed`, `rolling_back`, `rolled_back`) and `recover` applies the same
-commit-or-rollback arbitration.
+the two directory renames is recoverable. Every rename that publishes or moves
+the live app is followed by an fsync of the directory that directly contains the
+live entry (`Tools/<platform>/`) as well as the state directory, so a power cut
+cannot leave a durable record pointing at a lost live directory. The states
+mirror the system transaction (`preparing`, `prepared`, `backing_up`,
+`installing`, `installed`, `committed`, `rolling_back`, `rolled_back`) and
+`recover` applies the same commit-or-rollback arbitration.
 
 Recovery coexistence is deliberate. `recover` has an unambiguous selector:
 
@@ -454,6 +461,11 @@ Recovery coexistence is deliberate. `recover` has an unambiguous selector:
   that does **not** block recovery of a pending app install in the same call. A
   genuinely interrupted system transaction is resolved first and the app
   transaction follows on the next idempotent `recover`.
+- A terminal **app** record (`committed`/`rolled_back`) is treated as done, not
+  pending: a plain recover returns `nothing_to_recover` without requiring or
+  verifying the live tree, so removing an installed app does not make the boot
+  gate fail closed. Only `--app <id> --rollback` reaches a committed record to
+  roll it back.
 - `recover --target-root <t> --rollback` is the **system** rollback and is
   system-only; it returns `.system` to `.system.bak`.
 - `recover --target-root <t> --app <id>` targets one application, and

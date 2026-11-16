@@ -611,6 +611,11 @@ static int app_state_known(const char* state)
            || strcmp(state, APP_STATE_ROLLED_BACK) == 0;
 }
 
+static int app_state_terminal(const char* state)
+{
+    return strcmp(state, APP_STATE_COMMITTED) == 0 || strcmp(state, APP_STATE_ROLLED_BACK) == 0;
+}
+
 static void make_txn_id(char out[APP_TXN_ID_SIZE])
 {
     struct timespec now;
@@ -1101,9 +1106,22 @@ static void cleanup_work_directories(const UpdAppPaths* paths)
 
 static int sync_root_and_state(const UpdAppPaths* paths, UpdError* error)
 {
+    struct stat status;
+
     if (!upd_fsync_dir(paths->root))
     {
         upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->root,
+                      strerror(errno));
+        return 0;
+    }
+    /* The live entry lives in Tools/<platform>/, so that directory must be
+     * fsynced after any rename that publishes or moves the live app; otherwise
+     * a power cut can lose the published directory while the durable record
+     * still says the transaction completed. */
+    if (lstat(paths->tools_platform, &status) == 0 && S_ISDIR(status.st_mode)
+        && !upd_fsync_dir(paths->tools_platform))
+    {
+        upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->tools_platform,
                       strerror(errno));
         return 0;
     }
@@ -1618,13 +1636,18 @@ static int recover_app_internal(const char* root, const char* id, int force_roll
             return 0;
         }
     }
-    if (strcmp(record.state, APP_STATE_INSTALLED) == 0
-        || strcmp(record.state, APP_STATE_COMMITTED) == 0)
+    if (strcmp(record.state, APP_STATE_INSTALLED) == 0)
         return finalize_app_commit(&paths, &record, result, error);
     if (strcmp(record.state, APP_STATE_ROLLING_BACK) == 0)
         return complete_rollback(&paths, &record, result, error);
-    if (strcmp(record.state, APP_STATE_ROLLED_BACK) == 0)
+    if (app_state_terminal(record.state))
     {
+        /* Terminal (committed/rolled_back): the transaction already finished.
+         * A normal app removal may have taken the live tree, so a plain recover
+         * must not require or verify it; returning nothing_to_recover keeps the
+         * boot gate from failing closed on a removed app. Leftover work
+         * directories are cleaned. The explicit --app <id> --rollback route
+         * still reaches the committed record and rolls back. */
         cleanup_work_directories(&paths);
         set_app_result(result, "nothing_to_recover", record.state, record.previous_version,
                        NULL);
@@ -1680,10 +1703,12 @@ int upd_app_install_execute(const UpdInstallRequest* request, UpdTransactionResu
         upd_error_set(error, UPD_E_USAGE, "platform_missing", "--platform is required");
         return 0;
     }
-    if (!upd_is_known_platform(request->platform))
+    if (!upd_is_known_platform(request->platform)
+        || strcmp(request->platform, "universal") == 0)
     {
-        upd_error_set(error, UPD_E_INVALID, "invalid_platform", "unknown platform '%s'",
-                      request->platform);
+        upd_error_set(error, UPD_E_INVALID, "invalid_platform",
+                      "target platform must be a concrete platform, not '%s'",
+                      request->platform == NULL ? "" : request->platform);
         return 0;
     }
     if (request->system_version != NULL && request->system_version[0] != '\0'
@@ -1921,12 +1946,32 @@ int upd_app_txn_present(const char* target_root)
     {
         char record_path[PATH_MAX];
         struct stat status;
+        UpdAppPaths paths;
+        AppTxnRecord record;
+        UpdError ignored;
+        int found = 0;
 
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
         if (snprintf(record_path, sizeof record_path, "%s/%s/%s", state_root, entry->d_name,
                      APP_TXN_RECORD) >= (int)sizeof record_path)
             continue;
-        if (lstat(record_path, &status) == 0 && S_ISREG(status.st_mode)) present = 1;
+        if (lstat(record_path, &status) != 0 || !S_ISREG(status.st_mode)) continue;
+        /* A terminal (committed/rolled_back) record is done, not pending, so it
+         * must not route a plain recover into the app path. A record that fails
+         * to load is treated as present so recover can fail closed on it. */
+        memset(&paths, 0, sizeof paths);
+        if (snprintf(paths.record, sizeof paths.record, "%s", record_path)
+            >= (int)sizeof paths.record)
+        {
+            present = 1;
+            break;
+        }
+        if (!load_app_txn(&paths, &record, &found, &ignored))
+        {
+            present = 1;
+            break;
+        }
+        if (found && !app_state_terminal(record.state)) present = 1;
     }
     closedir(directory);
     return present;
