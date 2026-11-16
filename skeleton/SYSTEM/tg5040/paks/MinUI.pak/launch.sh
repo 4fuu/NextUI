@@ -206,7 +206,7 @@ while [ -f $EXEC_PATH ]; do
 		parse_hook_cmd "$CMD"
 		"$SYSTEM_PATH/bin/run_hooks.sh" pre-launch.d
 		nextui_session_start
-		eval $CMD
+		nextui_session_run "$CMD"
 		nextui_session_stop
 		"$SYSTEM_PATH/bin/run_hooks.sh" post-launch.d
 		rm -f $NEXT_PATH
