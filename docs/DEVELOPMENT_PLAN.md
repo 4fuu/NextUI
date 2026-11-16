@@ -1840,7 +1840,14 @@ as they happen; nothing is reported as passing without a run.
   #31 head are both at `b59c310` (this round's content commit `84c80ec` plus
   the normal merge of `origin/main` `4c5398f`), OPEN and MERGEABLE per gh
   (UNSTABLE only because the required checks on the new head are still
-  running). The merge of
+  running). Re-verified again after the PR #39 and PR #40 merges: the branch
+  and PR #31 head are both at `247e1c4` (a normal-merge-free fast sequence of
+  content commits on top of `0d7885e`, which already carried the
+  `origin/main` `4c5398f` merge), OPEN and MERGEABLE per gh (UNSTABLE only
+  because the required checks on the new head are still running); `gh pr view
+  31` and `git ls-remote origin refs/pull/31/head` agree, so the updates do
+  reach PR #31 and no other pull request is created or closed over an older
+  reading. The merge of
   `4c5398f` produced one conflict in this file: main's copy still carried the
   old "F4 — Pak Store single-sourcing" entry, which PR #38's commit `052a72b`
   had updated, while this schedule had already replaced it with the
