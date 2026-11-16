@@ -125,9 +125,19 @@ Rules:
   the test-only package-content CI job that was only proposed before. CI at
   this head is not green: Feature checks failed on both the push and the
   pull_request run per gh while Development/Desktop succeeded; per the merge
-  owner the failure is the invalid version placeholder `v0.0.0-ci` (exit 64),
-  and the packaging thread is changing it to `v0.0.0` while keeping the tool
-  exec bit and the res assertions. Merged
+  owner the failure is the invalid version placeholder `v0.0.0-ci` (exit 64).
+  Ownership handoff (2026-11-16, relayed by the merge owner): the original
+  packaging thread went idle after several rounds of tool-call text output
+  with no new push, so it formally handed the branch to a new thread
+  https://ampcode.com/threads/T-01a1e480-f986-73f8-8478-83940b8539df
+  (DeepSeek), which is fixing from `c2377db` -- a legal semver, a merge of the
+  latest main, full-resource item-by-item checks, the tool permission, the
+  platform layout, and negative controls. At the last gh check the branch
+  head is still `c2377db077f4fbf6dacd17c1320ad6e5f54c7c79` (MERGEABLE,
+  mergeStateStatus UNSTABLE), so the new thread's fix head is not yet visible
+  on the branch and no new CI state is recorded. The original source was told
+  to stop writing and pushing the branch and not to delete evidence, so the
+  two threads do not double-write it. Merged
   since the last check: PR #27 (U8 transactional update package build, final
   head `c6b5e6f`) merged into main as
   `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh)
@@ -163,7 +173,12 @@ Rules:
   of `a6f507f` into the branch, above the `7b27adf` head that fixed two
   review-blocking defects (the non-dismissible overlay UI freeze and the
   mislabeled failure states); the post-merge runs on `64540a7` (Feature
-  checks, Development/Desktop, and CI) are all success per gh. PR #34 (I4 fifth slice: the
+  checks, Development/Desktop, and CI) are all success per gh, and the
+  independent review is PASS per the merge owner (overlay deadlock fixed with
+  a real top-level-menu pump regression that SIGSEGVs on the old code,
+  `mapError` false states fixed, the real package's three-platform
+  `.tmp_update/*/nextupd.elf` 0755 matching the UI's `resolveTool` path, and
+  the settings-runtime does-not-replace-itself safety verified). PR #34 (I4 fifth slice: the
   System, Display and FN switch Off/On rows in Chinese, plus the in-repo
   i18n fixture value test, branch `i18n/on-off-labels`, final head
   `a6cb5c228975fb35659d6e66b7204b736cd7e2d9`) merged into main as
@@ -1029,8 +1044,15 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   non-dismissible overlay starving the deferred-submenu dispatch, and
   mislabeled failure states in the error mapper). The post-merge runs on
   `64540a7` (Feature checks, Development/Desktop, and CI) are all success per
-  gh. The merge owner performed the merge; no separate review-passed report
-  reached this schedule, so only the merge and CI facts are recorded. This is
+  gh. The independent review PASS was reported by the merge owner with the
+  specifics: the Check/Download/Install overlay deadlock is fixed (the
+  `running_` and `statusText_` state, with a real top-level-menu pump
+  regression that SIGSEGVs on the old code), the `mapError` false states are
+  fixed, the real `d25543b` package's three-platform
+  `.tmp_update/*/nextupd.elf` files are 0755 and match the UI's
+  `resolveTool` path, and the settings-runtime safety relation (settings does
+  not replace itself and does not read a half-replaced `.system`) is
+  empirically verified. This is
   still not a device pass: no install-UI run on real hardware.
 - Delivered: a self-contained System Update page in the settings app wiring
   only the existing nextupd feed/fetch/signature-verified staging plus
