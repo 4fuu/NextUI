@@ -11,6 +11,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <zlib.h>
 
 #define EOCD_SIGNATURE 0x06054b50u
@@ -280,6 +281,7 @@ static int parse_central_entry(UpdZip* zip, uint64_t cd_offset, uint64_t cd_end,
     entry.compressed_size = compressed_size;
     entry.uncompressed_size = uncompressed_size;
     entry.data_offset = local_data;
+    entry.mode = mode & 0777u;
     if (!add_file(zip, &entry, error)) return 0;
     *cursor = entry_end;
     return 1;
@@ -499,9 +501,12 @@ const UpdZipEntry* upd_zip_find(const UpdZip* zip, const char* path)
     return NULL;
 }
 
-static int update_digest(Sha256Lite* context, uLong* crc, const unsigned char* data,
-                         size_t length, uint64_t* total, uint64_t max_output,
-                         UpdError* error)
+typedef int (*UpdZipSink)(void* context, const unsigned char* data, size_t length,
+                          UpdError* error);
+
+static int consume_data(Sha256Lite* context, uLong* crc, const unsigned char* data,
+                        size_t length, uint64_t* total, uint64_t max_output,
+                        UpdZipSink sink, void* sink_context, UpdError* error)
 {
     if (length > max_output || *total > max_output - length)
     {
@@ -512,12 +517,13 @@ static int update_digest(Sha256Lite* context, uLong* crc, const unsigned char* d
     *total += length;
     sha256_lite_update(context, data, length);
     *crc = crc32(*crc, data, (uInt)length);
+    if (sink != NULL && !sink(sink_context, data, length, error)) return 0;
     return 1;
 }
 
-int upd_zip_hash_entry(const UpdZip* zip, const UpdZipEntry* entry, uint64_t expected_size,
-                       unsigned char digest[UPD_SHA256_BYTES], uint64_t* actual_size,
-                       UpdError* error)
+static int stream_entry(const UpdZip* zip, const UpdZipEntry* entry, uint64_t expected_size,
+                        unsigned char digest[UPD_SHA256_BYTES], uint64_t* actual_size,
+                        UpdZipSink sink, void* sink_context, UpdError* error)
 {
     unsigned char input[64 * 1024];
     unsigned char output[64 * 1024];
@@ -561,7 +567,8 @@ int upd_zip_hash_entry(const UpdZip* zip, const UpdZipEntry* entry, uint64_t exp
                 upd_error_set(error, UPD_E_IO, "io_error", "short read from %s", entry->name);
                 return 0;
             }
-            if (!update_digest(&context, &crc, input, chunk, &total, max_output, error))
+            if (!consume_data(&context, &crc, input, chunk, &total, max_output, sink,
+                              sink_context, error))
                 return 0;
             remaining -= chunk;
         }
@@ -603,8 +610,8 @@ int upd_zip_hash_entry(const UpdZip* zip, const UpdZipEntry* entry, uint64_t exp
                 }
                 produced = sizeof output - stream.avail_out;
                 if (produced > 0
-                    && !update_digest(&context, &crc, output, produced, &total, max_output,
-                                      error))
+                    && !consume_data(&context, &crc, output, produced, &total, max_output,
+                                     sink, sink_context, error))
                 {
                     inflateEnd(&stream);
                     return 0;
@@ -638,7 +645,8 @@ int upd_zip_hash_entry(const UpdZip* zip, const UpdZipEntry* entry, uint64_t exp
             }
             produced = sizeof output - stream.avail_out;
             if (produced > 0
-                && !update_digest(&context, &crc, output, produced, &total, max_output, error))
+                && !consume_data(&context, &crc, output, produced, &total, max_output, sink,
+                                 sink_context, error))
             {
                 inflateEnd(&stream);
                 return 0;
@@ -678,4 +686,115 @@ int upd_zip_hash_entry(const UpdZip* zip, const UpdZipEntry* entry, uint64_t exp
     sha256_lite_final(&context, digest);
     if (actual_size != NULL) *actual_size = total;
     return 1;
+}
+
+int upd_zip_hash_entry(const UpdZip* zip, const UpdZipEntry* entry, uint64_t expected_size,
+                       unsigned char digest[UPD_SHA256_BYTES], uint64_t* actual_size,
+                       UpdError* error)
+{
+    return stream_entry(zip, entry, expected_size, digest, actual_size, NULL, NULL, error);
+}
+
+typedef struct
+{
+    int descriptor;
+} UpdZipExtractSink;
+
+static int extract_sink(void* context, const unsigned char* data, size_t length,
+                        UpdError* error)
+{
+    int descriptor = ((UpdZipExtractSink*)context)->descriptor;
+
+    while (length > 0)
+    {
+        ssize_t count = write(descriptor, data, length);
+        if (count < 0)
+        {
+            if (errno == EINTR) continue;
+            if (errno == ENOSPC)
+                upd_error_set(error, UPD_E_SPACE, "insufficient_space",
+                              "storage full while extracting a package file");
+            else
+                upd_error_set(error, UPD_E_IO, "io_error", "write extracted file: %s",
+                              strerror(errno));
+            return 0;
+        }
+        data += (size_t)count;
+        length -= (size_t)count;
+    }
+    return 1;
+}
+
+int upd_zip_extract_entry(const UpdZip* zip, const UpdZipEntry* entry,
+                          const char* destination, uint64_t expected_size,
+                          const unsigned char expected_digest[UPD_SHA256_BYTES],
+                          UpdError* error)
+{
+    unsigned char digest[UPD_SHA256_BYTES];
+    uint64_t actual_size = 0;
+    UpdZipExtractSink sink;
+    mode_t mode;
+    int descriptor;
+
+    if (destination == NULL || expected_digest == NULL)
+    {
+        upd_error_set(error, UPD_E_USAGE, "invalid_argument", "extraction needs a destination");
+        return 0;
+    }
+    descriptor = open(destination, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                      0600);
+    if (descriptor < 0)
+    {
+        if (errno == EEXIST)
+            upd_error_set(error, UPD_E_UNSAFE, "unsafe_path",
+                          "refusing to replace existing path %s", destination);
+        else if (errno == ENOSPC)
+            upd_error_set(error, UPD_E_SPACE, "insufficient_space",
+                          "storage full while creating %s", destination);
+        else
+            upd_error_set(error, UPD_E_IO, "io_error", "create %s: %s", destination,
+                          strerror(errno));
+        return 0;
+    }
+    sink.descriptor = descriptor;
+    if (!stream_entry(zip, entry, expected_size, digest, &actual_size, extract_sink, &sink,
+                      error))
+        goto failed;
+    if (memcmp(digest, expected_digest, UPD_SHA256_BYTES) != 0)
+    {
+        upd_error_set(error, UPD_E_INTEGRITY, "file_hash_mismatch",
+                      "%s: SHA-256 mismatch while extracting", entry->name);
+        goto failed;
+    }
+    mode = (mode_t)(entry->mode & 0777u);
+    if (mode == 0) mode = 0644;
+    if (fchmod(descriptor, mode) != 0)
+    {
+        upd_error_set(error, UPD_E_IO, "io_error", "set mode on %s: %s", destination,
+                      strerror(errno));
+        goto failed;
+    }
+    if (fsync(descriptor) != 0)
+    {
+        if (errno == ENOSPC)
+            upd_error_set(error, UPD_E_SPACE, "insufficient_space",
+                          "storage full while syncing %s", destination);
+        else
+            upd_error_set(error, UPD_E_IO, "io_error", "sync %s: %s", destination,
+                          strerror(errno));
+        goto failed;
+    }
+    if (close(descriptor) != 0)
+    {
+        descriptor = -1;
+        upd_error_set(error, UPD_E_IO, "io_error", "close %s: %s", destination,
+                      strerror(errno));
+        goto failed;
+    }
+    return 1;
+
+failed:
+    if (descriptor >= 0) close(descriptor);
+    unlink(destination);
+    return 0;
 }
