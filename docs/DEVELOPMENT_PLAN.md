@@ -5,14 +5,14 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `3ecefd5` (merge of PR #9, this schedule file's
+- Baseline: `origin/main` @ `b28b126` (merge of PR #10, this schedule file's
   update; fetched 2026-11-16). Landing points on main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
   (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
-  PR #8 (updater offline install transaction, `212a695`), and PR #9 (this
-  file, `3ecefd5`); `de69781` is an ancestor of all of them. Later updates
-  branch from `origin/main`.
+  PR #8 (updater offline install transaction, `212a695`), PR #9 (schedule
+  update, `3ecefd5`), and PR #10 (schedule update, `b28b126`); `de69781` is an
+  ancestor of all of them. Later updates branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -75,7 +75,7 @@ Rules:
   localization (PR #4, `dea1f2d`); the display/audio backend module (PR #6,
   `b506dbd`); the runtime line (PR #1, `3a50fe8`); the updater offline install
   transaction and recovery core (PR #8, `212a695`); and this schedule file
-  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`).
+  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, and PR #10, `b28b126`).
 - Host-done, unpushed: the settings i18n branch (I4, `i18n/settings-pages`)
   only. The runtime line (I1) merged into main as `3a50fe8`; the updater
   staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
@@ -91,10 +91,10 @@ Rules:
   Development/Desktop: success per the source; it predates `b506dbd`). PR #8
   head `e7f30868` checks green (Host tests, build-linux, build-macos, two tg5040
   target builds). Main landings: `201526c` full-platform packaging success,
-  `bdab39e` success, and `212a695` Feature checks success; `3ecefd5` has
-  Feature checks and Development/Desktop success with the CI device run still
-  in progress at the last check — a run that has not finished is never recorded
-  as passing.
+  `bdab39e` success, and `212a695` Feature checks success; `b28b126` has all
+  three workflows (Feature checks, Development/Desktop, CI) success. PR #11
+  (boot recovery wiring, head `329a7e1`) runs were in progress at the last
+  check — a run that has not finished is never recorded as passing.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -359,25 +359,24 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 #### U2 — Startup arbitration
 - Owner thread: https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
-  (startup recovery wiring; dispatched 2026-11-16, orb workspace preparing, no
-  commit yet).
-- Status: the transaction states and the offline `recover` entry are in main
-  (PR #8); the boot/launch wiring is dispatched and not started.
-- Scope: wire the existing `recover` into the real SD boot/launch path before
-  the application starts, so an interrupted update restores a consistent
-  system without depending on a possibly incomplete new `.system` tool during
-  install; the failure path must not boot a half system or form a reboot loop;
-  existing boot behavior with no transaction is preserved.
-- Boundaries: no feed/source switch/production key; no expansion into
-  automatic online updates or changes to the device's internal system; all
-  interruption/corruption/re-entry fixtures run in test root directories only
-  (no ADB, real install, sleep/POWER, or device reboot). Boot wiring may touch
-  build references, so it coordinates with the emulator-removal thread (I8) and
-  the runtime thread (I1, which changed launch before).
-- Delivery/verification: host regression plus a real tg5040 compile/CI; proven
-  behaviors: no transaction, each interruption stage, missing tool/corrupt
-  log/backup, and repeated recovery; own branch and PR, with the CI/merge
-  owner merging after checks.
+  (startup recovery wiring).
+- Status: delivered for review as PR #11
+  (https://github.com/4fuu/NextUI/pull/11, branch
+  `feature/updater-boot-recovery`), head
+  `329a7e178233a6489b94f09a3c2e97f19878601e`, base `main` @ `b28b126`; OPEN and
+  mergeable. Not merged; the CI/merge owner is the only merger.
+- Delivered: `nextupd recover` wired into the tg5040/tg5050/h700 install boot
+  scripts before any `.system` write and before launch; `nextupd.elf` ships in
+  `.tmp_update/<platform>/`; fail-closed behavior (power off, no launch, no
+  reboot) on missing/corrupt tool or helper, corrupt record, missing/corrupt
+  backup, or ambiguous live tree; with no transaction the existing boot path is
+  kept.
+- Evidence: `make -C tests test` green (169 updater + 56 boot-recovery checks),
+  the same under ASan/UBSan; desktop build green; real tg5040 cross-build with
+  NEEDED only libz/libc. PR #11's CI runs were in progress at the last check.
+- Open boundaries (not delivered): no real-device boot or power-cut test; no
+  feed/source switch, production key, install UI, or online update;
+  `.tmp_update` is still refreshed only by the legacy MinUI.zip/bootstrap path.
 - Next: U3.
 
 #### U3 — Rollback
@@ -385,8 +384,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   (same wiring slice) for the boot-time restore; the updater thread owns the
   tool-side rollback already in main.
 - Status: tool-side rollback delivered in PR #8 (`--rollback`,
-  rolling_back/rolled_back states, one retained `.system.bak`); automatic
-  restore through boot arbitration awaits the U2 wiring.
+  rolling_back/rolled_back states, one retained `.system.bak`); the boot-time
+  automatic restore ships in PR #11 (pending review/merge); the feed entry for
+  user-initiated downgrade awaits U4.
 - Delivery/verification: automatic restore from `.system.bak` via arbitration
   plus a feed entry for the previous compatible version for user-initiated
   downgrade through the same flow.
@@ -568,13 +568,8 @@ as they happen; nothing is reported as passing without a run.
 ## Delivery of this file
 
 - This file is on `main`: PR #2 merged as `59a63e6`, updated by PR #9
-  (https://github.com/4fuu/NextUI/pull/9) merged as `3ecefd5`. Later schedule
-  updates branch from `origin/main` and open a pull request into `main`; the
-  CI/merge owner merges after checks pass. This thread performs no merges
-  itself.
-- The current update travels on branch `docs/schedule-update-2` (based on
-  `origin/main` @ `3ecefd5`) and is delivered as pull request #10
-  (https://github.com/4fuu/NextUI/pull/10), head
-  `46beb296bec86f13a020b5a91f4df186b1e748ba`, state OPEN and mergeable. Its
-  Feature checks and Development/Desktop runs were in progress at the last
-  check; a job that has not finished is never recorded as passing.
+  (`3ecefd5`) and PR #10 (`b28b126`). Later schedule updates branch from
+  `origin/main` and open a pull request into `main`; the CI/merge owner merges
+  after checks pass. This thread performs no merges itself.
+- The current update travels on branch `docs/schedule-update-3` (based on
+  `origin/main` @ `b28b126`).
