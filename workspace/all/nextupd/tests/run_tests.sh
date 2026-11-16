@@ -39,3 +39,8 @@ ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \
 UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
     python3 test_updater.py "$build_dir/nextupd" "$(pwd)/fixtures" "$build_dir/work" \
         "$(cd .. && pwd)/scripts/sign-manifest.sh"
+
+ASAN_OPTIONS="abort_on_error=1:detect_leaks=0" \
+UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1" \
+    python3 test_boot_recovery.py "$build_dir/nextupd" "$(pwd)/fixtures" \
+        "$build_dir/boot-work" "$(cd ../../../.. && pwd)"

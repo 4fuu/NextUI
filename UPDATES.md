@@ -3,9 +3,10 @@
 Status: manifest verification, safe staging, and the offline install transaction
 are implemented. Installation only happens inside an explicitly supplied target
 root; there is no default root, no automatic activation, and no edit to
-`boot.sh`, `launch.sh`, keymon, devserv, or the release feed. Updater source
-switching and boot wiring remain separate tasks (D1/D2 and the activation
-integration).
+`launch.sh`, keymon, devserv, or the release feed. The install boot scripts call
+`recover` before the first `.system` write and before launch when a transaction
+record exists; the recovery tool ships in `.tmp_update/<platform>/`. Updater
+source switching and automatic online updates remain separate tasks.
 
 The code lives in `workspace/all/nextupd/`. Host tests cover the manifest,
 signature, ZIP, corrupt-package, path/link, disk-space, interruption,
@@ -228,14 +229,48 @@ whether `.system` is the old or new tree.
 
 `nextupd recover --target-root <dir>` is the offline arbitration entry point. It
 reads only the target root and never touches staging, the network, or the
-running system. It is not called automatically: a later activation task must
-call it before anything uses `.system`. `recover --rollback` explicitly returns
-a committed or installed tree to its recorded previous version when
+running system. It is called automatically by the install boot scripts before
+anything uses `.system` (see below). `recover --rollback` explicitly returns a
+committed or installed tree to its recorded previous version when
 `.system.bak` exists.
 
 A missing or version-mismatched `.system.bak` fails with `backup_corrupt` before
 anything is moved. A live tree without the matching marker in `installing`
 fails with `state_ambiguous`. Neither case is guessed through.
+
+## Boot arbitration
+
+The three install boot scripts (`workspace/<platform>/install/boot.sh`, shipped
+as `.tmp_update/<platform>.sh`) source
+`skeleton/BOOT/common/nextupd-recover.sh` and call
+`nextupd recover --target-root "$SDCARD_PATH"` before the legacy `MinUI.zip`
+handling and before `MinUI.pak/launch.sh`. The binary is packaged beside the
+script in `.tmp_update/<platform>/nextupd.elf`, so arbitration does not read a
+`.system` tool while that tree is being repaired.
+
+- Without `.nextupd-txn`, the gate returns without running anything: the
+  existing boot and launch path is unchanged. A missing tool or helper does not
+  matter when there is no transaction.
+- With a record, a successful recovery continues the normal boot. Repeating the
+  boot is idempotent; a committed or rolled-back record resolves to
+  `nothing_to_recover`.
+- A missing or non-executable tool, a corrupt transaction record, a missing or
+  mismatched backup, or an ambiguous live tree makes the gate fail closed. The
+  boot script powers off instead of launching `.system` or rebooting into the
+  same failed state. The attempt is appended to
+  `.userdata/<platform>/logs/install.txt`.
+- The gate does not stage, install, download, or choose a version. It only
+  resolves a transaction another component created.
+- `.tmp_update` belongs to the release payload, not to the transaction target.
+  A future transactional update does not refresh it, so the boot payload must
+  first arrive through the existing `MinUI.zip`/bootstrap path. This release
+  includes `.tmp_update/<platform>/nextupd.elf` for that purpose.
+
+The host boot tests execute the real boot scripts against isolated roots,
+rewriting every device path into the root and stubbing device commands. They
+cover no transaction, every crash phase, repeat recovery, missing/corrupt tool,
+corrupt record, missing/corrupt backup, and the ambiguous live tree. They do not
+prove real-device boot or power-cut behavior.
 
 ## Exit codes
 
@@ -277,9 +312,13 @@ key and must never be used to sign a release.
 - No symlinks are accepted in this version.
 - Only system packages are installed. Application `.pakz` packages can be
   verified and staged but are rejected by `install` with `unsupported_kind`.
-- The module is built standalone and is not yet copied into the system image.
-- `recover` is an offline CLI entry point. It is deliberately not wired into
-  `boot.sh` or `launch.sh`; that activation integration is a separate task.
+- The module is built standalone and is not copied into the running system
+  image; the boot payload carries `nextupd.elf` in `.tmp_update/<platform>/`.
+- `recover` is wired into the install boot scripts only. It does not stage or
+  install packages, and it does not run from `launch.sh`, keymon, or devserv.
+- `.tmp_update` is refreshed by the legacy `MinUI.zip`/bootstrap path, not by a
+  transactional install. A transactional install does not update the boot
+  payload.
 - No feed, updater source switch, or release-pipeline change is included.
 - The download layer is not part of this task. "Disconnect" is represented by a
   truncated archive; staging takes a local package file.
