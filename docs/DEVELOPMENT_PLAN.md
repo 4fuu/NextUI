@@ -103,8 +103,9 @@ Rules:
   `e2ca971`); the U7 boot payload sync (PR #24, `dc4bef0`); and the U4 update
   feed block (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #27 (U8 transactional
-  update package build, head `38b8cdc`, CI green on that head per gh with the
-  source reporting six of six, independent review FAIL, open), PR #29 (I9
+  update package build, head `8ffea67`, CI green on that head per gh with the
+  source reporting six of six, B1-B3 fixes and follow-ups pushed, awaiting
+  independent review, open), PR #29 (I9
   settings abnormal-data fault tolerance, head `acf1d3f`, CI green on that head
   per gh with the source reporting six checks, awaiting independent review and
   merge, open), and this schedule file's own update (PR #28). PR #24 (U7 boot
@@ -723,35 +724,35 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U8 — Transactional system update package build (packaging side of U7)
 - Owner thread: https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa
   (transactional update package; the packaging side of U7's scope).
-- Status: independent review FAIL at the current head; not merged. PR #27
+- Status: B1-B3 fixes and follow-ups pushed at a new head; awaiting independent
+  review; not merged. PR #27
   (https://github.com/4fuu/NextUI/pull/27, branch `feature/updater-update-package`),
-  head `38b8cdc376cb15a595b7e5c2bb09b9ce4a3378be` (supersedes
-  `3b406c6da2becb1379199944bdb9ec50520d70e2`), base `origin/main` `6594dcec`;
-  OPEN and mergeable per gh. CI at this head is six of six green per the source
-  (Host tests push and PR, build-linux, build-macos, tg5040 target build push
-  and PR), with Host tests logging "61 passed, 0 failed, 2 skipped"; gh shows
-  Feature checks (push and pull_request) and Development/Desktop success on
-  that head. The independent review FAILED this head, so the source's earlier
-  "contract review PASS" claim is superseded and must not be carried as the
-  current state.
-- Blocking findings at `38b8cdc` (handed back to the packaging source):
-  B1 the script by default treats `build/SYSTEM/<platform>` as `.system`, but
-  the real layout would lose `.system/<platform>/bin/nextui.elf` and the MinUI
-  launch path, so the package cannot boot; B2 the default boot package is
-  refused by `install` while PR #24 is unmerged; B3 reusing the output path
-  leaves already-deleted ZIP entries and the old signature. The source is
-  fixing the layout, defaulting to system-only, cleaning the output, and
-  adding device-shape tests; the h700 symlink fix is kept.
-- Release-pre follow-ups (not blockers for this slice but required before any
-  release): the bootstrap version format, `min_system` greater than `version`,
-  quoting and atomic output, and external links.
-- Symlink fix kept at `38b8cdc`: the h700 system tree ships `libSDL2*.so*`
-  through `cp -a`, so a real h700 archive would have been refused for
-  symlinks. `scripts/package-update.sh` now stages with `cp -RL`, so symlinks
-  become regular files (dereferenced paths are printed and a broken link fails
-  the copy). The ZIP symlink rule, roots, archive name,
-  manifest-from-final-bytes rule, and signing boundary are unchanged, and no
-  nextupd, workspace, or workflow file was touched.
+  head `8ffea67cb78548ed3562671ebee74367022b8831` (supersedes
+  `38b8cdc376cb15a595b7e5c2bb09b9ce4a3378be` and
+  `3b406c6da2becb1379199944bdb9ec50520d70e2`; it is a normal merge of
+  `origin/main` `dc4bef08`, the PR #24 boot payload sync), OPEN and mergeable
+  per gh. CI at this head is six of six green per the source (Host tests push
+  and PR, build-linux, build-macos, tg5040 target build push and PR), with Host
+  tests logging "110 passed, 0 failed, 0 skipped"; gh shows Feature checks
+  (push and pull_request) and Development/Desktop success on that head.
+- The `38b8cdc` independent review FAIL (B1/B2/B3 below) is addressed at this
+  head: B1 the platform's system content is staged at `.system/<platform>/`
+  (device layout), so `.system/<platform>/paks/MinUI.pak/launch.sh` and
+  `bin/nextui.elf` survive install, every install assertion checks that layout,
+  and `update-package` must run before `make package`; B2 the default archive
+  is now `.system` plus the signed `.tmp_update` boot payload and installs on
+  main (verified through the real make target), `UPDATE_BOOT=0` gives the
+  system-only archive, and a missing boot payload fails loudly instead of
+  degrading; B3 each run removes its archive/manifest/signature first (no stale
+  entries, no stale signature) and unsigned runs print no signature line.
+- Follow-ups fixed and tested at this head: `min_system` above `version`
+  refused; quoted arguments (spaced output paths work); `--name` must be a
+  plain file name; symlinks leaving the build tree refused (the h700 `cp -RL`
+  dereference is kept); `UPDATE_KEY_ID` alone errors.
+- Dependency resolved: PR #24 is merged, so the boot install lifecycles
+  (tg5040, h700, and the make target) now run and pass — 110 passed, 0 failed,
+  0 skipped; ASan/UBSan the same; `make -C tests test` green (177 + 55 + 67 +
+  56 pre-existing).
 - Delivered: `make update-package PLATFORM=... UPDATE_VERSION=...` plus
   `scripts/package-update.sh`, packaging exactly `.system/` and the optional
   `.tmp_update/` boot payload into `nextui-system-<platform>.zip` with its
@@ -760,29 +761,29 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `test-update-package`); `UPDATE-PACKAGING.md` documents the contract. The
   bootstrap `MinUI.zip` built by `make package` is unchanged and still carries
   `Tools/`.
-- Evidence (host only, no device): `make -C tests test` green (177 + 55 + 56
-  pre-existing checks; the new suite 50 passed, 0 failed, 1 skipped); the new
-  suite against the updater's frozen head `beae0cf`: 73 passed, 0 failed, 0
-  skipped, including the h700 boot install lifecycle; on main 61 passed, 0
-  failed, 2 skipped; under ASan/UBSan: 61 passed, 0 failed, 2 skipped; the old
-  bootstrap shape passes `check` and is refused by `install` with
-  `unexpected_path` and zero writes on both binaries. New tests: an h700 tree
-  with chained `libSDL2` links (regular files with the real library bytes,
-  roots still `.system` plus optional `.tmp_update`, no `Tools/`),
-  broken-symlink and FIFO refusals, and the h700 boot install lifecycle.
-- Dependency: the `.tmp_update` install lifecycle end to end is skipped on main
-  and activates automatically once the updater's boot payload sync (PR #24)
-  merges; the test detects support from `check`'s `boot_payload` field. The
-  tg5040 package-content CI job is proposed to the CI owner and is not yet in
-  any workflow; per the merge owner it lands as a separate test-only
-  `ci/update-package-content` pull request after this one merges, not mixed
-  into a release.
+- Evidence (host only, no device) at `8ffea67`: `make -C tests test` green
+  (177 + 55 + 67 + 56 pre-existing checks); the new suite 110 passed, 0 failed,
+  0 skipped, including the tg5040, h700, and make-target boot install
+  lifecycles; ASan/UBSan the same; the old bootstrap shape passes `check` and
+  is refused by `install` with `unexpected_path` and zero writes on both
+  binaries. Earlier-head evidence kept for the record: at `38b8cdc` the suite
+  was 61 passed, 0 failed, 2 skipped on main and 73 passed, 0 failed, 0 skipped
+  against the updater's frozen head `beae0cf`, including the h700 boot install
+  lifecycle, with new tests for an h700 tree with chained `libSDL2` links
+  (regular files with the real library bytes, roots still `.system` plus
+  optional `.tmp_update`, no `Tools/`), broken-symlink and FIFO refusals, and
+  the h700 boot install lifecycle.
+- Dependency: the `.tmp_update` install lifecycle end to end now runs on main
+  because PR #24 is merged; the test detects support from `check`'s
+  `boot_payload` field. The tg5040 package-content CI job is proposed to the CI
+  owner and is not yet in any workflow; per the merge owner it lands as a
+  separate test-only `ci/update-package-content` pull request after this one
+  merges, not mixed into a release.
 - Not delivered: production release source, feed configuration, production
   signing key, any device install or release publication.
-- Next: the packaging source fixes B1-B3 (layout, default system-only, output
-  cleanup, device-shape tests) and pushes a new head; organization review plus
-  CI then the merge owner decides. The `UPDATES.md` cross-reference is left to
-  the updater thread to avoid a conflict with its in-flight edit.
+- Next: independent review at the new head, then the merge owner decides. The
+  `UPDATES.md` cross-reference is left to the updater thread to avoid a
+  conflict with its in-flight edit.
 
 ### I9 — Settings abnormal-data fault tolerance
 - Owner thread: https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
