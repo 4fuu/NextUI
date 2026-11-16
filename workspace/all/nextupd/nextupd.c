@@ -39,6 +39,7 @@ typedef struct
     const char* staged_dir;
     const char* target_root;
     const char* feed;
+    const char* app_id;
     int timeout_seconds;
     int quiet;
     int integrity_only;
@@ -91,7 +92,7 @@ static void usage(FILE* out)
             "  --platform <platform> --system-version <vX.Y.Z> [--json]\n"
             "\n"
             "recover:\n"
-            "  --target-root <dir> [--rollback] [--json]\n"
+            "  --target-root <dir> [--app <id>] [--rollback] [--json]\n"
             "\n"
             "manifest:\n"
             "  --package <file> --id <id> --kind <system|app> --version <vX.Y.Z>\n"
@@ -103,7 +104,10 @@ static void usage(FILE* out)
             "explicit --target-root; a system package requires an existing .system and an\n"
             "app package lands in Tools/<platform>/<id>.pak/ from its signed id. There is no\n"
             "default root and no boot or launch activation. recover is the offline\n"
-            "arbitration entry point. feed and fetch have no built-in release source;\n"
+            "arbitration entry point: a plain recover resolves a pending system transaction\n"
+            "and then a pending app transaction; --rollback rolls back the system only; and\n"
+            "--app <id> targets one application (--app <id> --rollback rolls that app back\n"
+            "and never touches .system). feed and fetch have no built-in release source;\n"
             "without --feed or NEXTUI_UPDATE_FEED they report feed_unconfigured. fetch\n"
             "stages only and never installs.\n");
 }
@@ -1886,53 +1890,58 @@ static int run_recover(const Options* options)
     char system_state[PATH_MAX];
     struct stat status;
     int have_system_state;
+    int ok;
 
     upd_error_clear(&error);
     if (!target_lock_acquire(options->target_root, &target_lock, &error))
         return report_error(&error, options->json);
 
-    /* Resolve a system transaction only when its state directory exists, so a
-     * target that carries only an app transaction (no .system, no
-     * .nextupd-txn) is never pushed through the system path. */
-    have_system_state =
-        snprintf(system_state, sizeof system_state, "%s/.nextupd-txn", options->target_root)
-            < (int)sizeof system_state
-        && stat(system_state, &status) == 0 && S_ISDIR(status.st_mode);
-
-    if (have_system_state)
+    if (options->app_id != NULL)
     {
-        if (!upd_install_recover(options->target_root, options->rollback, &result, &error))
-        {
-            target_lock_release(&target_lock);
-            return report_error(&error, options->json);
-        }
-        /* The system transaction is resolved first and is never disturbed by
-         * app recovery. Only when it had nothing to do and an independent app
-         * transaction is pending do we resolve that one. */
-        if (strcmp(result.outcome, "nothing_to_recover") == 0
-            && upd_app_txn_present(options->target_root))
-        {
-            if (!upd_app_install_recover(options->target_root, options->rollback, &result,
-                                         &error))
-            {
-                target_lock_release(&target_lock);
-                return report_error(&error, options->json);
-            }
-        }
+        /* Explicit app route: resolve or roll back one app by id. It never
+         * reads or writes the system transaction, so it cannot roll back
+         * .system even when a system record is present. */
+        ok = upd_app_install_recover_id(options->target_root, options->app_id,
+                                        options->rollback, &result, &error);
     }
-    else if (upd_app_txn_present(options->target_root))
+    else if (options->rollback)
     {
-        if (!upd_app_install_recover(options->target_root, options->rollback, &result, &error))
-        {
-            target_lock_release(&target_lock);
-            return report_error(&error, options->json);
-        }
+        /* --rollback without --app is the system rollback, unchanged and
+         * system-only. App rollback is reached only through --app <id>. */
+        ok = upd_install_recover(options->target_root, 1, &result, &error);
     }
     else
     {
-        upd_transaction_result_init(&result);
-        snprintf(result.outcome, sizeof result.outcome, "%s", "nothing_to_recover");
-        snprintf(result.state, sizeof result.state, "%s", "none");
+        /* Plain recover: arbitrate a pending system transaction first, then a
+         * pending app transaction. A terminal (committed/rolled_back) system
+         * record resolves to nothing_to_recover and does not block the app. */
+        have_system_state =
+            snprintf(system_state, sizeof system_state, "%s/.nextupd-txn",
+                     options->target_root) < (int)sizeof system_state
+            && stat(system_state, &status) == 0 && S_ISDIR(status.st_mode);
+        if (have_system_state)
+        {
+            ok = upd_install_recover(options->target_root, 0, &result, &error);
+            if (ok && strcmp(result.outcome, "nothing_to_recover") == 0
+                && upd_app_txn_present(options->target_root))
+                ok = upd_app_install_recover(options->target_root, 0, &result, &error);
+        }
+        else if (upd_app_txn_present(options->target_root))
+        {
+            ok = upd_app_install_recover(options->target_root, 0, &result, &error);
+        }
+        else
+        {
+            upd_transaction_result_init(&result);
+            snprintf(result.outcome, sizeof result.outcome, "%s", "nothing_to_recover");
+            snprintf(result.state, sizeof result.state, "%s", "none");
+            ok = 1;
+        }
+    }
+    if (!ok)
+    {
+        target_lock_release(&target_lock);
+        return report_error(&error, options->json);
     }
     target_lock_release(&target_lock);
     print_transaction_result(options, &result, NULL, options->target_root, NULL);
@@ -1983,6 +1992,7 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         else if (strcmp(argument, "--out") == 0) target = &options->out;
         else if (strcmp(argument, "--staged-dir") == 0) target = &options->staged_dir;
         else if (strcmp(argument, "--target-root") == 0) target = &options->target_root;
+        else if (strcmp(argument, "--app") == 0) target = &options->app_id;
         else if (strcmp(argument, "--timeout") == 0)
         {
             if (i + 1 >= argc || argv[i + 1][0] == '\0')
@@ -2071,6 +2081,11 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         fprintf(stderr, "nextupd: recover needs --target-root\n");
         return 0;
     }
+    if (options->app_id != NULL && strcmp(command, "recover") != 0)
+    {
+        fprintf(stderr, "nextupd: --app is only valid for recover\n");
+        return 0;
+    }
     if ((strcmp(command, "feed") == 0 || strcmp(command, "fetch") == 0)
         && (options->package != NULL || options->manifest != NULL
             || options->signature != NULL || options->id != NULL
@@ -2152,7 +2167,7 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
             || options->min_system != NULL || options->out != NULL
             || options->integrity_only || options->replace))
     {
-        fprintf(stderr, "nextupd: recover accepts only --target-root, --rollback and --json\n");
+        fprintf(stderr, "nextupd: recover accepts only --target-root, --app, --rollback and --json\n");
         return 0;
     }
     return 1;

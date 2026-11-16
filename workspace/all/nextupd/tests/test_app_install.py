@@ -219,8 +219,10 @@ def install_args(staged, target, platform="tg5040", system="v6.15.0", key=FIXTUR
             "--json"]
 
 
-def recover_args(target, rollback=False):
+def recover_args(target, rollback=False, app_id=None):
     args = ["recover", "--target-root", target, "--json"]
+    if app_id is not None:
+        args += ["--app", app_id]
     if rollback:
         args.append("--rollback")
     return args
@@ -323,8 +325,9 @@ def test_update_backup_and_rollback(key_der):
         ok("update keeps the previous app as a backup")
     else:
         fail("update keeps the previous app as a backup", "backup missing or wrong")
-    # explicit rollback returns to the previous version
-    value = expect_json("rollback app", run(recover_args(target, rollback=True)), 0)
+    # explicit rollback returns to the previous version (app route, system-free)
+    value = expect_json("rollback app", run(recover_args(target, rollback=True,
+                                                          app_id="com.example.demo")), 0)
     if value and value.get("outcome") == "recovered_rollback" and pak_version(target) == "v1.0.0":
         ok("rollback restores the previous app")
     else:
@@ -705,6 +708,53 @@ def test_recover_coexists_with_system_txn(key_der):
         fail("coexist B system stays coherent", sysver)
 
 
+def test_app_rollback_selector_with_system(key_der):
+    """Explicit app rollback via `recover --app <id> --rollback` must roll back
+    only the app and leave the system tree and system transaction byte-for-byte
+    unchanged, even on a card that has a committed system record with a
+    .system.bak. System rollback stays separately reachable via --rollback alone
+    (system-only), so an app rollback can never silently roll back .system."""
+    root = make_system_target("rollback-sel")
+    if not expect("rollback-sel system update", install_fixture_system(root), 0):
+        return
+    _p, _m, _s, r1, _ = build_stage("rollback-sel-v1", "v1.0.0", key_der=key_der)
+    assert run(install_args(os.path.join(r1, "com.example.demo-v1.0.0-universal"),
+                            root)).returncode == 0
+    _p, _m, _s, r2, _ = build_stage("rollback-sel-v2", "v2.0.0", key_der=key_der)
+    assert run(install_args(os.path.join(r2, "com.example.demo-v2.0.0-universal"),
+                            root)).returncode == 0
+    sys_tree_before = tree_manifest(os.path.join(root, ".system"))
+    sys_txn_before = open(os.path.join(root, ".nextupd-txn", "txn.json"), "rb").read()
+
+    value = expect_json("app rollback via --app", run(recover_args(root, rollback=True,
+                                                                   app_id="com.example.demo")),
+                        0)
+    if value and value.get("outcome") == "recovered_rollback" and pak_version(root) == "v1.0.0":
+        ok("app rollback via --app returns the app to v1.0.0")
+    else:
+        fail("app rollback via --app returns the app to v1.0.0", str(pak_version(root)))
+    if tree_manifest(os.path.join(root, ".system")) == sys_tree_before:
+        ok("app rollback leaves the system tree byte-for-byte unchanged")
+    else:
+        fail("app rollback leaves the system tree byte-for-byte unchanged", ".system changed")
+    if open(os.path.join(root, ".nextupd-txn", "txn.json"), "rb").read() == sys_txn_before:
+        ok("app rollback leaves the system txn record unchanged")
+    else:
+        fail("app rollback leaves the system txn record unchanged", "system txn changed")
+
+    value = expect_json("system rollback still reachable", run(recover_args(root, rollback=True)),
+                        0)
+    if value and value.get("outcome") == "recovered_rollback":
+        with open(os.path.join(root, ".system", "version.txt")) as handle:
+            sysver = handle.read().strip()
+        if sysver == "v6.15.0":
+            ok("system rollback (--rollback alone) returns the system to v6.15.0")
+        else:
+            fail("system rollback (--rollback alone) returns the system to v6.15.0", sysver)
+    else:
+        fail("system rollback still reachable", str(value))
+
+
 def test_launcher_discovery(key_der):
     """Run the launcher's discovery predicate against a real install and prove
     it lists the installed app and nothing that is not a launchable .pak."""
@@ -764,6 +814,7 @@ def main():
     test_corrupt_txn_fail_closed(key_der)
     test_recover_without_transaction()
     test_recover_coexists_with_system_txn(key_der)
+    test_app_rollback_selector_with_system(key_der)
     test_launcher_discovery(key_der)
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)

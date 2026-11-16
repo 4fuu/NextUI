@@ -70,11 +70,13 @@ against isolated roots with every device path rewritten into that root.
   own backup and recovery; it never touches `.system` or `.tmp_update`. App
   install is a local, store-free path: it consumes an already-staged package and
   selects no source.
-- `recover`: offline arbitration entry point. Resolves a system transaction when
-  `.nextupd-txn` exists, otherwise an independent app transaction under
-  `.nextupd-app-txn/`; the two lifecycles never interfere. Completes an
-  interrupted commit or restores the backup; `--rollback` also returns a
-  committed install to its recorded previous version.
+- `recover`: offline arbitration entry point with an explicit selector. A plain
+  `recover` resolves a pending system transaction and then a pending app
+  transaction; a terminal system record resolves to `nothing_to_recover` and
+  does not block app recovery. `--rollback` rolls back the **system** only.
+  `--app <id>` targets one application, and `--app <id> --rollback` rolls that
+  app back to its recorded previous version without ever touching `.system`,
+  `.nextupd-txn`, or another app. The two lifecycles never interfere.
 
 `install` and `recover` have no default roots. They never read `SDCARD_PATH` and
 never write the current working directory. The install boot scripts pass the

@@ -446,16 +446,26 @@ transaction (`preparing`, `prepared`, `backing_up`, `installing`, `installed`,
 `committed`, `rolling_back`, `rolled_back`) and `recover` applies the same
 commit-or-rollback arbitration.
 
-Recovery coexistence is deliberate: `recover` resolves a system transaction
-first when `.nextupd-txn` exists, then resolves a pending app transaction only
-through `.nextupd-app-txn`; the two lifecycles never read or rewrite each
-other's records. A committed (terminal) system record resolves to
-`nothing_to_recover`, so a normal system update leaves a record that does **not**
-block recovery of a pending app install in the same `recover` call. A genuinely
-interrupted system transaction is resolved first and the app transaction follows
-on the next idempotent `recover`. A corrupt or unknown-schema app record fails
-closed (exit 13) without touching the live app. Rollback of a fresh install is
-refused (`backup_missing`) because removing an app (uninstall) is out of scope.
+Recovery coexistence is deliberate. `recover` has an unambiguous selector:
+
+- `recover --target-root <t>` (plain) arbitrates a pending system transaction
+  first, then a pending app transaction. A committed (terminal) system record
+  resolves to `nothing_to_recover`, so a normal system update leaves a record
+  that does **not** block recovery of a pending app install in the same call. A
+  genuinely interrupted system transaction is resolved first and the app
+  transaction follows on the next idempotent `recover`.
+- `recover --target-root <t> --rollback` is the **system** rollback and is
+  system-only; it returns `.system` to `.system.bak`.
+- `recover --target-root <t> --app <id>` targets one application, and
+  `recover --target-root <t> --app <id> --rollback` rolls that app back to its
+  recorded previous version. This route never reads or writes `.system`,
+  `.nextupd-txn`, or any other app, so an app rollback can never silently roll
+  back the system even when a system record is present.
+
+The two lifecycles never read or rewrite each other's records. A corrupt or
+unknown-schema app record fails closed (exit 13) without touching the live app.
+Rollback of a fresh install is refused (`backup_missing`) because removing an app
+(uninstall) is out of scope.
 
 The installed tree is what the launcher scans: `Tools/<platform>/<id>.pak/` is a
 `.pak` directory containing an executable `launch.sh`, which is exactly the

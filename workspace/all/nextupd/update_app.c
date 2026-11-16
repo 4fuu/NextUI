@@ -1995,3 +1995,27 @@ int upd_app_install_recover(const char* target_root, int force_rollback,
     if (!resolved) set_app_result(result, "nothing_to_recover", "none", NULL, NULL);
     return 1;
 }
+
+int upd_app_install_recover_id(const char* target_root, const char* app_id,
+                               int force_rollback, UpdTransactionResult* result,
+                               UpdError* error)
+{
+    if (result == NULL)
+    {
+        upd_error_set(error, UPD_E_USAGE, "invalid_argument", "result is missing");
+        return 0;
+    }
+    upd_transaction_result_init(result);
+    if (app_id == NULL || app_id[0] == '\0')
+    {
+        upd_error_set(error, UPD_E_USAGE, "app_id_missing", "--app requires an application id");
+        return 0;
+    }
+    if (!upd_is_safe_app_id(app_id))
+    {
+        upd_error_set(error, UPD_E_INVALID, "invalid_app_id", "invalid app id");
+        return 0;
+    }
+    /* The explicit app route never touches the system transaction. */
+    return recover_app_internal(target_root, app_id, force_rollback, result, error);
+}

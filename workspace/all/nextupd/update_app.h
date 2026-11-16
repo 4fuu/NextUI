@@ -49,6 +49,17 @@ int upd_app_install_execute(const UpdInstallRequest* request, UpdTransactionResu
 int upd_app_install_recover(const char* target_root, int force_rollback,
                             UpdTransactionResult* result, UpdError* error);
 
+/*
+ * Resolve one specific app transaction by id. This is the explicit app route:
+ * it never reads or writes `.system`, `.nextupd-txn`, or any other app. With
+ * force_rollback it returns that app to its recorded previous version; without
+ * it arbitrates a pending/crashed transaction for that app. An unknown or
+ * absent app resolves to nothing_to_recover.
+ */
+int upd_app_install_recover_id(const char* target_root, const char* app_id,
+                               int force_rollback, UpdTransactionResult* result,
+                               UpdError* error);
+
 /* Nonzero when <target_root>/.nextupd-app-txn/ holds at least one txn.json. */
 int upd_app_txn_present(const char* target_root);
 
