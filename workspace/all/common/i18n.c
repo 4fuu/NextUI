@@ -346,6 +346,36 @@ static const I18nEntry zhTable[] = {
     {"The system installation is missing.", "系统安装缺失。"},
     {"This package is not a system update.", "此包不是系统更新。"},
     {"Update failed.", "更新失败。"},
+
+    // Settings: "Install from file" page - the menu entry, the row labels, the
+    // action button, the in-flight prompt, the row reasons for a package that
+    // cannot be installed, and every honest status/error. Keys are the TR()
+    // source strings; the trusted-key contract is shared with the System Update
+    // page, which has no key message of its own because it never installs.
+    {"Install from file", "从文件安装"},
+    {"Install a signed app package from the SD card", "从存储卡安装已签名的应用包"},
+    {"Package folder", "安装包目录"},
+    {"Look for packages", "重新扫描安装包"},
+    {"Scan the package folder again.", "重新扫描安装包目录。"},
+    {"Verification is not configured: no trusted key is set.", "未配置验证：没有设置可信公钥。"},
+    {"No signed package found.", "没有找到已签名的安装包。"},
+    {"Choose a signed package to install.", "选择要安装的已签名安装包。"},
+    {"Signed app package", "已签名的应用包"},
+    {"Installing app...", "正在安装应用..."},
+    {"Installed", "已安装"},
+    {"That version is already installed.", "该版本已经安装。"},
+    {"The package is older than the installed app.", "安装包比已安装的应用更旧。"},
+    {"This app requires a newer system.", "此应用需要更新的系统版本。"},
+    {"Verification failed. Nothing was installed.", "验证失败，未安装任何内容。"},
+    {"Not enough space to install.", "空间不足，无法安装。"},
+    {"Update tool is not available.", "更新工具不可用。"},
+    {"The package is missing its manifest file.", "安装包缺少清单文件。"},
+    {"The package is missing its signature file.", "安装包缺少签名文件。"},
+    {"The package manifest cannot be read.", "无法读取安装包清单。"},
+    {"This package is not an application package.", "此安装包不是应用包。"},
+    {"That package is no longer in the folder.", "该安装包已不在目录中。"},
+    {"This package cannot be installed.", "此安装包无法安装。"},
+    {"Install failed.", "安装失败。"},
 };
 
 #define ZH_TABLE_COUNT ((int)(sizeof(zhTable) / sizeof(zhTable[0])))
