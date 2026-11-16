@@ -121,23 +121,31 @@ Rules:
   CLEAN per gh, with CI green on that head per gh (Feature checks push and
   pull_request, Development/Desktop); it adds 34 append-only zh entries in
   `i18n.c` with keys distinct from I4's merged entries, needs no new font
-  characters, and awaits the merge owner's review and merge. PR #33 (branch `ci/update-package-content`, "Add the
-  tg5040 update package content check to Feature checks") is open at head
-  `c2377db077f4fbf6dacd17c1320ad6e5f54c7c79`, OPEN and MERGEABLE per gh; it is
-  the test-only package-content CI job that was only proposed before. CI at
-  this head is not green: Feature checks failed on both the push and the
-  pull_request run per gh while Development/Desktop succeeded; per the merge
-  owner the failure is the invalid version placeholder `v0.0.0-ci` (exit 64).
+  characters, and awaits the merge owner's review and merge. PR #33 (branch
+  `ci/update-package-content`, "Add the tg5040 update package content check to
+  Feature checks") is open at head
+  `be3d548d8acc1660d9fc290226db80cacc5b5a02`, a normal merge of `origin/main`
+  `9374757` with no force, OPEN, MERGEABLE and CLEAN per gh; it is the
+  test-only package-content CI job that was only proposed before. The actual
+  failure at the previous head `c2377db` was `UPDATE_VERSION=v0.0.0-ci`, which
+  `scripts/package-update.sh` rejected with exit 64; it is now `v0.0.0`. The
+  tg5040 job checks the real archive with `scripts/verify_update_package.py`:
+  exact `.system` plus `.tmp_update` roots, no Tools/Roms/Saves/Emus/minarch/
+  cores, `nextupd.elf` and the boot tools 0755, `nextui.elf` and
+  `paks/MinUI.pak/launch.sh` 0755, all 68 `.system/res` files SHA-256 matched
+  against `skeleton/SYSTEM/res` (ZIP directory entries excluded), and version
+  `v0.0.0`; seven negative controls on copies of the real archive are all
+  rejected. CI at this head is green per gh (Feature checks push and
+  pull_request, Development/Desktop) and the source reports Host tests, the
+  tg5040 target build, and build-linux/build-macos passing, with
+  `make -C tests test-update-package` at 132 passed / 0 failed and the full
+  `make -C tests test` exit 0 locally. It is not merged: exact-head CI and the
+  independent review are with the merge owner.
   Ownership handoff (2026-11-16, relayed by the merge owner): the original
   packaging thread went idle after several rounds of tool-call text output
-  with no new push, so it formally handed the branch to a new thread
+  with no new push, so it formally handed the branch to
   https://ampcode.com/threads/T-01a1e480-f986-73f8-8478-83940b8539df
-  (DeepSeek), which is fixing from `c2377db` -- a legal semver, a merge of the
-  latest main, full-resource item-by-item checks, the tool permission, the
-  platform layout, and negative controls. At the last gh check the branch
-  head is still `c2377db077f4fbf6dacd17c1320ad6e5f54c7c79` (MERGEABLE,
-  mergeStateStatus UNSTABLE), so the new thread's fix head is not yet visible
-  on the branch and no new CI state is recorded. The original source was told
+  (DeepSeek), which delivered the fix head above; the original source was told
   to stop writing and pushing the branch and not to delete evidence, so the
   two threads do not double-write it. Merged
   since the last check: PR #27 (U8 transactional update package build, final
@@ -982,8 +990,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Not delivered: production release source, feed configuration, production
   signing key, any device install or release publication.
 - Next: merged; the tg5040 package-content CI job that was only proposed now
-  exists as open PR #33 (branch `ci/update-package-content`, test-only) and is
-  the merge owner's to review. The
+  exists as open PR #33 (branch `ci/update-package-content`, test-only), whose
+  `v0.0.0-ci` exit-64 failure is fixed at head `be3d548d` with the real-archive
+  verification and seven negative controls; exact-head CI and the independent
+  review are the merge owner's. The
   `UPDATES.md` cross-reference is left to the updater thread to avoid a
   conflict with its in-flight edit.
 
@@ -1328,10 +1338,12 @@ as they happen; nothing is reported as passing without a run.
   a pull request into `main`; the CI/merge owner merges after checks pass. This
   thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because real tasks changed (PR #32 merged into main as `64540a7` with all
-  post-merge runs green, the System Update page's zh follow-up opened as
-  PR #35, the I4 fifth slice merged as PR #34 at `a6f507f` with the in-repo
-  i18n fixture value test, and the package content CI job opened as PR #33),
+  because real tasks changed (PR #33's `v0.0.0-ci` exit-64 failure fixed at
+  head `be3d548d` with the real-archive verification and seven negative
+  controls, PR #32 merged into main as `64540a7` with all post-merge runs
+  green, the System Update page's zh follow-up merged as PR #35 at `9374757`,
+  the I4 fifth slice merged as PR #34 at `a6f507f` with the in-repo i18n
+  fixture value test, and the U10 first-update/output-safety task dispatched),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
@@ -1340,5 +1352,5 @@ as they happen; nothing is reported as passing without a run.
   `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
   `8e4f744`). Its pull request is PR #31; while that pull request stays open,
   later real changes fold into it instead of opening another one, which is why
-  the PR #32, PR #33, PR #34, and merge facts ride the same branch. The
-  schedule baseline moved to `a6f507f` with the PR #34 merge.
+  the PR #32, PR #33, PR #34, PR #35, U10, and merge facts ride the same
+  branch. The schedule baseline moved to `9374757` with the PR #35 merge.
