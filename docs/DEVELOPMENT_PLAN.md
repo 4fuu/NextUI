@@ -1519,42 +1519,57 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   option, not a delivery requirement.
 - Next: continuous with each task.
 
-### P6 — Modification debt (read-only audit suggestions; not scheduled)
+### P6 — Modification debt (audited; two cleanup lines dispatched)
 
 Source: the read-only audit thread
 https://ampcode.com/threads/T-01a1e4d0-21d1-72e8-a5d2-1440fe0eb44e at
 `origin/main` `b3dcae4` (audit only; no code changed, no branch, no pull
-request, and nothing here is an approved implementation or a new goal). The
-full report lives in that thread's artifact
+request). The full report lives in that thread's artifact
 https://ampcode.com/artifacts/audits/nextui-origin-main-b3dcae4-338a320e-af5d-447e-960e-6921eac10e3f
-. Whether any item enters the schedule is for the schedule thread and the
-user to decide.
+.
 
-#### D1 — Cleanup candidates outside the current goals (A class)
-- A1 RetroAchievements dead cluster: the `ra_*` code (about 3900 lines) plus
-  `http.c` and `notification.c`, the 13 RA config fields (including a
-  plaintext token), and the dead options table in `settings.cpp` have zero
-  build entry, consumer, or test, and are fully unsupported after PR #13.
-  The audit calls it the smallest independent cleanup block.
-- A2 Game Tracker / gametime: the game-time statistics never fill because
-  nothing calls `gametimectl start`; the desktop skeleton preinstalls no
-  executable; the device build and packaging still carry them.
-- A3 Remove Loading.pak: an original-factory compatibility one-time hack, and
-  its "Done" string is untranslated.
-- A4 Nine dead i18n keys (the emulator save formats) that the i18n and font
-  tests still carry.
-- A5 `makefile:213` base zip stale entries: `Shaders/trimui/h700/em_ui.sh` do
-  not exist and fail silently as warnings, while `Cheats` and `Palettes` are
-  missed.
+Owner approval (2026-11-16 15:13, in the Space): within this audit round,
+clean up whatever can be cleaned and keep what cannot; no further waiting for
+an achievement-cleanup decision. Every item must still verify its consumers
+and compatibility; Remove Loading stays unless it can be proven unnecessary;
+the old install path, the bluetooth upgrade, user directory data, and the
+generic desktop capabilities all stay. This approval is not the version-policy
+choice (U10) and not an authorization to delete the old install path (B1).
+Each dispatched line delivers its own independent pull request to the sole
+CI/merge owner gate (CI plus independent review, serial merges) and
+coordinates the root makefile with PR #38.
 
-#### D2 — Items needing a user decision (B class)
+#### D1 — Dispatched cleanup lines (A class, owner-approved)
+- Line 1 (thread https://ampcode.com/threads/T-01a1e4ec-a622-7652-94f9-0cb0ed58f4cc
+  , Step Medium, dispatched 2026-11-16): A1 the RetroAchievements dead cluster
+  -- the `ra_*` code (about 3900 lines) plus `http.c` and `notification.c`,
+  the 13 RA config fields (including a plaintext token), and the dead options
+  table in `settings.cpp`, which have zero build entry, consumer, or test and
+  are fully unsupported after PR #13 -- together with the nine dead i18n keys
+  (A4, the emulator save formats) that the i18n and font tests still carry.
+  Status: dispatched; no head delivered, so nothing is recorded as done, and a
+  source self-test is not acceptance.
+- Line 2 (thread https://ampcode.com/threads/T-01a1e4ec-b01e-73f4-ba3e-668ddd19ed1a
+  , Step Medium, dispatched 2026-11-16): A2 Game Tracker / gametime -- the
+  game-time statistics never fill because nothing calls `gametimectl start`,
+  the desktop skeleton preinstalls no executable, and the device build and
+  packaging still carry them -- together with A5 the `makefile:213` base zip
+  stale entries (`Shaders/trimui/h700/em_ui.sh` do not exist and fail
+  silently as warnings, while `Cheats` and `Palettes` are missed). Status:
+  dispatched; no head delivered, so nothing is recorded as done.
+- Still not dispatched from the A class: A3 Remove Loading.pak -- an
+  original-factory compatibility one-time hack whose "Done" string is
+  untranslated -- stays unless a delivered proof shows it is unnecessary.
+
+#### D2 — Items needing a user decision (B class; not authorized by the 15:13 approval)
 - B1 The old update bypass: the `MinUI.zip` and bare `*.pakz` boot-time
-  unzip path installs without signature or manifest verification. It needs a
-  user decision on retention scope and verification, and it sits at the same
-  decision point as the pending bootstrap version policy (U10), so the two
-  should be decided together. This is the first item that needs a call.
+  unzip path installs without signature or manifest verification. It still
+  needs a user decision on retention scope and verification, and it sits at
+  the same decision point as the pending bootstrap version policy (U10), so
+  the two should be decided together. The 15:13 approval explicitly does not
+  authorize removing it, and the old install path stays until then.
 - B2 User directories such as `Roms`: I8 kept them, `launch.sh` creates them
-  on every boot, and the third-party dependence is unknown.
+  on every boot, and the third-party dependence is unknown; they stay.
 
 #### D3 — Do not delete (C class)
 - `generic_wifi`, `bt`, and `video` are used implementations included by
@@ -1562,14 +1577,11 @@ user to decide.
   kept; `Files.pak`, the h700 `curl`, `--require-grants`, and the HOOKS rom
   branch all stay.
 
-- Not done: no code change was made, and how much the third-party paks
-  depend on the `Roms` layout is unknown.
-- Next: nothing is scheduled from this audit until the user or the schedule
-  thread decides; B1 is the first item that needs a decision. No audit cleanup
-  is approved, so B1 and the other suggestions are not converted into
-  implementation. The Space has answered its own modification-debt question and
-  is currently asking the user only one thing: whether to clean the
-  achievement-sync residue (the RetroAchievements material in A1) first.
+- Not done: neither dispatched line has a head, and how much the third-party
+  paks depend on the `Roms` layout is unknown.
+- Next: each dispatched line delivers an independent pull request to the sole
+  CI/merge owner (CI plus independent review, serial merges, root makefile
+  coordinated with PR #38); B1 and the version policy still wait on the user.
 
 ## Decisions superseded by this schedule
 
