@@ -26,6 +26,7 @@ extern "C"
 #include "colorpickermenu.hpp"
 #include "palettemenu.hpp"
 #include "fnbuttonmenu.hpp"
+#include "version.hpp"
 
 #define BUSYBOX_STOCK_VERSION "1.27.2"
 
@@ -677,11 +678,18 @@ int main(int argc, char *argv[])
             { return TIME_getNetworkTimeSync(); }, [](const std::any &value)
             { TIME_setNetworkTimeSync(std::any_cast<bool>(value)); },
             []() { TIME_setNetworkTimeSync(false);}}, // default from stock
-            new MenuItem{ListItemType::Generic, TR("Time zone"), TR("Your time zone"), tz_values, tz_labels, []() -> std::any
+        };
+
+        // A picker built from an empty zone list (PLAT_getTimezones returns
+        // none when the system has no zone.tab) has no selectable value and
+        // aborts the menu when drawn, so only offer the row when zones exist.
+        if (!tz_values.empty())
+        {
+            systemItems.push_back(new MenuItem{ListItemType::Generic, TR("Time zone"), TR("Your time zone"), tz_values, tz_labels, []() -> std::any
             { return std::string(TIME_getCurrentTimezone()); }, [](const std::any &value)
             { TIME_setCurrentTimezone(std::any_cast<std::string>(value).c_str()); },
-            []() { TIME_setCurrentTimezone("Asia/Shanghai");}}, // default from Stock
-        };
+            []() { TIME_setCurrentTimezone("Asia/Shanghai");}}); // default from Stock
+        }
 
         if(deviceInfo.getPlatform() == DeviceInfo::tg5040)
         {
@@ -853,10 +861,7 @@ int main(int argc, char *argv[])
         {
             new StaticMenuItem{ListItemType::Generic, TR("NextUI version"), "",
             []() -> std::any {
-                std::ifstream t(ROOT_SYSTEM_PATH "/version.txt");
-                std::stringstream buffer;
-                buffer << t.rdbuf();
-                return buffer.str();
+                return readVersionText(ROOT_SYSTEM_PATH "/version.txt");
             }},
             new StaticMenuItem{ListItemType::Generic, TR("Platform"), "",
             []() -> std::any {

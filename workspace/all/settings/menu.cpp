@@ -718,43 +718,48 @@ void MenuList::drawFixedItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
 
     if (item.getValue().has_value())
     {
+        // TTF_RenderUTF8_Blended returns NULL for an empty string, so an empty
+        // value must skip its blit instead of dereferencing the NULL surface.
         text = TTF_RenderUTF8_Blended(font.tiny, item.getLabel().c_str(), text_color_value);
 
-        if (item.getType() == ListItemType::Color)
+        if (text)
         {
-            // Read the live color directly from on_get() so the swatch and hex
-            // label always reflect the current value, even after the RGB picker
-            // sets an arbitrary color that is not in the predefined palette.
-            uint32_t rawColor = item.on_get
-                ? std::any_cast<uint32_t>(item.on_get())
-                : std::any_cast<uint32_t>(item.getValue());
-            uint32_t color = mapUint(surface, rawColor);
-            SDL_Rect rect = {
-                dst.x + dst.w - SCALE1(OPTION_PADDING + FONT_TINY),
-                dst.y + SCALE1(BUTTON_SIZE - FONT_TINY) / 2,
-                SCALE1(FONT_TINY), SCALE1(FONT_TINY)};
-            SDL_FillRect(surface, &rect, RGB_WHITE);
-            rect = dy(dx(rect, 1), 1);
-            rect.h -= 1;
-            rect.w -= 1;
-            SDL_FillRect(surface, &rect, color);
+            if (item.getType() == ListItemType::Color)
+            {
+                // Read the live color directly from on_get() so the swatch and hex
+                // label always reflect the current value, even after the RGB picker
+                // sets an arbitrary color that is not in the predefined palette.
+                uint32_t rawColor = item.on_get
+                    ? std::any_cast<uint32_t>(item.on_get())
+                    : std::any_cast<uint32_t>(item.getValue());
+                uint32_t color = mapUint(surface, rawColor);
+                SDL_Rect rect = {
+                    dst.x + dst.w - SCALE1(OPTION_PADDING + FONT_TINY),
+                    dst.y + SCALE1(BUTTON_SIZE - FONT_TINY) / 2,
+                    SCALE1(FONT_TINY), SCALE1(FONT_TINY)};
+                SDL_FillRect(surface, &rect, RGB_WHITE);
+                rect = dy(dx(rect, 1), 1);
+                rect.h -= 1;
+                rect.w -= 1;
+                SDL_FillRect(surface, &rect, color);
 #define COLOR_PADDING 4
-            // Rerender the label from the live hex value
+                // Rerender the label from the live hex value
+                SDL_FreeSurface(text);
+                char hexLabel[12];
+                snprintf(hexLabel, sizeof(hexLabel), "0x%08X", rawColor);
+                text = TTF_RenderUTF8_Blended(font.tiny, hexLabel, text_color_value);
+                SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + mw - text->w - SCALE1(OPTION_PADDING + COLOR_PADDING + FONT_TINY), dst.y + ((dst.h - text->h) / 2)});
+            }
+            else if(item.getType() == ListItemType::Button) {
+                // dont draw anything for now, could be a button hint later
+            }
+            else if(item.getType() == ListItemType::Custom) {
+                item.drawCustomItem(surface, dst, item, selected);
+            }
+            else // Generic and fallback
+                SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + mw - text->w - SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
             SDL_FreeSurface(text);
-            char hexLabel[12];
-            snprintf(hexLabel, sizeof(hexLabel), "0x%08X", rawColor);
-            text = TTF_RenderUTF8_Blended(font.tiny, hexLabel, text_color_value);
-            SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + mw - text->w - SCALE1(OPTION_PADDING + COLOR_PADDING + FONT_TINY), dst.y + ((dst.h - text->h) / 2)});
         }
-        else if(item.getType() == ListItemType::Button) {
-            // dont draw anything for now, could be a button hint later
-        }
-        else if(item.getType() == ListItemType::Custom) {
-            item.drawCustomItem(surface, dst, item, selected);
-        }
-        else // Generic and fallback
-            SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + mw - text->w - SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
-        SDL_FreeSurface(text);
     }
 
     // TODO: blit a black pill on unselected rows (to cover longer item->values?) or truncate longer item->values?
@@ -769,8 +774,11 @@ void MenuList::drawFixedItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
     }
 
     text = TTF_RenderUTF8_Blended(font.small, item.getName().c_str(), text_color);
-    SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
-    SDL_FreeSurface(text);
+    if (text)
+    {
+        SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
+        SDL_FreeSurface(text);
+    }
 }
 
 void MenuList::drawInput(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle)
@@ -824,8 +832,11 @@ void MenuList::drawInputItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
         text_color = COLOR_BLACK;
     }
     text = TTF_RenderUTF8_Blended(font.small, item.getName().c_str(), text_color);
-    SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
-    SDL_FreeSurface(text);
+    if (text)
+    {
+        SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
+        SDL_FreeSurface(text);
+    }
 
     if (/*await_input &&*/ selected)
     {
@@ -833,9 +844,13 @@ void MenuList::drawInputItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
     }
     else if (item.getValue().has_value())
     {
+        // An empty label renders no surface (see drawFixedItem); skip the blit.
         text = TTF_RenderUTF8_Blended(font.tiny, item.getLabel().c_str(), COLOR_WHITE); // always white
-        SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + mw - text->w - SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
-        SDL_FreeSurface(text);
+        if (text)
+        {
+            SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + mw - text->w - SCALE1(OPTION_PADDING), dst.y + ((dst.h - text->h) / 2)});
+            SDL_FreeSurface(text);
+        }
     }
 }
 
