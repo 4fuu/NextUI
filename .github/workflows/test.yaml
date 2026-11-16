@@ -74,7 +74,12 @@ jobs:
           make special
 
       - name: Package the transactional update archive
-        run: make update-package PLATFORM=tg5040 UPDATE_VERSION=v0.0.0-ci
+        run: |
+          # The toolchain container built workspace/ as root, so the host
+          # nextupd build needs a writable build directory.
+          sudo mkdir -p workspace/all/nextupd/build/desktop
+          sudo chown -R "$(id -u):$(id -g)" workspace/all/nextupd/build
+          make update-package PLATFORM=tg5040 UPDATE_VERSION=v0.0.0-ci
 
       - name: Verify package content
         run: |
