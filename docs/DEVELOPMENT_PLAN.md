@@ -102,11 +102,12 @@ Rules:
   `e2ca971`); and the U4 update feed block
   (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #24 (U7 `.tmp_update`
-  payload sync, head `beae0cf`, CI green on that head per gh with the source
-  reporting six checks, independent review FAIL and blocking, not merged),
-  PR #27 (U8 transactional update package build, head `38b8cdc`, six of six
-  green per the source with gh showing Feature checks and Development/Desktop
-  success, awaiting review, open), and this schedule file's own update
+  payload sync, head `95b601a`, CI green on that head per gh with the source
+  reporting six checks, fix for the blocking defect pushed, incremental review
+  in progress, not merged),
+  PR #27 (U8 transactional update package build, head `38b8cdc`, CI green on
+  that head per gh with the source reporting six of six, independent review
+  FAIL, open), and this schedule file's own update
   (PR #28). PR #23 (I4 settings Network/Bluetooth translation, head
   `bd2a40c`) merged into main as
   `5698908b44e8a0b09275440d5ff8bb7483e12239`; PR #26 (I4 settings Assignments
@@ -146,9 +147,11 @@ Rules:
   are green. Main landings `e2eba90` and `ec05440` had runs in progress at
   earlier checks; `1d9aea2` has full-platform CI success (run 43829493761, no
   core matrix), and the current code state on main, `4699226`, has full-platform
-  CI success (Feature checks, Development/Desktop, CI). The latest main tips
-  `c9230cf` and `6594dce` are docs-only landings; per the maintenance rule they
-  do not move the schedule baseline and their CI state is not tracked here.
+  CI success (Feature checks, Development/Desktop, CI). The current main tip
+  `e2ca971` (merge of PR #26) also has full-platform CI success (Feature
+  checks, Development/Desktop, CI all success per gh). The docs-only landings
+  `c9230cf` and `6594dce` do not move the schedule baseline and their CI state
+  is not tracked here.
   PR #13 (built-in emulator removal, head `e1275e4`) merged into main as
   `1d9aea2` with its CI/release core cleanup (no core-matrix/build-core/Download
   Cores jobs remain).
@@ -630,27 +633,39 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
   (dispatched 2026-11-16 after PR #17 merged; the next open gap in the update
   chain).
-- Status: implemented and pushed; independent review FAIL, blocking; not
-  merged. PR #24
+- Status: fix pushed for the blocking review defect; incremental review in
+  progress; not merged. PR #24
   (https://github.com/4fuu/NextUI/pull/24, branch `feature/boot-payload-sync`),
-  head `beae0cf902ddcf09193ea00a8d3751c0e1fa224f` (advanced from
-  `27c95475f2c41617259618a716dd0cc1e666a1b8`, itself advanced from
-  `e339d61cc9fbfa9da4f9764c0600931631993a3e`; each older head's CI result is
-  superseded and is not recorded for this head), base `origin/main`
-  `4699226`; OPEN and mergeable per gh. CI on `beae0cf`: gh shows Feature
-  checks (push and pull_request) and Development/Desktop success; the source
-  reports six checks green. The independent review
-  (https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0) returned
-  FAIL and blocks the merge, so the merge owner T-01a1e2e1 has not merged.
-- Blocking finding (not fixed, not delivered): when a terminal committed
-  transaction already exists, a new update writes the boot journal and is then
-  interrupted before `txn.json` is overwritten; the journal is judged foreign,
-  the gate power-cycles in a loop, and `recover`, `rollback`, and a re-run
-  `install` all return rc13 `boot_transaction_mismatch`. The review verified a
-  fix candidate — a terminal transaction whose binding does not match goes to
-  orphan rollback, while a non-terminal one stays fail-closed — and the source
-  is implementing it with regression tests, awaiting a new head with CI and an
-  incremental review. Do not record this as fixed or delivered.
+  head `95b601a5749ac89eb62274c88c2956e40b09440c` (advanced from
+  `beae0cf902ddcf09193ea00a8d3751c0e1fa224f`, itself from `27c9547` and
+  `e339d61`; each older head's result is superseded and is not recorded for
+  this head), base `origin/main` `4699226`; OPEN and mergeable per gh. CI on
+  `95b601a`: gh shows Feature checks (push and pull_request) and
+  Development/Desktop success; the source reports six checks green. The
+  independent review
+  (https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0) is
+  running the affected cases on this SHA, and the merge owner T-01a1e2e1 gates
+  on review plus CI.
+- The fix for the blocking defect: a terminal `committed`/`rolled_back`
+  `txn.json` plus a non-binding boot journal from a later attempt is now
+  treated as an orphan — the boot payload rolls back and the terminal
+  `.system` is left untouched. Non-terminal foreign journals and
+  unknown/corrupt schemas still fail closed, and normal installed-crash
+  recovery still commits. New regression: a committed baseline plus a crash at
+  each of the seven boot-publish points; the gate returns rc=0, normal
+  `recover` leaves `.system` unchanged with no journal, and the same install
+  succeeds; plus `--rollback`, foreign mid-transaction, and unknown terminal
+  schema cases.
+- Evidence on `95b601a`: nextupd 355 passed/0 failed (177 updater + 55 feed +
+  67 boot-sync + 56 boot recovery), `make -C tests test` pass, desktop build
+  pass.
+- Prior blocking finding (addressed by this fix, not yet verified by review):
+  with a terminal committed transaction already present, a new update
+  interrupted between writing the boot journal and overwriting `txn.json` left
+  the journal judged foreign, the gate power-cycled in a loop, and
+  `recover`/`rollback`/re-run `install` all returned rc13
+  `boot_transaction_mismatch`. Do not record this as fixed or delivered until
+  the incremental review passes.
 - Delivered: signed-package-driven `.system` plus optional `.tmp_update` sync,
   the independent recovery tool published first, `.tmp_update.bak` rollback, a
   separate v1-compatible boot journal, legacy system-only packages untouched,
@@ -701,21 +716,33 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U8 — Transactional system update package build (packaging side of U7)
 - Owner thread: https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa
   (transactional update package; the packaging side of U7's scope).
-- Status: delivered and pushed; not merged. PR #27
+- Status: independent review FAIL at the current head; not merged. PR #27
   (https://github.com/4fuu/NextUI/pull/27, branch `feature/updater-update-package`),
   head `38b8cdc376cb15a595b7e5c2bb09b9ce4a3378be` (supersedes
   `3b406c6da2becb1379199944bdb9ec50520d70e2`), base `origin/main` `6594dcec`;
-  OPEN and mergeable per gh. CI at the new head is six of six green per the
-  source (Host tests push and PR, build-linux, build-macos, tg5040 target build
-  push and PR), with Host tests logging "61 passed, 0 failed, 2 skipped"; gh
-  shows Feature checks (push and pull_request) and Development/Desktop success
-  on that head.
-- Symlink fix at `38b8cdc`: the independent review (updater thread T-01a1e3a0,
-  contract review PASS) flagged that the h700 system tree ships
-  `libSDL2*.so*` through `cp -a`, so a real h700 archive would have been
-  refused for symlinks. `scripts/package-update.sh` now stages with `cp -RL`,
-  so symlinks become regular files (dereferenced paths are printed and a broken
-  link fails the copy). The ZIP symlink rule, roots, archive name,
+  OPEN and mergeable per gh. CI at this head is six of six green per the source
+  (Host tests push and PR, build-linux, build-macos, tg5040 target build push
+  and PR), with Host tests logging "61 passed, 0 failed, 2 skipped"; gh shows
+  Feature checks (push and pull_request) and Development/Desktop success on
+  that head. The independent review FAILED this head, so the source's earlier
+  "contract review PASS" claim is superseded and must not be carried as the
+  current state.
+- Blocking findings at `38b8cdc` (handed back to the packaging source):
+  B1 the script by default treats `build/SYSTEM/<platform>` as `.system`, but
+  the real layout would lose `.system/<platform>/bin/nextui.elf` and the MinUI
+  launch path, so the package cannot boot; B2 the default boot package is
+  refused by `install` while PR #24 is unmerged; B3 reusing the output path
+  leaves already-deleted ZIP entries and the old signature. The source is
+  fixing the layout, defaulting to system-only, cleaning the output, and
+  adding device-shape tests; the h700 symlink fix is kept.
+- Release-pre follow-ups (not blockers for this slice but required before any
+  release): the bootstrap version format, `min_system` greater than `version`,
+  quoting and atomic output, and external links.
+- Symlink fix kept at `38b8cdc`: the h700 system tree ships `libSDL2*.so*`
+  through `cp -a`, so a real h700 archive would have been refused for
+  symlinks. `scripts/package-update.sh` now stages with `cp -RL`, so symlinks
+  become regular files (dereferenced paths are printed and a broken link fails
+  the copy). The ZIP symlink rule, roots, archive name,
   manifest-from-final-bytes rule, and signing boundary are unchanged, and no
   nextupd, workspace, or workflow file was touched.
 - Delivered: `make update-package PLATFORM=... UPDATE_VERSION=...` plus
