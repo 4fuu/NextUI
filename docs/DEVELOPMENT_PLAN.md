@@ -62,9 +62,10 @@ Rules:
   `nextstate` (B3); `saves` capability gating (B4); shared overlay module (B5);
   devserv/nextdev permission core (C1); LED app-profile lease (C2); session
   snapshot/restore (C3).
-- Host-done, local commits, unpushed: `runtime-fn-actions` @ `be88c20`
-  (app exit path C4, Clock reference wiring B6, default-allow policy), and the
-  three in-flight branches below.
+- Host-done, unpushed: none. `runtime-fn-actions` @
+  `be88c2018196d5249e8819adba07bcd4e7fc7a4c` (app exit path C4, Clock reference
+  wiring B6, default-allow policy) is pushed as draft PR #1; the i18n branches
+  (I4/I5) and `feature/updater-manifest` (I6) remain local for now.
 - Target compile: tg5040 passes on batch7; the runtime branch
   (`be88c2018196d5249e8819adba07bcd4e7fc7a4c`) has a formal PASS from the
   toolchain thread (own verification, not cloud CI); `feature/updater-manifest`
@@ -79,13 +80,14 @@ Rules:
 
 ### I1 — Runtime FN actions, app exit, Clock adapter, default-allow policy
 - Owner thread: https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
-- State: 6 local commits (`c31a59e`, `9d5fcb5`, `e815c82`, `349cf4d`, `6d92ac8`,
-  `be88c20`) on branch `runtime-fn-actions`, based on `de69781`. The source
-  thread self-reports the host test suite and desktop build green (a self-test,
-  not an independent PASS); the toolchain thread has since confirmed the same
-  tree with a formal PASS (I2). Review (I3) is in progress with no conclusion
-  yet. Not pushed; PR readiness still awaits the I3 conclusion. No status is
-  upgraded without a formal PASS report.
+- State: pushed to origin. Branch `runtime-fn-actions`, commit
+  `be88c2018196d5249e8819adba07bcd4e7fc7a4c` (6 commits, based on `de69781`),
+  delivered as draft PR #1 (https://github.com/4fuu/NextUI/pull/1) into
+  `integration/batch7` @ `de69781`; PR state OPEN and mergeable. Source-thread
+  host self-test reported green; the toolchain thread confirmed the same tree
+  with a formal PASS (I2). Review (I3) is in progress with no conclusion yet.
+  Not merged; the merge decision belongs to the CI/merge owner after real CI
+  and review pass. No status is upgraded without executed evidence.
 - Covers: C4 exit/force-exit path (never removes `/tmp/nextui_exec`), B6 Clock
   as the reference adapted pak, and the install-default-highest-permission
   policy (legacy grant store only behind `--require-grants`).
@@ -99,10 +101,10 @@ Rules:
   supervision SIGTERM/1500 ms/SIGKILL and C2/C3 restore; no arbitrary client
   PID accepted; no killing of new sessions, other apps, or the desktop. Formal
   PASS reports from I2/I3 are outstanding.
-- Next: verifiable source handoff to I2/I3, then their PASS reports, then a
-  branch push plus pull request per the standing workflow; merging into
-  `integration/batch7` belongs to the CI/merge owner after real CI and review
-  pass. The HOME gap is handled as I7.
+- Next: PR #1 CI to finish (as of 2026-11-16 the prepare and core-matrix jobs
+  pass while build-core and the desktop builds are still running) and I3 to
+  conclude; then the CI/merge owner decides the merge. The HOME gap is handled
+  as I7 on a separate increment.
 
 ### I2 — Toolchain target compile of the runtime branch
 - Owner: retained toolchain-target thread (tg5040 cross-build).
@@ -465,12 +467,13 @@ as they happen; nothing is reported as passing without a run.
 ## Delivery of this file
 
 - Branch `docs/development-plan`, based on `origin/integration/batch7` @
-  `de69781`. The schedule commit is pushed to origin and delivered as a pull
-  request into `integration/batch7`; the exact SHA, PR, and CI result are
-  recorded here once they exist. A CI run that has not run is never recorded as
+  `de69781`, pushed to origin at commit
+  `ea0a337cb7b305c9a59dfbe9ca81dd7a4ebea795` and delivered as pull request #2
+  (https://github.com/4fuu/NextUI/pull/2) into `integration/batch7`.
+- CI on PR #2 (as of 2026-11-16): triggered and running — `prepare` and the
+  `core-matrix` jobs (tg5040/tg5050/h700) pass, while the `build-core` matrix
+  and the `build-macos`/`build-linux` desktop jobs are still pending; no
+  failures observed so far. A job that has not finished is never recorded as
   passing.
-- CI that covers this file on a PR: `.github/workflows/ci.yaml` (device builds
-  for tg5040/tg5050/h700 plus the core matrix) and `.github/workflows/dev.yaml`
-  (desktop builds on macOS and Linux); both trigger on `pull_request`.
 - Merge into `integration/batch7` is performed by the CI/merge owner thread
   after real CI and review pass; no other thread merges main concurrently.
