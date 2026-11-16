@@ -5,8 +5,8 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `471de2c` (merge of PR #18, this schedule file's
-  update; fetched 2026-11-16). Landing points on main, oldest first: PR #5
+- Baseline: `origin/main` @ `4699226` (merge of PR #17, the U4 update feed
+  block; fetched 2026-11-16). Landing points on main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
   (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
@@ -15,9 +15,10 @@ history; its top section mirrors the current schedule in this file.
   transaction hardening, `e2eba90`), PR #14 (settings i18n first slice,
   `ec05440`), PR #11 (boot-time recovery wiring, `1a3f2a7`), PR #12 (schedule
   file, `3ae1ddf`), PR #13 (built-in emulator removal, `1d9aea2`), PR #16
-  (schedule file, `0385b21`), and PR #18 (schedule file, `471de2c`);
-  `de69781` is an ancestor of all of them. Later updates branch from
-  `origin/main`.
+  (schedule file, `0385b21`), PR #18 (schedule file, `471de2c`), PR #19
+  (schedule file, `3380fe4`), PR #20 (settings About/hints i18n, `6a98573`),
+  and PR #17 (U4 update feed, `4699226`); `de69781` is an ancestor of all of
+  them. Later updates branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -83,14 +84,15 @@ Rules:
   (`e2eba90`); the settings Appearance i18n slice (PR #14, `ec05440`); the
   boot-time recovery wiring (PR #11, `1a3f2a7`); this schedule file
   (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, PR #10, `b28b126`, PR #12,
-  `3ae1ddf`, PR #16, `0385b21`, and PR #18, `471de2c`); and the built-in
-  emulator removal (PR #13, `1d9aea2`).
-- Host-done, unpushed: none. Open at the last check: PR #17 (U4 update feed,
-  head `5259c25`, CI green on that head, mergeable per the source, awaiting
-  independent review `T-01a1e380`; not merged) and this schedule file's own
-  update (a new pull request from `origin/main`). This schedule file's previous
-  updates merged into main: PR #12 (`3ae1ddf`), PR #16 (`0385b21`), and PR #18
-  (`471de2c`). The runtime line (I1) merged into main as `3a50fe8`; the updater
+  `3ae1ddf`, PR #16, `0385b21`, PR #18, `471de2c`, and PR #19, `3380fe4`);
+  the built-in emulator removal (PR #13, `1d9aea2`); the settings
+  About/hints i18n slice (PR #20, `6a98573`); and the U4 update feed block
+  (PR #17, `4699226`).
+- Host-done, unpushed: none. Open at the last check: only this schedule file's
+  own update (a pull request from `origin/main`). PR #17 (U4 update feed) merged
+  into main as `4699226`; this schedule file's previous updates merged into
+  main: PR #12 (`3ae1ddf`), PR #16 (`0385b21`), PR #18 (`471de2c`), and PR #19
+  (`3380fe4`). The runtime line (I1) merged into main as `3a50fe8`; the updater
   staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
   the display/audio backend module (PR #6, `b506dbd`), the transaction
   hardening (PR #15, `e2eba90`), the settings i18n first slice (PR #14,
@@ -194,11 +196,14 @@ Rules:
 
 ### I4 — Settings pages i18n (remaining user-visible settings)
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-e50d-7610-be41-7417d83ab622
-- State: first slice merged into main. PR #14 (branch
+- State: two slices merged into main. PR #14 (branch
   `i18n/settings-pages-main`), head
   `69379591f256c8cde1713814b34d15f48bc4b540` "Translate the settings Appearance
-  page into Simplified Chinese", merged as `ec05440`. CI on that head was green
-  (Feature checks push/PR, Development/Desktop).
+  page into Simplified Chinese", merged as `ec05440`; CI on that head was green
+  (Feature checks push/PR, Development/Desktop). The second slice is PR #20
+  (branch `i18n/settings-about-hints`), head `b2bd02b` "Translate the settings
+  About page and the shared button hints", merged as `6a98573`; CI on that head
+  was green (Feature checks push/PR, Development/Desktop).
 - First slice covers: the whole Appearance page (font/style rows, color
   definitions, battery percentage, menu animations and transitions, artwork
   radius/width, recents/tools/quickswitcher/curtain rows, input prompt style,
@@ -214,11 +219,11 @@ Rules:
   charset fixtures/tests; coordinates shared i18n keys with I5; must not edit
   devserv/keymon/launch/updater or revive the stopped permission UI.
 - Depends on: baseline; I5 coordination.
-- Next: the remaining settings pages in follow-up slices. Per the owner's
-  decision the In-Game menu is gone with PR #13, so it is not a translation
-  gap and the second block keeps only About and the shared menu/keyboard
-  hints; the Notifications and RetroAchievements submenus went with the
-  In-Game menu and are not listed as gaps either.
+- Next: the remaining settings pages continue in follow-up slices; the second
+  block (About plus the shared menu/keyboard hints) is delivered as PR #20. Per
+  the owner's decision the In-Game menu is gone with PR #13, so it is not a
+  translation gap; the Notifications and RetroAchievements submenus went with
+  the In-Game menu and are not listed as gaps either.
 
 ### I5 — LedControl and boot text i18n
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-ed1c-779c-965c-e559b98248b0
@@ -512,22 +517,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
   (system update check; dispatched 2026-11-16 after PR #11 merged; first
   verifiable block pushed as PR #17).
-- Status: conflict resolved, CI green, awaiting independent review; not merged.
-  PR #17 (https://github.com/4fuu/NextUI/pull/17, branch
-  `feature/updater-feed`) now has head
-  `5259c25c801db12c801cd96c86491c9c4e2046a6`, whose parents are `9fdd34a2` and
-  `origin/main` @ `0385b210`; the CI/merge owner resolved the `makefile`
-  conflict in that merge and the source fast-forwarded without a second merge.
-  The feed block is unchanged from `9fdd34a` (`git diff 9fdd34a..HEAD --
-  workspace/all/nextupd UPDATES.md` is empty) and `0235038` remains the feed
-  commit; the packaging cleanup stays `9fdd34a`. CI on `5259c25`: Feature
-  checks (push and pull_request) and Development/Desktop all success; the
-  source reports all six checks green (Host tests both runs, build-linux,
-  build-macos, both tg5040 target builds). gh's mergeable query returned
-  UNKNOWN at the last check (not recomputed); the source reports
-  MERGEABLE/CLEAN. Local merged tree: 177 + 49 + 56 tests pass; desktop build
-  exits 0. Next gate: independent review thread `T-01a1e380` (full URL to be
-  filled in once confirmed); the CI/merge owner merges after it passes.
+- Status: merged into main. PR #17
+  (https://github.com/4fuu/NextUI/pull/17, branch `feature/updater-feed`),
+  final head `18c2a57c5e98fb117424b9b00b411852f53da085` (a normal merge of
+  `origin/main` `6a98573c`, no rebase/force), merged as
+  `46992265eb04669ab6d4844a4f2e6cbd98693442` by the CI/merge owner
+  (2026-11-16T09:09:41Z per the source). The incremental review `T-01a1e380`
+  passed with no blockers: F1 verified fixed in `e51aeb2e` (the verified
+  manifest digest is bound to `staged->manifest_sha256`, with an
+  alternate-manifest regression test), the old `5259c25` reproduces the false
+  `already_staged` (3 failures), the new head passes 55/0 feed tests, and the
+  reviewer's 88 independent checks pass; full local tests 177 + 55 + 56 and the
+  SANITIZE suite pass. CI on `18c2a57c` was green (Feature checks push and
+  pull_request, Development/Desktop; the source reports all six checks) and gh
+  reported MERGEABLE/CLEAN at merge time. F2/F3/F4 remain documented low-risk
+  behavior.
 - Delivered in PR #17: `nextui-feed-v1` feed parsing and selection, `feed`
   check against a signed manifest, `fetch` download into verify into the
   existing staging, staged reuse and `--replace`, failure cleanup, exit 15 when
@@ -548,11 +552,13 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   install; the application store source is the user's choice and is not chosen
   here; interrupted downloads must not leave a usable staged package;
   language/version/platform/`min_system` and error feedback stay consistent.
-  The `.tmp_update` refresh and the install UI remain undelivered.
+  The `.tmp_update` refresh (now tracked as U7, owner thread T-01a1e3a0) and
+  the install UI remain undelivered.
 - Depends on: I6 manifest/signature/staging (in main), U1 transaction (in
   main), and the X1 feed contract.
 - Next: U5 (signature policy and key custody) once the owner decides key
-  custody; the feed entry for user-initiated downgrade feeds back into U3.
+  custody; the delivered feed now gives U3 the entry for user-initiated
+  downgrade.
 
 #### U5 — Signature policy and key custody
 - Owner: owner decision plus updater thread implementation.
@@ -569,12 +575,35 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner: any thread; low risk.
 - Status: not started; release body and skeleton READMEs still point at
   upstream docs. The makefile's default third-party updater pak download was
-  removed by PR #17 (U4 packaging cleanup, pending merge).
+  removed by PR #17 (U4 packaging cleanup, now merged into main).
 - Depends on: none (independent).
 - Delivery/verification: release workflow body and skeleton BASE/EXTRAS
   READMEs point at this repo's documentation entry; NOTICE and the upstream
   issue reference stay as historical attribution.
 - Next: none (closes the update chain).
+
+#### U7 — `.tmp_update` payload sync (boot recovery tool refresh)
+- Owner thread: https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
+  (dispatched 2026-11-16 after PR #17 merged; the next open gap in the update
+  chain).
+- Status: dispatched, not started.
+- Scope: signed-package-driven, interruptible-recovery payload synchronization
+  and the packaging contract, so the `.tmp_update` area (today refreshed only
+  by the legacy MinUI.zip/bootstrap path) can be refreshed by this repo's own
+  signed packages. The old transaction record schema and the independent
+  recovery tools stay working: before any refresh ships, the schema must stay
+  compatible with existing recovery tools or gain a fallback, or old devices
+  refuse to boot until a manual payload refresh (long-term constraint carried
+  from U1).
+- Depends on: U1 transaction and U2 boot-time recovery (both in main), U4 feed
+  (merged into main), and the X1 feed contract.
+- Delivery/verification: payload sync verified in isolated test roots with
+  interrupted and resumed runs; no real-device boot or power-cut claim; no
+  publish/deploy; production feed/signing key and the install UI are separate
+  undelivered items and are not prerequisites for this task's host-level
+  verification.
+- Next: the install UI (a separate slice); production feed/signing key custody
+  stays with the owner decision (U5).
 
 ### P3 — Full UI translation remainder
 
@@ -717,8 +746,12 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
 - System update check (feed/check/download staging) thread:
   https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
+  (archived 2026-11-16 after PR #17 merged; evidence retained)
 - Independent review thread for the U4 feed block: `T-01a1e380` (full URL to be
-  filled in once confirmed)
+  filled in once confirmed; archived 2026-11-16 with the PASS evidence
+  retained)
+- `.tmp_update` payload sync thread:
+  https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
   in once confirmed; ran the exact libsamplerate co-render regression on main
   `1d9aea2` with `a6-host-adapter` @
@@ -735,10 +768,10 @@ as they happen; nothing is reported as passing without a run.
 ## Delivery of this file
 
 - This file is on `main`: PR #2 merged as `59a63e6`, updated by PR #9
-  (`3ecefd5`), PR #10 (`b28b126`), PR #12 (`3ae1ddf`), PR #16 (`0385b21`), and
-  PR #18 (`471de2c`). Later schedule updates branch from `origin/main` and open
-  a pull request into `main`; the CI/merge owner merges after checks pass. This
-  thread performs no merges itself.
-- The current update travels on a new branch cut from `origin/main` @
-  `471de2c` (earlier schedule branches merged as `3ae1ddf`, `0385b21`, and
-  `471de2c`).
+  (`3ecefd5`), PR #10 (`b28b126`), PR #12 (`3ae1ddf`), PR #16 (`0385b21`), PR #18
+  (`471de2c`), and PR #19 (`3380fe4`). Later schedule updates branch from
+  `origin/main` and open a pull request into `main`; the CI/merge owner merges
+  after checks pass. This thread performs no merges itself.
+- The current update travels on branch `docs/schedule-update-7`, PR #21
+  (cut from `origin/main` @ `6a98573`; main has since moved to `4699226` and the
+  pull request stays mergeable without rebase or force).
