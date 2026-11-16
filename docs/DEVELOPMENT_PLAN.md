@@ -5,17 +5,16 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `ec05440` (merge of PR #14, the settings
-  Appearance i18n slice; fetched 2026-11-16). Landing points on main, oldest
-  first: PR #5 (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file,
-  `59a63e6`), PR #7 (updater staging, `bdab39e`), PR #4 (LED/boot
-  localization, `dea1f2d`), PR #6 (display/audio backend module, `b506dbd`),
-  PR #1 (runtime line, `3a50fe8`), PR #8 (updater offline install
-  transaction, `212a695`), PR #9 (schedule update, `3ecefd5`), PR #10
-  (schedule update, `b28b126`), PR #15 (updater transaction hardening,
-  `e2eba90`), and PR #14 (schedule file update target: settings i18n first
-  slice, `ec05440`); `de69781` is an ancestor of all of them. Later updates
-  branch from `origin/main`.
+- Baseline: `origin/main` @ `1a3f2a7` (merge of PR #11, the boot-time recovery
+  wiring; fetched 2026-11-16). Landing points on main, oldest first: PR #5
+  (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
+  (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
+  (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
+  PR #8 (updater offline install transaction, `212a695`), PR #9 (schedule
+  update, `3ecefd5`), PR #10 (schedule update, `b28b126`), PR #15 (updater
+  transaction hardening, `e2eba90`), PR #14 (settings i18n first slice,
+  `ec05440`), and PR #11 (boot-time recovery wiring, `1a3f2a7`); `de69781` is
+  an ancestor of all of them. Later updates branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -78,16 +77,17 @@ Rules:
   localization (PR #4, `dea1f2d`); the display/audio backend module (PR #6,
   `b506dbd`); the runtime line (PR #1, `3a50fe8`); the updater offline install
   transaction and recovery core (PR #8, `212a695`), hardened by PR #15
-  (`e2eba90`); the settings Appearance i18n slice (PR #14, `ec05440`); and
-  this schedule file (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, and PR #10,
-  `b28b126`).
+  (`e2eba90`); the settings Appearance i18n slice (PR #14, `ec05440`); the
+  boot-time recovery wiring (PR #11, `1a3f2a7`); and this schedule file
+  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, and PR #10, `b28b126`).
 - Host-done, unpushed: none. The open pull requests are I8 (emulator removal,
-  PR #13, head `e1275e4`) and U2/U3 (boot recovery, PR #11, head `329a7e1`,
-  mergeable CONFLICTING against the moved main). The runtime line (I1) merged
-  into main as `3a50fe8`; the updater staging module (I6, `bdab39e`), the
-  LED/boot localization (I5, `dea1f2d`), the display/audio backend module
-  (PR #6, `b506dbd`), the transaction hardening (PR #15, `e2eba90`), and the
-  settings i18n first slice (PR #14, `ec05440`) are on main as well.
+  PR #13, head `e1275e4`) and this schedule file's own update (PR #12, head
+  `8efb537`). The runtime line (I1) merged into main as `3a50fe8`; the updater
+  staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
+  the display/audio backend module (PR #6, `b506dbd`), the transaction
+  hardening (PR #15, `e2eba90`), the settings i18n first slice (PR #14,
+  `ec05440`), and the boot-time recovery wiring (PR #11, `1a3f2a7`) are on
+  main as well.
 - CI infrastructure: the Feature checks workflow
   (`.github/workflows/test.yaml`) runs the host test suite and a real tg5040
   cross-compile on every branch push and pull request; packaging and
@@ -102,14 +102,15 @@ Rules:
   `bdab39e` success, and `212a695` Feature checks success; `b28b126` has all
   three workflows (Feature checks, Development/Desktop, CI) success. PR #11
   (boot recovery wiring, head `329a7e1`) passed all six checks (Host tests
-  push/PR, tg5040 target build push/PR, build-linux, build-macos); it is now
-  OPEN with mergeable CONFLICTING against the moved main (`ec05440`), so the
-  earlier CLEAN state no longer holds — a run that has not finished is never
-  recorded as passing. PR #13 (built-in emulator removal, head `e1275e4`) CI
-  is green (Feature checks push/PR, Development/Desktop). PR #14 (settings
-  Appearance page i18n, head `6937959`) and PR #15 (updater transaction
-  hardening, head `c6dc914`) CI runs are green. Main landings `e2eba90` and
-  `ec05440` had runs in progress at the last check.
+  push/PR, tg5040 target build push/PR, build-linux, build-macos); the merged
+  head `9970e49` was six of six green with Host tests logging 177 updater +
+  56 boot-recovery checks, and PR #11 merged into main as `1a3f2a7` — a run
+  that has not finished is never recorded as passing. PR #13 (built-in
+  emulator removal, head `e1275e4`) CI is green (Feature checks push/PR,
+  Development/Desktop). PR #14 (settings Appearance page i18n, head
+  `6937959`) and PR #15 (updater transaction hardening, head `c6dc914`) CI runs
+  are green. Main landings `e2eba90` and `ec05440` had runs in progress at the
+  last check; `1a3f2a7` had runs in progress at the last check as well.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -442,11 +443,11 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U2 — Startup arbitration
 - Owner thread: https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
   (startup recovery wiring).
-- Status: delivered for review as PR #11
+- State: merged into main. PR #11
   (https://github.com/4fuu/NextUI/pull/11, branch
   `feature/updater-boot-recovery`), head
-  `329a7e178233a6489b94f09a3c2e97f19878601e`, base `main` @ `b28b126`; OPEN and
-  mergeable. Not merged; the CI/merge owner is the only merger.
+  `9970e4964e32fd6d37c283d4ff194ad086f4b1fa` (the reviewed `329a7e1` plus the
+  main merge), merged as `1a3f2a7` by 4fu at 2026-11-16T07:54:56Z.
 - Delivered: `nextupd recover` wired into the tg5040/tg5050/h700 install boot
   scripts before any `.system` write and before launch; `nextupd.elf` ships in
   `.tmp_update/<platform>/`; fail-closed behavior (power off, no launch, no
@@ -457,10 +458,15 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   the same under ASan/UBSan; desktop build green; real tg5040 cross-build with
   NEEDED only libz/libc. PR #11 CI at head `329a7e1`: all six checks passed
   (Host tests push/PR, tg5040 target build push/PR, build-linux, build-macos).
-- Independent review at exact `329a7e1`: startup contract PASS.
-- Merge status (gh-verified, not guessed): PR #11 is still OPEN and reports
-  mergeable CONFLICTING because `main` moved (`ec05440`); the source thread
-  resolves the base delta, then the CI/merge owner merges.
+- Merge status (gh-verified): PR #11 is MERGED into main as `1a3f2a7` (merge
+  commit `1a3f2a72e2add7d8b10e9a2be0ae63901f2dfb08`, merged by 4fu at
+  2026-11-16T07:54:56Z); final head `9970e4964e32fd6d37c283d4ff194ad086f4b1fa`,
+  merged tree identical to head. CI on the merged head was six of six green,
+  with Host tests logging 177 updater + 56 boot-recovery checks. The earlier
+  CONFLICTING state was resolved by merging the moved main into the branch.
+- Independent review at exact `329a7e1`: startup contract PASS (recorded when
+  the review landed; the merged head `9970e49` is that review target plus the
+  main merge).
 - Residual risks (not real power-cut acceptance): no real-device evidence for
   `flock` on FAT; the h700 load path and the no-execution timeout are residual;
   no real-device boot or power-cut test has run.
@@ -475,21 +481,37 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   tool-side rollback already in main.
 - Status: tool-side rollback delivered in PR #8 (`--rollback`,
   rolling_back/rolled_back states, one retained `.system.bak`); the boot-time
-  automatic restore ships in PR #11 (pending review/merge); the feed entry for
-  user-initiated downgrade awaits U4.
+  automatic restore is on main (PR #11, merged as `1a3f2a7`); the feed entry
+  for user-initiated downgrade awaits U4.
 - Delivery/verification: automatic restore from `.system.bak` via arbitration
   plus a feed entry for the previous compatible version for user-initiated
   downgrade through the same flow.
 - Next: U4.
 
 #### U4 — Update feed
-- Owner: updater follow-up thread or new.
-- Status: not started; `latest.txt` still writes an undefined variable.
-- Depends on: I6 format family; X1 feed contract.
-- Delivery/verification: `latest.txt` becomes this repo's JSON feed (per
-  platform latest version, asset URL, minimum upgradable version, compatibility
-  matrix) or is removed; consumed by the own updater.
-- Next: U5.
+- Owner thread: https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
+  (system update check; dispatched 2026-11-16 after PR #11 merged, orb
+  workspace preparing, no commit yet).
+- Status: dispatched, not started. Works from the actual `origin/main` on an
+  independent branch.
+- Scope: this repo's own feed, update check, and download into the existing
+  signature-verified staging, compatible with the nextupd contract; verified
+  with a local HTTP fixture, test root directories, and a test feed plus test
+  signing keys (never production); host regression plus a real tg5040
+  compile/CI, then a pull request to the sole CI/merge owner.
+- Boundaries (undelivered): the real release source address and the production
+  signing keys are undecided, so the chain cannot be used in production and
+  must honestly show unavailable while unconfigured; no fabricated online
+  releases, no production key creation, no treating an unsigned SHA-256 as a
+  signature, no automatic install to a real root, no publish/deploy/ADB/device
+  install; the application store source is the user's choice and is not chosen
+  here; interrupted downloads must not leave a usable staged package;
+  language/version/platform/`min_system` and error feedback stay consistent.
+  The `.tmp_update` refresh and the install UI remain undelivered.
+- Depends on: I6 manifest/signature/staging (in main), U1 transaction (in
+  main), and the X1 feed contract.
+- Next: U5 (signature policy and key custody) once the owner decides key
+  custody; the feed entry for user-initiated downgrade feeds back into U3.
 
 #### U5 — Signature policy and key custody
 - Owner: owner decision plus updater thread implementation.
@@ -650,6 +672,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e2db-f2aa-72c4-9880-d4b519023346
 - Startup recovery wiring thread:
   https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
+- System update check (feed/check/download staging) thread:
+  https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
 
 ## Maintenance
 
