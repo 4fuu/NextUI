@@ -506,7 +506,6 @@ static int GFX_loadResources(void)
 	asset_rects[ASSET_HOLE] = (SDL_Rect){SCALE4(1, 63, 20, 20)};
 	asset_rects[ASSET_GAMEPAD] = (SDL_Rect){SCALE4(91, 51, 17, 10)};
 	asset_rects[ASSET_SETTINGS] = (SDL_Rect){SCALE4(21, 117, 10, 10)};
-	asset_rects[ASSET_STORE] = (SDL_Rect){SCALE4(66, 117, 10, 10)};
 	asset_rects[ASSET_POWEROFF] = (SDL_Rect){SCALE4(43, 117, 10, 10)};
 	asset_rects[ASSET_SUSPEND] = (SDL_Rect){SCALE4(32, 117, 10, 10)};
 	asset_rects[ASSET_RESTART] = (SDL_Rect){SCALE4(54, 119, 11, 8)};
