@@ -115,6 +115,31 @@ static const I18nEntry zhTable[] = {
     {"COARSE", "粗调"},
     {"COPY", "复制"},
 
+    // Settings: About page labels and messages ("About" itself is shared with
+    // the root menu and lives in the top-level section above).
+    {"NextUI version", "NextUI 版本"},
+    {"Platform", "平台"},
+    {"Stock OS version", "原厂系统版本"},
+    {"Busybox version", "BusyBox 版本"},
+    {"BusyBox version not found.", "未找到 BusyBox 版本。"},
+    {"Stock OS changes detected.\n"
+     "This may cause instability or issues.\n"
+     "If you experience problems, please consider\n"
+     "reverting to clean stock firmware.",
+     "检测到原厂系统被修改。\n"
+     "这可能导致不稳定或其他问题。\n"
+     "如果遇到问题，请考虑\n"
+     "恢复为干净的原厂固件。"},
+
+    // Settings: shared button hints (menu.cpp overlays, keyboardprompt) and the
+    // on-screen keyboard's special key captions.
+    {"OK", "确定"},
+    {"EXIT", "退出"},
+    {"ENTER", "回车"},
+    {"shift", "上档"},
+    {"space", "空格"},
+    {"enter", "回车"},
+
     // Settings: Display page labels and hints.
     {"Brightness", "亮度"},
     {"Display brightness (0 to 10)", "显示亮度（0 到 10）"},

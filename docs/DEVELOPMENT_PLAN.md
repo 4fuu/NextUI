@@ -5,8 +5,8 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `1d9aea2` (merge of PR #13, the built-in emulator
-  removal; fetched 2026-11-16). Landing points on main, oldest first: PR #5
+- Baseline: `origin/main` @ `471de2c` (merge of PR #18, this schedule file's
+  update; fetched 2026-11-16). Landing points on main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
   (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
@@ -14,7 +14,8 @@ history; its top section mirrors the current schedule in this file.
   update, `3ecefd5`), PR #10 (schedule update, `b28b126`), PR #15 (updater
   transaction hardening, `e2eba90`), PR #14 (settings i18n first slice,
   `ec05440`), PR #11 (boot-time recovery wiring, `1a3f2a7`), PR #12 (schedule
-  file, `3ae1ddf`), and PR #13 (built-in emulator removal, `1d9aea2`);
+  file, `3ae1ddf`), PR #13 (built-in emulator removal, `1d9aea2`), PR #16
+  (schedule file, `0385b21`), and PR #18 (schedule file, `471de2c`);
   `de69781` is an ancestor of all of them. Later updates branch from
   `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
@@ -81,12 +82,15 @@ Rules:
   transaction and recovery core (PR #8, `212a695`), hardened by PR #15
   (`e2eba90`); the settings Appearance i18n slice (PR #14, `ec05440`); the
   boot-time recovery wiring (PR #11, `1a3f2a7`); this schedule file
-  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, PR #10, `b28b126`, and
-  PR #12, `3ae1ddf`); and the built-in emulator removal (PR #13, `1d9aea2`).
-- Host-done, unpushed: none. No pull requests are open at the last check
-  (I8/PR #13 merged as `1d9aea2`; this schedule file's previous update, PR #12,
-  merged as `3ae1ddf`); this schedule update opens a new pull request from
-  `origin/main`. The runtime line (I1) merged into main as `3a50fe8`; the updater
+  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, PR #10, `b28b126`, PR #12,
+  `3ae1ddf`, PR #16, `0385b21`, and PR #18, `471de2c`); and the built-in
+  emulator removal (PR #13, `1d9aea2`).
+- Host-done, unpushed: none. Open at the last check: PR #17 (U4 update feed,
+  head `5259c25`, CI green on that head, mergeable per the source, awaiting
+  independent review `T-01a1e380`; not merged) and this schedule file's own
+  update (a new pull request from `origin/main`). This schedule file's previous
+  updates merged into main: PR #12 (`3ae1ddf`), PR #16 (`0385b21`), and PR #18
+  (`471de2c`). The runtime line (I1) merged into main as `3a50fe8`; the updater
   staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
   the display/audio backend module (PR #6, `b506dbd`), the transaction
   hardening (PR #15, `e2eba90`), the settings i18n first slice (PR #14,
@@ -310,20 +314,25 @@ Rules:
   targets cores/cores-json/build-cores/build-core, the minarch build and copy
   steps, the Emus entry in the extras zip, and the minarch/cores .vscode debug
   configs.
-- Shared-library packaging (dependency restored, evidence separated): PR #13
+- Shared-library packaging (dependency restored, exact harness closed): PR #13
   removed the packaging steps that copied the minarch-built libraries
   (libsamplerate, libzip, bz2, lzma, zstd, chdr, crypto, lz4) into the device
   image. `libsamplerate` is not emulator-only: api.c calls libsamplerate, and
   `workspace/desktop/apostropheoverlaydemo/makefile` explicitly links
   `-lsamplerate`. The merge resolved it by restoring libsamplerate into
-  `workspace/all/libs` and `.system/<platform>/lib`. Substitute evidence on
-  record: the tg5040 devserv NEEDED check for libsamplerate.so, plus the
-  overlaydemo/fnbridgedemo demos. Exact co-rendering harness is still pending:
-  the Apostrophe adapter is available (`a6-host-adapter` @ `0276aa2` / tree
-  `98b714b`, `origin/main` still `8b58ab7`) and the exact harness regression is
-  dispatched to thread `T-01a1e05b` (full URL to be filled in once confirmed)
-  on main `1d9aea2`; until it reports, do not record the exact harness as
-  passed, and do not claim the header was unavailable.
+  `workspace/all/libs` and `.system/<platform>/lib`. The exact Apostrophe
+  co-rendering harness regression is CLOSED (thread T-01a1e05b, evidence in
+  that thread's `.amp/in/artifacts/apostrophe-exact-main-1d9aea2/` and
+  `apostrophe-exact-main-1d9aea2-verification.md`): real adapter remote fetch
+  succeeded (`a6-host-adapter` @ `0276aa26981ffafd55d88f8ea38cc4e02ab25d49` /
+  tree `98b714b`) against main `1d9aea2` (tree `c1d1a30c`); desktop host 67/0,
+  real renderer initialization, desktop demo and tg5040 LTO/non-LTO links all
+  exit 0 with NEEDED `libsamplerate.so.0`; full build and package exit 0; the
+  new MinUI.zip has 420 files with `.so.0`/`.so.0.2.2` resolving in-package; no
+  Emus/minarch/cores. Scope limit: this is host, compile, and package
+  verification only — no device panel compositing acceptance. The earlier
+  substitute evidence (tg5040 devserv NEEDED, overlaydemo/fnbridgedemo demos)
+  stays recorded separately and is not upgraded by the exact run.
 - Kept (generic capabilities): pak install and launch (Tools/<platform> scan,
   pak.json, B3 app-state slots, B4 `saves` resume), Recents, Collections, quick
   menu and quick actions, game switcher, folder backgrounds and artwork, the
@@ -336,8 +345,9 @@ Rules:
   packages no longer carry the built-in emulator, host regression tests and the
   tg5040 build still pass; PR #13's CI was green on head `e1275e4` and it
   merged into main as `1d9aea2`.
-- Next: the exact Apostrophe co-rendering harness (T-01a1e05b) closes the
-  libsamplerate evidence gap; nothing else remains for I8.
+- Next: nothing open for I8; the exact co-rendering harness closed the
+  libsamplerate evidence gap at host/compile/package level (device panel
+  compositing acceptance stays with V1).
   This schedule no longer treats minarch or cores as development goals or
   acceptance prerequisites.
 
@@ -500,20 +510,31 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 #### U4 — Update feed
 - Owner thread: https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
-  (system update check; dispatched 2026-11-16 after PR #11 merged; local
-  implementation complete, not yet committed or pushed).
-- Status: local implementation done, not yet delivered. The thread implemented
-  `nextupd feed` and `nextupd fetch` (new `update_download.h/.c`,
-  `tests/test_feed.py`; `update_feed.c`, `update_util.h`, `nextupd.c`,
-  `makefile`, `tests/run_tests.sh` touched): feed parse, local/HTTP/HTTPS fetch
-  (own HTTP stack with poll timeouts, redirect cap, chunked/Content-Length,
-  size cap; HTTPS never silently downgrades and uses `curl`), entry selection,
-  version compare, manifest/signature download and verification, feed↔manifest
-  consistency, `min_system` and free-space checks, download into the existing
-  staging via `run_stage`. Local evidence: `test_feed.py` 49 passed; the full
-  `SANITIZE=1` suite exit 0 (177 updater + 49 feed + 56 boot-recovery checks);
-  desktop build pass. No commit, branch, or pull request yet — nothing is
-  recorded as pushed or CI-verified.
+  (system update check; dispatched 2026-11-16 after PR #11 merged; first
+  verifiable block pushed as PR #17).
+- Status: conflict resolved, CI green, awaiting independent review; not merged.
+  PR #17 (https://github.com/4fuu/NextUI/pull/17, branch
+  `feature/updater-feed`) now has head
+  `5259c25c801db12c801cd96c86491c9c4e2046a6`, whose parents are `9fdd34a2` and
+  `origin/main` @ `0385b210`; the CI/merge owner resolved the `makefile`
+  conflict in that merge and the source fast-forwarded without a second merge.
+  The feed block is unchanged from `9fdd34a` (`git diff 9fdd34a..HEAD --
+  workspace/all/nextupd UPDATES.md` is empty) and `0235038` remains the feed
+  commit; the packaging cleanup stays `9fdd34a`. CI on `5259c25`: Feature
+  checks (push and pull_request) and Development/Desktop all success; the
+  source reports all six checks green (Host tests both runs, build-linux,
+  build-macos, both tg5040 target builds). gh's mergeable query returned
+  UNKNOWN at the last check (not recomputed); the source reports
+  MERGEABLE/CLEAN. Local merged tree: 177 + 49 + 56 tests pass; desktop build
+  exits 0. Next gate: independent review thread `T-01a1e380` (full URL to be
+  filled in once confirmed); the CI/merge owner merges after it passes.
+- Delivered in PR #17: `nextui-feed-v1` feed parsing and selection, `feed`
+  check against a signed manifest, `fetch` download into verify into the
+  existing staging, staged reuse and `--replace`, failure cleanup, exit 15 when
+  unconfigured; the packaging cleanup removes the default third-party updater
+  pak and the undefined `latest.txt`; the app-store source is unchanged. Local
+  evidence: full test suite pass, SANITIZE updater 177 + feed 49 +
+  boot-recovery 56, desktop build clean.
 - Scope: this repo's own feed, update check, and download into the existing
   signature-verified staging, compatible with the nextupd contract; verified
   with a local HTTP fixture, test root directories, and a test feed plus test
@@ -547,7 +568,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U6 — Release entry points
 - Owner: any thread; low risk.
 - Status: not started; release body and skeleton READMEs still point at
-  upstream docs.
+  upstream docs. The makefile's default third-party updater pak download was
+  removed by PR #17 (U4 packaging cleanup, pending merge).
 - Depends on: none (independent).
 - Delivery/verification: release workflow body and skeleton BASE/EXTRAS
   READMEs point at this repo's documentation entry; NOTICE and the upstream
@@ -695,9 +717,13 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
 - System update check (feed/check/download staging) thread:
   https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
+- Independent review thread for the U4 feed block: `T-01a1e380` (full URL to be
+  filled in once confirmed)
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
-  in once confirmed; runs the exact libsamplerate co-render regression on
-  main `1d9aea2` with the `a6-host-adapter` @ `0276aa2`)
+  in once confirmed; ran the exact libsamplerate co-render regression on main
+  `1d9aea2` with `a6-host-adapter` @
+  `0276aa26981ffafd55d88f8ea38cc4e02ab25d49` — CLOSED, host/compile/package
+  level only)
 
 ## Maintenance
 
@@ -709,10 +735,10 @@ as they happen; nothing is reported as passing without a run.
 ## Delivery of this file
 
 - This file is on `main`: PR #2 merged as `59a63e6`, updated by PR #9
-  (`3ecefd5`), PR #10 (`b28b126`), and PR #12 (`3ae1ddf`). Later schedule
-  updates branch from `origin/main` and open a pull request into `main`; the
-  CI/merge owner merges after checks pass. This thread performs no merges
-  itself.
+  (`3ecefd5`), PR #10 (`b28b126`), PR #12 (`3ae1ddf`), PR #16 (`0385b21`), and
+  PR #18 (`471de2c`). Later schedule updates branch from `origin/main` and open
+  a pull request into `main`; the CI/merge owner merges after checks pass. This
+  thread performs no merges itself.
 - The current update travels on a new branch cut from `origin/main` @
-  `1d9aea2` (not the earlier `docs/schedule-update-3`, which merged as
-  `3ae1ddf`).
+  `471de2c` (earlier schedule branches merged as `3ae1ddf`, `0385b21`, and
+  `471de2c`).

@@ -5,6 +5,7 @@ extern "C"
 #include "defines.h"
 #include "api.h"
 #include "utils.h"
+#include "i18n.h"
 }
 
 #include <cmath>
@@ -962,7 +963,7 @@ static void drawOverlayLocal(SDL_Surface* screen) {
             char *hints[] = {(char *)("B"), (char *)("BACK"), NULL};
             GFX_blitButtonGroup(hints, 1, screen, 1);
         } else if (overlayDismissMode == OverlayDismissMode::DismissOnA) {
-            char *hints[] = {(char *)("A"), (char *)("OK"), NULL};
+            char *hints[] = {(char *)("A"), (char *)TR("OK"), NULL};
             GFX_blitButtonGroup(hints, 1, screen, 1);
         }
     }
