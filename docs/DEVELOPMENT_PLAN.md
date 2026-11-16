@@ -6,12 +6,12 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `9374757` (merge of PR #35, the System Update page's zh follow-up;
-  below it PR #32 the System Update install UI, PR #34 the Off/On labels
-  slice and the in-repo i18n fixture value test, PR #30 the About page
-  Unknown zh entry -- which also carries PR #27 the transactional update
-  package build -- and PR #29 the I9 settings abnormal-data fixes; fetched
-  2026-11-16).
+  rule): `3a0b048` (merge of PR #33, the tg5040 update package content check;
+  below it PR #35 the System Update page's zh follow-up, PR #32 the System
+  Update install UI, PR #34 the Off/On labels slice and the in-repo i18n
+  fixture value test, PR #30 the About page Unknown zh entry -- which also
+  carries PR #27 the transactional update package build -- and PR #29 the I9
+  settings abnormal-data fixes; fetched 2026-11-16).
   Docs-only main heads do not move this baseline; the last
   docs-only tip was `8e4f744` (merge of PR #28). Landing points on
   main, oldest first: PR #5
@@ -112,6 +112,7 @@ Rules:
   `d25543b`); the Off/On labels slice with the in-repo i18n fixture value
   test (PR #34, `a6f507f`); the System Update install UI (PR #32, `64540a7`);
   the System Update page's zh follow-up (PR #35, `9374757`);
+  the tg5040 update package content check (PR #33, `3a0b048`);
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
@@ -147,7 +148,15 @@ Rules:
   https://ampcode.com/threads/T-01a1e480-f986-73f8-8478-83940b8539df
   (DeepSeek), which delivered the fix head above; the original source was told
   to stop writing and pushing the branch and not to delete evidence, so the
-  two threads do not double-write it. Merged
+  two threads do not double-write it. PR #33 merged into main as
+  `3a0b04813d3b67fbc10703008d5826b07e66e93b` (2026-11-16T13:39:43Z per gh,
+  final head `be3d548d8acc1660d9fc290226db80cacc5b5a02`), and the post-merge
+  runs on `3a0b048` (Feature checks, Development/Desktop, and CI) are success
+  per gh. PR #36 (U10, branch `fix/update-package-atomic-output`) is open at
+  head `ed7b9de5e4aa7a57fe0f6d697bf2333652aefa87`, based on main `3a0b048`,
+  OPEN, MERGEABLE and CLEAN per gh, with CI green on that head per gh
+  (Feature checks push and pull_request, Development/Desktop); it is not
+  merged. Merged
   since the last check: PR #27 (U8 transactional update package build, final
   head `c6b5e6f`) merged into main as
   `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh)
@@ -1142,22 +1151,56 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U10 — First update contract and package output safety
 - Owner thread: https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652
   (Step Medium; dispatched 2026-11-16).
-- Status: dispatched; no head delivered, so nothing is recorded as fixed. It
-  covers the pre-release code gaps recorded earlier: the bootstrap
-  `NextUI-<date>-<n>` `version.txt` versus nextupd's `vX.Y.Z` semver in the
-  first-install contract, and `package-update`'s interruption safety when the
-  whole ZIP/manifest/signature group fails mid-run.
+- Status: first head delivered and open; not merged. PR #36
+  (https://github.com/4fuu/NextUI/pull/36, branch
+  `fix/update-package-atomic-output`), head
+  `ed7b9de5e4aa7a57fe0f6d697bf2333652aefa87`, based on main `3a0b048`, OPEN,
+  MERGEABLE and CLEAN per gh, with CI green on that head per gh (Feature
+  checks push and pull_request, Development/Desktop). It covers the pre-release
+  code gaps recorded earlier: the bootstrap `NextUI-<date>-<n>` `version.txt`
+  versus nextupd's `vX.Y.Z` semver in the first-install contract, and
+  `package-update`'s interruption safety when the whole ZIP/manifest/signature
+  group fails mid-run.
+- Delivered at this head: atomic, interrupt-safe update-package output in
+  `scripts/package-update.sh` -- the whole set is built and self-checked in a
+  staging directory inside the output directory, moved with same-filesystem
+  renames, and committed by a `<base>.manifest.set` marker written last;
+  failed, hard-killed, or repeated runs never leave a partial or mixed set
+  and never damage the previous complete output, an unsigned rerun drops a
+  stale signature, and an interrupted publish self-heals on the next run. The
+  ZIP plus manifest plus signature is treated as one artifact-set contract,
+  guarded by `tests/update_package_atomic_test.py` and the
+  `test-update-package-atomic` target (36/36; it fails 6 on the pre-fix
+  script). The signature, root, res, and nextupd 0755 contracts are
+  unchanged. The legacy bootstrap version behavior is also clarified and
+  locked: a `NextUI-<date>-<n>` target is refused with
+  `target_version_missing` (exit 13) and the trees are untouched, while a
+  valid `vX.Y.Z` target installs the same package; downgrade refusal and the
+  old system-only behavior are unchanged.
+- Remaining boundary (gated on an owner decision, not code): how a
+  bootstrapped card gets a real machine-readable version so the first
+  transactional update can apply. Three options are documented with evidence
+  in `UPDATE-PACKAGING.md` (a real version source, an explicit legacy mapping
+  policy, or a one-time migration). No date-to-semver mapping was invented and
+  no unknown version was treated as `v0.0.0`, so the `min_system` and
+  downgrade constraints are not bypassed; until the owner picks an option,
+  the first update onto a bootstrapped card stays clearly refused rather than
+  applied against an unknown version.
 - Constraints (owner-set): no fabricated version mapping, no unknown default
   of `v0`, no relaxation of signature verification, and a clear distinction
   between new bootstrap improvements and old-card support. Isolated-root tests
   only; an independent pull request to the sole CI/merge owner; coordinates
   with PR #33 on the shared files; no release and no device operation.
 - Depends on: the U8 packaging output and the U1 transaction core (both in
-  main), and file coordination with PR #33.
+  main); PR #33 has since merged, so the file-coordination dependency is
+  closed.
 - Delivery/verification: isolated-root tests for the version contract and the
   interrupted-group failure path, plus an independent pull request; a run
-  without a pull request is not a delivery.
-- Next: the source delivers a head, then the merge owner reviews and merges.
+  without a pull request is not a delivery. At this head the atomic-output
+  suite is 36/36 and fails 6 against the pre-fix script.
+- Next: the merge owner reviews and merges PR #36; the owner decision on the
+  version policy is the only item blocking first-update-on-bootstrap, and the
+  packaging atomicity work is complete and mergeable.
 
 ### P3 — Full UI translation remainder
 
