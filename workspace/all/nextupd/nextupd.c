@@ -3,11 +3,13 @@
 
 #include "update_manifest.h"
 #include "update_signature.h"
+#include "update_transaction.h"
 #include "update_zip.h"
 #include "sha256_lite.h"
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,8 +33,11 @@ typedef struct
     const char* version;
     const char* min_system;
     const char* out;
+    const char* staged_dir;
+    const char* target_root;
     int integrity_only;
     int replace;
+    int rollback;
     int json;
 } Options;
 
@@ -50,6 +55,8 @@ static void usage(FILE* out)
             "\n"
             "  check     verify a package against a signed manifest; write nothing\n"
             "  stage     verify and publish a package into a staging directory\n"
+            "  install   apply a staged system package to an explicit target root\n"
+            "  recover   resolve an interrupted install in an explicit target root\n"
             "  manifest  build a canonical manifest from a package\n"
             "\n"
             "check:\n"
@@ -62,13 +69,22 @@ static void usage(FILE* out)
             "  --trusted-key <file> --platform <platform>\n"
             "  [--staging-root <dir>] [--replace] [--system-version <vX.Y.Z>] [--json]\n"
             "\n"
+            "install:\n"
+            "  --staged-dir <dir> --target-root <dir> --trusted-key <file>\n"
+            "  --platform <platform> --system-version <vX.Y.Z> [--json]\n"
+            "\n"
+            "recover:\n"
+            "  --target-root <dir> [--rollback] [--json]\n"
+            "\n"
             "manifest:\n"
             "  --package <file> --id <id> --kind <system|app> --version <vX.Y.Z>\n"
             "  --platform <platform> [--min-system <vX.Y.Z>] [--out <file>]\n"
             "\n"
             "check without --integrity-only fails when no signature and trusted key are\n"
             "provided. stage always requires both. SHA-256 detects damage; it does not\n"
-            "establish who produced a manifest. This tool never installs or extracts.\n");
+            "establish who produced a manifest. install writes only inside an explicit\n"
+            "--target-root that already contains .system; there is no default root and no\n"
+            "boot or launch activation. recover is the offline arbitration entry point.\n");
 }
 
 static const char* path_basename(const char* path)
@@ -1070,6 +1086,127 @@ done:
     return result;
 }
 
+static void print_transaction_result(const Options* options,
+                                     const UpdTransactionResult* result, const char* id,
+                                     const char* target_root, const char* staged_dir)
+{
+    if (options->json)
+    {
+        fputs("{\"ok\":true,\"result\":", stdout);
+        print_json_string(result->outcome);
+        fputs(",\"outcome\":", stdout);
+        print_json_string(result->outcome);
+        fputs(",\"state\":", stdout);
+        print_json_string(result->state);
+        fputs(",\"version\":", stdout);
+        print_json_string(result->version);
+        fputs(",\"previous_version\":", stdout);
+        print_json_string(result->previous_version);
+        if (id != NULL)
+        {
+            fputs(",\"id\":", stdout);
+            print_json_string(id);
+        }
+        if (target_root != NULL)
+        {
+            fputs(",\"target_root\":", stdout);
+            print_json_string(target_root);
+        }
+        if (staged_dir != NULL)
+        {
+            fputs(",\"staged_dir\":", stdout);
+            print_json_string(staged_dir);
+        }
+        fputs("}\n", stdout);
+        return;
+    }
+    printf("%s: %s\n", result->outcome, result->state);
+    if (id != NULL) printf("package: %s %s\n", id, result->version);
+    else if (result->version[0] != '\0')
+        printf("version: %s\n", result->version);
+    if (result->previous_version[0] != '\0')
+        printf("previous: %s\n", result->previous_version);
+    if (target_root != NULL) printf("target: %s\n", target_root);
+    if (staged_dir != NULL) printf("staged: %s\n", staged_dir);
+}
+
+static int run_install(const Options* options)
+{
+    UpdStaged staged;
+    VerifiedPackage verified;
+    UpdInstallRequest request;
+    UpdTransactionResult result;
+    Options check_options;
+    UpdError error;
+    char archive[PATH_MAX];
+    char manifest[PATH_MAX];
+    char signature[PATH_MAX];
+    int code;
+
+    upd_error_clear(&error);
+    if (!upd_staged_load(options->staged_dir, &staged, &error))
+        return report_error(&error, options->json);
+    if (snprintf(archive, sizeof archive, "%s/%s", options->staged_dir, staged.archive)
+            >= (int)sizeof archive
+        || snprintf(manifest, sizeof manifest, "%s/%s", options->staged_dir,
+                    "manifest.json")
+               >= (int)sizeof manifest
+        || snprintf(signature, sizeof signature, "%s/%s", options->staged_dir,
+                    "manifest.sig")
+               >= (int)sizeof signature)
+    {
+        upd_error_set(&error, UPD_E_USAGE, "path_too_long",
+                      "staged package path is too long");
+        return report_error(&error, options->json);
+    }
+
+    check_options = *options;
+    check_options.package = archive;
+    check_options.manifest = manifest;
+    check_options.signature = signature;
+    if (!verify_package(&check_options, 1, &verified, &error))
+    {
+        code = report_error(&error, options->json);
+        upd_manifest_free(&verified.manifest);
+        return code;
+    }
+    if (!upd_staged_verify(options->staged_dir, &staged, &verified.manifest,
+                           verified.key_id, &error))
+    {
+        code = report_error(&error, options->json);
+        upd_manifest_free(&verified.manifest);
+        return code;
+    }
+    memset(&request, 0, sizeof request);
+    request.target_root = options->target_root;
+    request.staged_dir = options->staged_dir;
+    request.platform = options->platform;
+    request.system_version = options->system_version;
+    request.manifest = &verified.manifest;
+    if (!upd_install_execute(&request, &result, &error))
+    {
+        code = report_error(&error, options->json);
+        upd_manifest_free(&verified.manifest);
+        return code;
+    }
+    print_transaction_result(options, &result, verified.manifest.id, options->target_root,
+                             options->staged_dir);
+    upd_manifest_free(&verified.manifest);
+    return 0;
+}
+
+static int run_recover(const Options* options)
+{
+    UpdTransactionResult result;
+    UpdError error;
+
+    upd_error_clear(&error);
+    if (!upd_install_recover(options->target_root, options->rollback, &result, &error))
+        return report_error(&error, options->json);
+    print_transaction_result(options, &result, NULL, options->target_root, NULL);
+    return 0;
+}
+
 static int parse_options(int argc, char** argv, const char* command, Options* options)
 {
     int i;
@@ -1097,6 +1234,8 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         else if (strcmp(argument, "--version") == 0) target = &options->version;
         else if (strcmp(argument, "--min-system") == 0) target = &options->min_system;
         else if (strcmp(argument, "--out") == 0) target = &options->out;
+        else if (strcmp(argument, "--staged-dir") == 0) target = &options->staged_dir;
+        else if (strcmp(argument, "--target-root") == 0) target = &options->target_root;
         else if (strcmp(argument, "--integrity-only") == 0)
         {
             options->integrity_only = 1;
@@ -1105,6 +1244,11 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         else if (strcmp(argument, "--replace") == 0)
         {
             options->replace = 1;
+            continue;
+        }
+        else if (strcmp(argument, "--rollback") == 0)
+        {
+            options->rollback = 1;
             continue;
         }
         else if (strcmp(argument, "--json") == 0)
@@ -1139,10 +1283,33 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         fprintf(stderr, "nextupd: %s needs --package and --manifest\n", command);
         return 0;
     }
+    if (strcmp(command, "install") == 0 && options->target_root == NULL)
+    {
+        fprintf(stderr,
+                "nextupd: target_root_missing: --target-root is required; there is no "
+                "default\n");
+        return 0;
+    }
+    if (strcmp(command, "install") == 0
+        && (options->staged_dir == NULL || options->trusted_key == NULL
+            || options->platform == NULL || options->system_version == NULL))
+    {
+        fprintf(stderr,
+                "nextupd: install needs --staged-dir, --target-root, --trusted-key, "
+                "--platform and --system-version\n");
+        return 0;
+    }
+    if (strcmp(command, "recover") == 0 && options->target_root == NULL)
+    {
+        fprintf(stderr, "nextupd: recover needs --target-root\n");
+        return 0;
+    }
     if (strcmp(command, "manifest") == 0
         && (options->signature != NULL || options->trusted_key != NULL
             || options->system_version != NULL || options->staging_root != NULL
-            || options->integrity_only || options->replace || options->json))
+            || options->staged_dir != NULL || options->target_root != NULL
+            || options->integrity_only || options->replace || options->rollback
+            || options->json))
     {
         fprintf(stderr, "nextupd: manifest does not accept check/stage options\n");
         return 0;
@@ -1150,17 +1317,42 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
     if (strcmp(command, "check") == 0
         && (options->id != NULL || options->kind != NULL || options->version != NULL
             || options->min_system != NULL || options->out != NULL
-            || options->staging_root != NULL || options->replace))
+            || options->staging_root != NULL || options->staged_dir != NULL
+            || options->target_root != NULL || options->replace || options->rollback))
     {
-        fprintf(stderr, "nextupd: check does not accept manifest/stage options\n");
+        fprintf(stderr, "nextupd: check does not accept manifest/stage/install options\n");
         return 0;
     }
     if (strcmp(command, "stage") == 0
         && (options->id != NULL || options->kind != NULL || options->version != NULL
             || options->min_system != NULL || options->out != NULL
-            || options->integrity_only))
+            || options->staged_dir != NULL || options->target_root != NULL
+            || options->integrity_only || options->rollback))
     {
-        fprintf(stderr, "nextupd: stage does not accept manifest/check options\n");
+        fprintf(stderr, "nextupd: stage does not accept manifest/check/install options\n");
+        return 0;
+    }
+    if (strcmp(command, "install") == 0
+        && (options->package != NULL || options->manifest != NULL
+            || options->signature != NULL || options->id != NULL
+            || options->kind != NULL || options->version != NULL
+            || options->min_system != NULL || options->out != NULL
+            || options->staging_root != NULL || options->integrity_only
+            || options->replace || options->rollback))
+    {
+        fprintf(stderr, "nextupd: install does not accept package/manifest options\n");
+        return 0;
+    }
+    if (strcmp(command, "recover") == 0
+        && (options->package != NULL || options->manifest != NULL
+            || options->signature != NULL || options->trusted_key != NULL
+            || options->platform != NULL || options->system_version != NULL
+            || options->staging_root != NULL || options->staged_dir != NULL
+            || options->id != NULL || options->kind != NULL || options->version != NULL
+            || options->min_system != NULL || options->out != NULL
+            || options->integrity_only || options->replace))
+    {
+        fprintf(stderr, "nextupd: recover accepts only --target-root, --rollback and --json\n");
         return 0;
     }
     return 1;
@@ -1183,6 +1375,7 @@ int main(int argc, char** argv)
         return 0;
     }
     if (strcmp(command, "check") != 0 && strcmp(command, "stage") != 0
+        && strcmp(command, "install") != 0 && strcmp(command, "recover") != 0
         && strcmp(command, "manifest") != 0)
     {
         fprintf(stderr, "nextupd: unknown command '%s'\n", command);
@@ -1192,5 +1385,7 @@ int main(int argc, char** argv)
     if (!parse_options(argc - 2, argv + 2, command, &options)) return UPD_E_USAGE;
     if (strcmp(command, "check") == 0) return run_check(&options);
     if (strcmp(command, "stage") == 0) return run_stage(&options);
+    if (strcmp(command, "install") == 0) return run_install(&options);
+    if (strcmp(command, "recover") == 0) return run_recover(&options);
     return run_manifest(&options);
 }

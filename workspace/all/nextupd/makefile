@@ -26,6 +26,7 @@ SOURCES = \
 	nextupd.c \
 	update_manifest.c \
 	update_signature.c \
+	update_transaction.c \
 	update_util.c \
 	update_zip.c \
 	../common/json_lite.c \
