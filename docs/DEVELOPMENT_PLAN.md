@@ -1254,10 +1254,14 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Next: F4/F5 when authorized.
 
 #### F6 — Application install closed loop (stage exists, install refused, store source absent)
-- Owner thread: read-only audit thread
+- Owner threads: the read-only audit thread
   https://ampcode.com/threads/T-01a1e497-08ae-779b-8d8f-868a46c184ee
   (findings delivered 2026-11-16 at HEAD `3a0b048`; no files changed, no branch,
-  no pull request; probe scripts stay in /tmp and are not in the repo).
+  no pull request; probe scripts stay in /tmp and are not in the repo) and the
+  dispatched implementation thread
+  https://ampcode.com/threads/T-01a1e4aa-91b9-766e-bc8d-71ea9189e7d4
+  (Step Medium; dispatched 2026-11-16; no head delivered yet, so nothing is
+  recorded as implemented).
 - Status: audited and split into three layers; the install layer is not
   delivered. (1) The stage/verify layer for app packages IS delivered and
   host-verified: manifest plus Ed25519 signature plus per-file SHA-256, ZIP
@@ -1331,6 +1335,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   "install from a local file" surface (settings page or launcher page) that
   runs stage plus install only on a user-provided local `.pakz`, choosing no
   store source, touching no network, and using no production key.
+- Dispatched scope (thread T-01a1e4aa): reuse the existing
+  `Tools/<platform>/*.pak` plus `pak.json`/`launch.sh` discovery protocol (the
+  app manifest secure stage already exists), and add signed install and update
+  after the install hard-refusal, an independent app transaction backup and
+  recovery, isolated roots, and discovery/launch evidence. The CLI core comes
+  first; uninstall, UI, and store source are not mixed in; the system
+  transaction v1, `.system`, and `.tmp_update` must not be touched by an app
+  package. The old boot `unzip` path and the third-party Store are not
+  changed; no production key is configured or reused; the
+  install-default-highest permission is already implemented, so there is no
+  permission product here. It coordinates with U10 first on shared source and
+  tests and hands an independent pull request to the sole merge owner. Per the
+  owner's instruction, the engineering path facts the research listed as
+  "owner decisions" are checked against the existing contracts first, and only
+  a real product preference pauses the corresponding part.
 - Owner decisions needed (engineering does not default these): (1) keep the
   boot `unzip -o` path in parallel or replace it with the verified install;
   (2) whether the app install root is exactly `Tools/<platform>/<App>.pak`
