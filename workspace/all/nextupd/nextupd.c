@@ -6,6 +6,7 @@
 #include "update_feed.h"
 #include "update_signature.h"
 #include "update_transaction.h"
+#include "update_app.h"
 #include "update_zip.h"
 #include "sha256_lite.h"
 
@@ -62,7 +63,7 @@ static void usage(FILE* out)
             "  feed      check a configured update feed; write nothing\n"
             "  fetch     check a feed, download, verify, and stage a system update\n"
             "  stage     verify and publish a package into a staging directory\n"
-            "  install   apply a staged system package to an explicit target root\n"
+            "  install   apply a staged system or app package to an explicit target root\n"
             "  recover   resolve an interrupted install in an explicit target root\n"
             "  manifest  build a canonical manifest from a package\n"
             "\n"
@@ -99,11 +100,12 @@ static void usage(FILE* out)
             "check without --integrity-only fails when no signature and trusted key are\n"
             "provided. stage and fetch always require both. SHA-256 detects damage; it\n"
             "does not establish who produced a manifest. install writes only inside an\n"
-            "explicit --target-root that already contains .system; there is no default root\n"
-            "and no boot or launch activation. recover is the offline arbitration entry\n"
-            "point. feed and fetch have no built-in release source; without --feed or\n"
-            "NEXTUI_UPDATE_FEED they report feed_unconfigured. fetch stages only and never\n"
-            "installs.\n");
+            "explicit --target-root; a system package requires an existing .system and an\n"
+            "app package lands in Tools/<platform>/<id>.pak/ from its signed id. There is no\n"
+            "default root and no boot or launch activation. recover is the offline\n"
+            "arbitration entry point. feed and fetch have no built-in release source;\n"
+            "without --feed or NEXTUI_UPDATE_FEED they report feed_unconfigured. fetch\n"
+            "stages only and never installs.\n");
 }
 
 static const char* path_basename(const char* path)
@@ -1854,12 +1856,20 @@ static int run_install(const Options* options)
         upd_manifest_free(&verified.manifest);
         return code;
     }
-    if (!upd_install_execute(&request, &result, &error))
     {
-        target_lock_release(&target_lock);
-        code = report_error(&error, options->json);
-        upd_manifest_free(&verified.manifest);
-        return code;
+        /* A signed app package installs through its own independent
+         * transaction; a system package keeps the unchanged system path. */
+        int installed = strcmp(verified.manifest.kind, "app") == 0
+                            ? upd_app_install_execute(&request, &result, &error)
+                            : upd_install_execute(&request, &result, &error);
+
+        if (!installed)
+        {
+            target_lock_release(&target_lock);
+            code = report_error(&error, options->json);
+            upd_manifest_free(&verified.manifest);
+            return code;
+        }
     }
     target_lock_release(&target_lock);
     print_transaction_result(options, &result, verified.manifest.id, options->target_root,
@@ -1873,14 +1883,56 @@ static int run_recover(const Options* options)
     UpdTransactionResult result;
     UpdError error;
     TargetLock target_lock;
+    char system_state[PATH_MAX];
+    struct stat status;
+    int have_system_state;
 
     upd_error_clear(&error);
     if (!target_lock_acquire(options->target_root, &target_lock, &error))
         return report_error(&error, options->json);
-    if (!upd_install_recover(options->target_root, options->rollback, &result, &error))
+
+    /* Resolve a system transaction only when its state directory exists, so a
+     * target that carries only an app transaction (no .system, no
+     * .nextupd-txn) is never pushed through the system path. */
+    have_system_state =
+        snprintf(system_state, sizeof system_state, "%s/.nextupd-txn", options->target_root)
+            < (int)sizeof system_state
+        && stat(system_state, &status) == 0 && S_ISDIR(status.st_mode);
+
+    if (have_system_state)
     {
-        target_lock_release(&target_lock);
-        return report_error(&error, options->json);
+        if (!upd_install_recover(options->target_root, options->rollback, &result, &error))
+        {
+            target_lock_release(&target_lock);
+            return report_error(&error, options->json);
+        }
+        /* The system transaction is resolved first and is never disturbed by
+         * app recovery. Only when it had nothing to do and an independent app
+         * transaction is pending do we resolve that one. */
+        if (strcmp(result.outcome, "nothing_to_recover") == 0
+            && upd_app_txn_present(options->target_root))
+        {
+            if (!upd_app_install_recover(options->target_root, options->rollback, &result,
+                                         &error))
+            {
+                target_lock_release(&target_lock);
+                return report_error(&error, options->json);
+            }
+        }
+    }
+    else if (upd_app_txn_present(options->target_root))
+    {
+        if (!upd_app_install_recover(options->target_root, options->rollback, &result, &error))
+        {
+            target_lock_release(&target_lock);
+            return report_error(&error, options->json);
+        }
+    }
+    else
+    {
+        upd_transaction_result_init(&result);
+        snprintf(result.outcome, sizeof result.outcome, "%s", "nothing_to_recover");
+        snprintf(result.state, sizeof result.state, "%s", "none");
     }
     target_lock_release(&target_lock);
     print_transaction_result(options, &result, NULL, options->target_root, NULL);

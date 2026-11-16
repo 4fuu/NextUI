@@ -1,0 +1,604 @@
+#!/usr/bin/env python3
+"""Host tests for nextupd local signed application install/update/recovery.
+
+These exercise the independent app transaction in update_app.c against isolated
+target roots. They never touch /mnt/SDCARD, a feed, a store source, or a real
+device, and they never involve a production key: signatures use the committed
+test-only seed. The destination is always Tools/<platform>/<id>.pak/ derived
+from the signed manifest id; a package cannot choose its own landing spot.
+
+The launcher discovery contract (nextui.c isLaunchablePak/addPakEntries) is a
+pak directory whose name ends in .pak and that contains launch.sh. The SDL
+launcher cannot run on the host, so these tests assert exactly that on-disk
+shape after an install, which is what the launcher scans for.
+"""
+
+import base64
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import zipfile
+
+BIN = os.path.abspath(sys.argv[1])
+FIXTURES = os.path.abspath(sys.argv[2])
+WORK = os.path.abspath(sys.argv[3])
+SIGN_SCRIPT = os.path.abspath(sys.argv[4])
+KEY_ID = "nextui-test-only-1"
+FIXTURE_PUB = os.path.join(FIXTURES, "test-public-key")
+SEED_HEX = os.path.join(FIXTURES, "test-ed25519-seed.hex")
+
+PASS = 0
+FAIL = 0
+
+APP_PHASES = [
+    "app_preparing", "app_extract_mid", "app_prepared", "app_backing_up",
+    "app_backup_moved", "app_installing", "app_installed_live", "app_installed",
+    "app_committed",
+]
+
+
+def run(args, env=None):
+    merged = os.environ.copy()
+    if env:
+        merged.update(env)
+    return subprocess.run([BIN] + args, capture_output=True, text=True, env=merged)
+
+
+def ok(name):
+    global PASS
+    PASS += 1
+    print(f"ok {name}")
+
+
+def fail(name, message, proc=None):
+    global FAIL
+    FAIL += 1
+    print(f"FAIL {name}: {message}")
+    if proc is not None:
+        print("  exit:", proc.returncode)
+        print("  stdout:", proc.stdout.strip())
+        print("  stderr:", proc.stderr.strip())
+
+
+def expect(name, proc, code, reason=None):
+    combined = proc.stdout + proc.stderr
+    if proc.returncode != code or (reason is not None and reason not in combined):
+        fail(name, f"expected exit {code}" + (f" and {reason}" if reason else ""), proc)
+        return False
+    ok(name)
+    return True
+
+
+def expect_json(name, proc, code=0):
+    if proc.returncode != code:
+        fail(name, f"expected exit {code}", proc)
+        return None
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as error:
+        fail(name, f"invalid JSON: {error}", proc)
+        return None
+
+
+def make_key(seed_text, directory):
+    os.makedirs(directory, exist_ok=True)
+    seed = bytes.fromhex(seed_text.strip())
+    key_der = os.path.join(directory, "key.der")
+    with open(key_der, "wb") as handle:
+        handle.write(bytes.fromhex("302e020100300506032b657004220420") + seed)
+    return key_der
+
+
+def sign_manifest(manifest_path, signature_path, key_der, key_id=KEY_ID):
+    detached = signature_path + ".bin"
+    proc = subprocess.run(
+        ["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", key_der, "-keyform", "DER",
+         "-in", manifest_path, "-out", detached],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"openssl sign failed: {proc.stderr}")
+    payload = base64.b64encode(open(detached, "rb").read()).decode("ascii")
+    with open(signature_path, "w", encoding="ascii") as handle:
+        handle.write(f"nextui-signature-v1\n{key_id}\n{payload}\n")
+    os.unlink(detached)
+
+
+def write_zip(path, entries):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with zipfile.ZipFile(path, "w") as archive:
+        for entry in entries:
+            name = entry["name"]
+            data = entry.get("data", b"")
+            info = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
+            info.create_system = 3
+            info.external_attr = entry.get("mode", 0o100644) << 16
+            info.compress_type = entry.get("compression", zipfile.ZIP_DEFLATED)
+            archive.writestr(info, data)
+
+
+def read_json(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def write_json(path, value):
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(value, indent=2) + "\n")
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def fresh(name):
+    path = os.path.join(WORK, name)
+    shutil.rmtree(path, ignore_errors=True)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def tree_manifest(root):
+    entries = []
+    for directory, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in dirnames:
+            path = os.path.join(directory, name)
+            relative = os.path.relpath(path, root)
+            entries.append((relative, "dir", os.lstat(path).st_mode & 0o777))
+        for name in sorted(filenames):
+            path = os.path.join(directory, name)
+            relative = os.path.relpath(path, root)
+            if os.path.islink(path):
+                entries.append((relative, "link:" + os.readlink(path), 0))
+            else:
+                entries.append((relative, sha256_file(path),
+                                os.lstat(path).st_mode & 0o777))
+    return entries
+
+
+def expect_unchanged(name, root, before, proc=None):
+    if tree_manifest(root) != before:
+        fail(name, "target tree changed", proc)
+        return False
+    ok(name)
+    return True
+
+
+def app_entries(version, app_id="com.example.demo", elf=None, launch_exec=True):
+    if elf is None:
+        elf = b"\x7fELF" + version.encode()
+    return [
+        {"name": "launch.sh", "data": b"#!/bin/sh\nexec ./demo\n",
+         "mode": 0o100755 if launch_exec else 0o100644},
+        {"name": "demo", "data": elf, "mode": 0o100755},
+        {"name": "pak.json",
+         "data": json.dumps({"id": app_id, "name": "Demo", "version": version}).encode()},
+    ]
+
+
+def build_stage(name, version, app_id="com.example.demo", platform="universal",
+                entries=None, key_der=None, sign=True, min_system=None,
+                stage_platform="tg5040", stage_system="v6.15.0"):
+    directory = fresh(name)
+    package = os.path.join(directory, "Demo.pakz")
+    write_zip(package, entries if entries is not None else app_entries(version, app_id))
+    manifest = os.path.join(directory, "Demo.manifest.json")
+    args = ["manifest", "--package", package, "--id", app_id, "--kind", "app",
+            "--version", version, "--platform", platform, "--out", manifest]
+    if min_system is not None:
+        args += ["--min-system", min_system]
+    proc = run(args)
+    if proc.returncode != 0:
+        raise RuntimeError(f"manifest failed ({proc.returncode}): {proc.stdout}{proc.stderr}")
+    signature = os.path.join(directory, "Demo.manifest.sig")
+    if sign and key_der is not None:
+        sign_manifest(manifest, signature, key_der)
+    staging_root = os.path.join(directory, "staging")
+    stage = ["stage", "--package", package, "--manifest", manifest, "--platform",
+             stage_platform, "--system-version", stage_system, "--staging-root", staging_root]
+    if sign and key_der is not None:
+        stage += ["--signature", signature, "--trusted-key", FIXTURE_PUB]
+    proc = run(stage)
+    return package, manifest, signature, staging_root, proc
+
+
+def install_args(staged, target, platform="tg5040", system="v6.15.0", key=FIXTURE_PUB):
+    return ["install", "--staged-dir", staged, "--target-root", target,
+            "--trusted-key", key, "--platform", platform, "--system-version", system,
+            "--json"]
+
+
+def recover_args(target, rollback=False):
+    args = ["recover", "--target-root", target, "--json"]
+    if rollback:
+        args.append("--rollback")
+    return args
+
+
+def pak_dir(target, app_id="com.example.demo", platform="tg5040"):
+    return os.path.join(target, "Tools", platform, app_id + ".pak")
+
+
+def pak_version(target, app_id="com.example.demo", platform="tg5040"):
+    path = os.path.join(pak_dir(target, app_id, platform), "pak.json")
+    if not os.path.isfile(path):
+        return None
+    return read_json(path).get("version")
+
+
+def assert_discoverable(name, target, app_id="com.example.demo", platform="tg5040"):
+    """Mirror the launcher discovery contract: a .pak directory with launch.sh."""
+    directory = pak_dir(target, app_id, platform)
+    problems = []
+    if not directory.endswith(".pak"):
+        problems.append("destination is not a .pak directory")
+    if not os.path.isdir(directory):
+        problems.append("destination directory is missing")
+    launch = os.path.join(directory, "launch.sh")
+    if not os.path.isfile(launch):
+        problems.append("launch.sh is missing")
+    elif os.lstat(launch).st_mode & 0o111 == 0:
+        problems.append("launch.sh is not executable")
+    if problems:
+        fail(name, "; ".join(problems))
+    else:
+        ok(name)
+
+
+def test_fresh_install_and_discovery(key_der):
+    target = fresh("app-fresh")
+    _pkg, _man, _sig, _root, proc = build_stage("app-fresh-stage", "v1.0.0", key_der=key_der)
+    if proc.returncode != 0:
+        fail("stage app", "could not stage", proc)
+        return
+    staged = os.path.join(_root, "com.example.demo-v1.0.0-universal")
+    value = expect_json("install fresh app", run(install_args(staged, target)), 0)
+    if value and value.get("outcome") == "installed":
+        ok("install fresh app reports installed")
+    assert_discoverable("fresh app is discoverable (Tools/<platform>/<id>.pak + launch.sh)",
+                        target)
+    if pak_version(target) == "v1.0.0":
+        ok("fresh app pak.json version matches the manifest")
+    else:
+        fail("fresh app pak.json version matches the manifest", str(pak_version(target)))
+    # an app install never fabricates a system tree
+    if not os.path.exists(os.path.join(target, ".system")):
+        ok("app install does not create .system")
+    else:
+        fail("app install does not create .system", ".system appeared")
+
+
+def test_update_backup_and_rollback(key_der):
+    target = fresh("app-update")
+    _p, _m, _s, r1, proc = build_stage("app-upd-v1", "v1.0.0", key_der=key_der)
+    assert run(install_args(os.path.join(r1, "com.example.demo-v1.0.0-universal"),
+                            target)).returncode == 0
+    _p, _m, _s, r2, proc = build_stage("app-upd-v2", "v2.0.0", key_der=key_der)
+    value = expect_json("update app", run(install_args(
+        os.path.join(r2, "com.example.demo-v2.0.0-universal"), target)), 0)
+    if value and value.get("previous_version") == "v1.0.0":
+        ok("update records the previous version")
+    if pak_version(target) == "v2.0.0":
+        ok("update installs the new version")
+    else:
+        fail("update installs the new version", str(pak_version(target)))
+    backup = os.path.join(target, ".nextupd-app-txn", "com.example.demo", "backup",
+                          "pak.json")
+    if os.path.isfile(backup) and read_json(backup).get("version") == "v1.0.0":
+        ok("update keeps the previous app as a backup")
+    else:
+        fail("update keeps the previous app as a backup", "backup missing or wrong")
+    # explicit rollback returns to the previous version
+    value = expect_json("rollback app", run(recover_args(target, rollback=True)), 0)
+    if value and value.get("outcome") == "recovered_rollback" and pak_version(target) == "v1.0.0":
+        ok("rollback restores the previous app")
+    else:
+        fail("rollback restores the previous app", str(pak_version(target)))
+
+
+def test_same_version_and_downgrade(key_der):
+    target = fresh("app-ver")
+    _p, _m, _s, r1, _ = build_stage("app-ver-v2", "v2.0.0", key_der=key_der)
+    assert run(install_args(os.path.join(r1, "com.example.demo-v2.0.0-universal"),
+                            target)).returncode == 0
+    before = tree_manifest(target)
+    # same version writes nothing
+    value = expect_json("same version", run(install_args(
+        os.path.join(r1, "com.example.demo-v2.0.0-universal"), target)), 0)
+    if value and value.get("outcome") == "already_installed":
+        ok("same version reports already_installed")
+    expect_unchanged("same version writes nothing", target, before)
+    # downgrade refused
+    _p, _m, _s, r0, _ = build_stage("app-ver-v1", "v1.0.0", key_der=key_der)
+    before = tree_manifest(target)
+    expect("downgrade refused", run(install_args(
+        os.path.join(r0, "com.example.demo-v1.0.0-universal"), target)), 14,
+        "downgrade_refused")
+    expect_unchanged("downgrade writes nothing", target, before)
+
+
+def test_missing_version_refuses_overwrite(key_der):
+    target = fresh("app-nover")
+    # Install a legacy-style pak by hand: launch.sh only, no pak.json.
+    legacy = pak_dir(target)
+    os.makedirs(legacy, exist_ok=True)
+    with open(os.path.join(legacy, "launch.sh"), "wb") as handle:
+        handle.write(b"#!/bin/sh\nexec ./legacy\n")
+    os.chmod(os.path.join(legacy, "launch.sh"), 0o755)
+    before = tree_manifest(target)
+    _p, _m, _s, r1, _ = build_stage("app-nover-pkg", "v1.0.0", key_der=key_der)
+    expect("unknown installed version refuses overwrite", run(install_args(
+        os.path.join(r1, "com.example.demo-v1.0.0-universal"), target)), 13,
+        "installed_version_unknown")
+    expect_unchanged("unknown version writes nothing", target, before)
+
+
+def test_cross_app_isolation(key_der):
+    target = fresh("app-iso")
+    # Plant a fake system tree and boot payload that an app install must not touch.
+    os.makedirs(os.path.join(target, ".system"), exist_ok=True)
+    with open(os.path.join(target, ".system", "version.txt"), "w") as handle:
+        handle.write("v6.15.0\n")
+    os.makedirs(os.path.join(target, ".tmp_update"), exist_ok=True)
+    with open(os.path.join(target, ".tmp_update", "marker"), "w") as handle:
+        handle.write("boot\n")
+    system_before = tree_manifest(os.path.join(target, ".system"))
+    boot_before = tree_manifest(os.path.join(target, ".tmp_update"))
+
+    _p, _m, _s, ra, _ = build_stage("app-iso-a", "v1.0.0", app_id="com.example.alpha",
+                                    key_der=key_der)
+    _p, _m, _s, rb, _ = build_stage("app-iso-b", "v1.0.0", app_id="com.example.beta",
+                                    key_der=key_der)
+    assert run(install_args(os.path.join(ra, "com.example.alpha-v1.0.0-universal"),
+                            target)).returncode == 0
+    beta_before = None
+    assert run(install_args(os.path.join(rb, "com.example.beta-v1.0.0-universal"),
+                            target)).returncode == 0
+    beta_before = tree_manifest(pak_dir(target, "com.example.beta"))
+    # Update alpha; beta and the system/boot trees must be untouched.
+    _p, _m, _s, ra2, _ = build_stage("app-iso-a2", "v2.0.0", app_id="com.example.alpha",
+                                     key_der=key_der)
+    assert run(install_args(os.path.join(ra2, "com.example.alpha-v2.0.0-universal"),
+                            target)).returncode == 0
+    if pak_version(target, "com.example.alpha") == "v2.0.0" \
+            and pak_version(target, "com.example.beta") == "v1.0.0":
+        ok("two apps coexist in separate .pak directories")
+    else:
+        fail("two apps coexist in separate .pak directories", "versions wrong")
+    expect_unchanged("updating one app leaves the other untouched",
+                     pak_dir(target, "com.example.beta"), beta_before)
+    expect_unchanged("app install leaves .system untouched",
+                     os.path.join(target, ".system"), system_before)
+    expect_unchanged("app install leaves .tmp_update untouched",
+                     os.path.join(target, ".tmp_update"), boot_before)
+
+
+def test_destination_and_content_refusals(key_der):
+    # path traversal is rejected at the ZIP layer before a manifest can be built
+    directory = fresh("app-trav-stage")
+    package = os.path.join(directory, "Demo.pakz")
+    write_zip(package, [{"name": "../evil", "data": b"x", "mode": 0o100644}])
+    manifest = os.path.join(directory, "Demo.manifest.json")
+    proc = run(["manifest", "--package", package, "--id", "com.example.demo", "--kind", "app",
+                "--version", "v1.0.0", "--platform", "universal", "--out", manifest])
+    expect("path traversal is rejected at the ZIP layer", proc, 5, "unsafe_path")
+
+    # reserved marker path
+    target = fresh("app-trav")
+    _p, _m, _s, root2, proc = build_stage(
+        "app-rsv-stage", "v1.0.0", key_der=key_der,
+        entries=app_entries("v1.0.0") + [{"name": ".nextupd-app-install-txn", "data": b"x"}])
+    if proc.returncode != 0:
+        fail("stage reserved", "stage failed", proc)
+    else:
+        staged = os.path.join(root2, "com.example.demo-v1.0.0-universal")
+        before = tree_manifest(target)
+        expect("reserved marker path refused", run(install_args(staged, target)), 3,
+               "reserved_path")
+        expect_unchanged("reserved path writes nothing", target, before)
+
+    # missing launch.sh
+    _p, _m, _s, root3, proc = build_stage(
+        "app-nolaunch-stage", "v1.0.0", key_der=key_der,
+        entries=[{"name": "demo", "data": b"\x7fELF", "mode": 0o100755},
+                 {"name": "pak.json", "data": b'{"version":"v1.0.0"}'}])
+    if proc.returncode != 0:
+        fail("stage no-launch", "stage failed", proc)
+    else:
+        staged = os.path.join(root3, "com.example.demo-v1.0.0-universal")
+        expect("missing launch.sh refused", run(install_args(staged, target)), 2,
+               "launch_entry_missing")
+
+    # non-executable launch.sh
+    _p, _m, _s, root4, proc = build_stage(
+        "app-noexec-stage", "v1.0.0", key_der=key_der,
+        entries=app_entries("v1.0.0", launch_exec=False))
+    if proc.returncode != 0:
+        fail("stage no-exec", "stage failed", proc)
+    else:
+        staged = os.path.join(root4, "com.example.demo-v1.0.0-universal")
+        expect("non-executable launch.sh refused", run(install_args(staged, target)), 3,
+               "launch_not_executable")
+
+
+def test_signature_and_integrity(key_der):
+    target = fresh("app-sig")
+    directory = fresh("app-sig-stage")
+    package = os.path.join(directory, "Demo.pakz")
+    write_zip(package, app_entries("v1.0.0"))
+    manifest = os.path.join(directory, "Demo.manifest.json")
+    run(["manifest", "--package", package, "--id", "com.example.demo", "--kind", "app",
+         "--version", "v1.0.0", "--platform", "universal", "--out", manifest])
+    signature = os.path.join(directory, "Demo.manifest.sig")
+    sign_manifest(manifest, signature, key_der)
+    staging_root = os.path.join(directory, "staging")
+    # unsigned stage is refused
+    proc = run(["stage", "--package", package, "--manifest", manifest, "--platform", "tg5040",
+                "--system-version", "v6.15.0", "--staging-root", staging_root])
+    expect("unsigned app stage is refused", proc, 8, "signature_missing")
+    # a properly staged package installs; a tampered archive fails re-verification
+    proc = run(["stage", "--package", package, "--manifest", manifest, "--signature",
+                signature, "--trusted-key", FIXTURE_PUB, "--platform", "tg5040",
+                "--system-version", "v6.15.0", "--staging-root", staging_root])
+    if proc.returncode != 0:
+        fail("stage signed app", "failed", proc)
+        return
+    staged = os.path.join(staging_root, "com.example.demo-v1.0.0-universal")
+    expect("signed app installs", run(install_args(staged, target)), 0, "installed")
+    # tamper the staged archive; install must refuse with a hash mismatch
+    with open(os.path.join(staged, "Demo.pakz"), "ab") as handle:
+        handle.write(b"tamper")
+    before = tree_manifest(target)
+    expect("tampered archive refused", run(install_args(staged, target)), 6)
+    # the live app from the good install is still intact
+    assert_discoverable("tamper leaves the good install intact", target)
+
+
+def test_platform_binding(key_der):
+    # a universal app installs on any target platform
+    t5040 = fresh("app-plat-5040")
+    _p, _m, _s, r, _ = build_stage("app-plat-uni", "v1.0.0", platform="universal",
+                                   key_der=key_der)
+    expect("universal app on tg5040", run(install_args(
+        os.path.join(r, "com.example.demo-v1.0.0-universal"), t5040, platform="tg5040")), 0)
+    h700 = fresh("app-plat-700")
+    expect("universal app on h700", run(install_args(
+        os.path.join(r, "com.example.demo-v1.0.0-universal"), h700, platform="h700")), 0)
+    assert_discoverable("universal app lands on h700", h700, platform="h700")
+    # a concrete-platform app is refused on a different platform
+    other = fresh("app-plat-other")
+    _p, _m, _s, r2, proc = build_stage("app-plat-conc", "v1.0.0", platform="tg5050",
+                                       key_der=key_der, stage_platform="tg5050")
+    if proc.returncode != 0:
+        fail("stage concrete app", "failed", proc)
+    else:
+        expect("concrete app refused on wrong platform", run(install_args(
+            os.path.join(r2, "com.example.demo-v1.0.0-tg5050"), other, platform="tg5040")), 4,
+            "platform_mismatch")
+
+
+def test_min_system(key_der):
+    target = fresh("app-minsys")
+    # A package that needs a newer running system: it stages against a system
+    # that satisfies it, then install is refused when the running system is
+    # older (min_system is enforced again at install time, not just stage).
+    _p, _m, _s, r, proc = build_stage("app-minsys-pkg", "v8.0.0", key_der=key_der,
+                                      min_system="v7.0.0", stage_system="v8.0.0")
+    if proc.returncode != 0:
+        fail("stage app with min_system", "failed", proc)
+        return
+    staged = os.path.join(r, "com.example.demo-v8.0.0-universal")
+    before = tree_manifest(target)
+    expect("min_system too new is refused at install", run(install_args(
+        staged, target, system="v6.15.0")), 4, "system_too_old")
+    expect_unchanged("min_system refusal writes nothing", target, before)
+    # the same package installs once the running system satisfies min_system
+    expect("min_system satisfied installs", run(install_args(
+        staged, target, system="v8.0.0")), 0, "installed")
+
+
+def test_crash_reentry(key_der):
+    for phase in APP_PHASES:
+        target = fresh("app-crash-" + phase)
+        _p, _m, _s, r1, _ = build_stage("app-crash-seed-" + phase, "v1.0.0", key_der=key_der)
+        assert run(install_args(os.path.join(r1, "com.example.demo-v1.0.0-universal"),
+                                target)).returncode == 0
+        _p, _m, _s, r3, _ = build_stage("app-crash-up-" + phase, "v3.0.0", key_der=key_der)
+        staged = os.path.join(r3, "com.example.demo-v3.0.0-universal")
+        crashed = run(install_args(staged, target), env={"NEXTUPD_TEST_CRASH_PHASE": phase})
+        recovered = run(recover_args(target))
+        version = pak_version(target)
+        if crashed.returncode == 70 and recovered.returncode == 0 \
+                and version in ("v1.0.0", "v3.0.0"):
+            ok(f"crash@{phase} recovers to a coherent version ({version})")
+        else:
+            fail(f"crash@{phase} recovers to a coherent version",
+                 f"install={crashed.returncode} recover={recovered.returncode} "
+                 f"version={version}", recovered)
+        # a second recover is idempotent
+        again = run(recover_args(target))
+        if again.returncode == 0 and pak_version(target) == version:
+            ok(f"crash@{phase} recover is idempotent")
+        else:
+            fail(f"crash@{phase} recover is idempotent", "second recover changed state")
+
+
+def test_corrupt_txn_fail_closed(key_der):
+    target = fresh("app-corrupt")
+    _p, _m, _s, r1, _ = build_stage("app-corrupt-v1", "v1.0.0", key_der=key_der)
+    assert run(install_args(os.path.join(r1, "com.example.demo-v1.0.0-universal"),
+                            target)).returncode == 0
+    record = os.path.join(target, ".nextupd-app-txn", "com.example.demo", "txn.json")
+    live_before = tree_manifest(pak_dir(target))
+
+    # corrupt JSON
+    good = open(record, "rb").read()
+    with open(record, "w") as handle:
+        handle.write("{ not json")
+    before = tree_manifest(target)
+    expect("corrupt txn record fails closed", run(recover_args(target)), 13)
+    expect_unchanged("corrupt txn record leaves the live app", target, before)
+    open(record, "wb").write(good)
+
+    # unknown schema
+    value = read_json(record)
+    value["schema"] = "nextui-app-install-txn-v99"
+    write_json(record, value)
+    before = tree_manifest(target)
+    expect("unknown txn schema fails closed", run(recover_args(target)), 13)
+    expect_unchanged("unknown txn schema leaves the live app", target, before)
+    open(record, "wb").write(good)
+
+    # unknown state
+    value = read_json(record)
+    value["state"] = "bogus_state"
+    write_json(record, value)
+    before = tree_manifest(target)
+    expect("unknown txn state fails closed", run(recover_args(target)), 13)
+    expect_unchanged("unknown txn state leaves the live app", target, before)
+    open(record, "wb").write(good)
+
+    # after restoring the record, recovery is a clean no-op
+    expect("restored record recovers cleanly", run(recover_args(target)), 0,
+           "nothing_to_recover")
+    expect_unchanged("clean recovery leaves the live app", pak_dir(target), live_before)
+
+
+def test_recover_without_transaction():
+    target = fresh("app-none")
+    value = expect_json("recover with no app txn", run(recover_args(target)), 0)
+    if value and value.get("outcome") == "nothing_to_recover":
+        ok("recover with no app txn reports nothing_to_recover")
+    if not os.path.exists(os.path.join(target, ".nextupd-app-txn")):
+        ok("recover with no app txn creates no state")
+
+
+def main():
+    key_dir = os.path.join(WORK, "keys")
+    key_der = make_key(open(SEED_HEX).read(), key_dir)
+    test_fresh_install_and_discovery(key_der)
+    test_update_backup_and_rollback(key_der)
+    test_same_version_and_downgrade(key_der)
+    test_missing_version_refuses_overwrite(key_der)
+    test_cross_app_isolation(key_der)
+    test_destination_and_content_refusals(key_der)
+    test_signature_and_integrity(key_der)
+    test_platform_binding(key_der)
+    test_min_system(key_der)
+    test_crash_reentry(key_der)
+    test_corrupt_txn_fail_closed(key_der)
+    test_recover_without_transaction()
+    print(f"\n{PASS} passed, {FAIL} failed")
+    sys.exit(1 if FAIL else 0)
+
+
+if __name__ == "__main__":
+    main()
