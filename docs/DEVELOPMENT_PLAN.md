@@ -6,8 +6,10 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `b3dcae4` (merge of PR #36, the atomic update-package output and the
-  locked legacy-version refusal; below it PR #33 the tg5040 update package
+  rule): `4c5398f` (merge of PR #37, the local signed app install/update/
+  recovery backend; below it PR #38 the third-party Pak Store removal
+  `1f737c9`, then PR #36 the atomic update-package output and the
+  locked legacy-version refusal, PR #33 the tg5040 update package
   content check, PR #35 the System Update page's zh follow-up, PR #32 the
   System Update install UI, PR #34 the Off/On labels slice and the in-repo
   i18n fixture value test, PR #30 the About page Unknown zh entry -- which
@@ -120,7 +122,9 @@ Rules:
   the System Update page's zh follow-up (PR #35, `9374757`);
   the tg5040 update package content check (PR #33, `3a0b048`); the atomic
   update-package output with the locked legacy-version refusal (PR #36,
-  `b3dcae4`);
+  `b3dcae4`); the local signed app install/update/recovery backend (PR #37,
+  `4c5398f`); the third-party Pak Store download and entry removal (PR #38,
+  `1f737c9`);
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
@@ -283,6 +287,18 @@ Rules:
   PR #13 (built-in emulator removal, head `e1275e4`) merged into main as
   `1d9aea2` with its CI/release core cleanup (no core-matrix/build-core/Download
   Cores jobs remain).
+- Open at this check (2026-11-16, after the `4c5398f` merges of PR #37 and PR
+  #38): PR #39 (branch `clean/gametime-packaging-residue`, "Remove the game
+  play-time statistics service and stale package entries"), head `41d1a43`,
+  OPEN; CI at that head is green per gh (Feature checks push and pull_request,
+  Development/Desktop), but gh now reports the pull request CONFLICTING and
+  DIRTY because main moved under it, so it needs a normal merge of the latest
+  main -- the merge owner has notified the source by message; not merged. PR
+  #40 (branch `cleanup/remove-retroachievements-dead-code`, "Remove orphaned
+  RetroAchievements offline-sync dead cluster"), head `b0ce4d3`, OPEN,
+  MERGEABLE and CLEAN per gh; CI at that head is green per gh (Feature checks
+  push and pull_request, Development/Desktop); the independent review is in
+  progress per the merge owner; not merged.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1297,45 +1313,54 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   not change stored values.
 - Next: F4/F5 when authorized.
 
-#### F6 — Application install closed loop (stage exists, install refused; no app store is a goal)
+#### F6 — Application install closed loop (backend merged; local-file entry dispatched; no app store is a goal)
 - Owner threads: the read-only audit thread
   https://ampcode.com/threads/T-01a1e497-08ae-779b-8d8f-868a46c184ee
   (findings delivered 2026-11-16 at HEAD `3a0b048`; no files changed, no branch,
-  no pull request; probe scripts stay in /tmp and are not in the repo) and the
-  dispatched implementation thread
+  no pull request; probe scripts stay in /tmp and are not in the repo), the
+  dispatched backend implementation thread
   https://ampcode.com/threads/T-01a1e4aa-91b9-766e-bc8d-71ea9189e7d4
   (Step Medium; dispatched 2026-11-16; first head delivered 2026-11-16 14:57
-  as PR #37, open and not merged).
-- Status: a new head is delivered and open; source-verified, awaiting the merge
-  owner's independent verification, so this is not acceptance-complete. PR #37
-  (https://github.com/4fuu/NextUI/pull/37, branch `app-install-transaction`),
-  head `4ac962397513bfa9c72a5058f2f63f5c95263454` (supersedes
-  `51ced40a6b83ecb703a30ec24a7e0abfb43e8e13`,
-  `00217d546b4194b79d91eaf9aac86d7e0ff66ba5` and
-  `117bc578663cdff3a7ed2dc4807079f0b10473a1`, whose CI was green per gh), OPEN,
-  MERGEABLE and CLEAN per gh; CI at this head is green per gh (Feature checks
-  push and pull_request, with Host tests and the tg5040 target build inside,
-  and Development/Desktop), and the source reports 441
-  passed / 0 failed with the app suite at 85 and ASan/UBSan the same. The
-  source claims this head fixes the three items the independent review FAILED
-  at `51ced40` (merge owner, 2026-11-16 15:31; a review
-  FAIL outranks a green source CI): an install whose target is `universal` is
-  now pre-rejected; a terminal-state committed app record makes a plain
-  `recover` a no-op and `txn_present` ignores a terminal state, so a corrupt
-  record fails closed while the explicit app rollback is preserved; and the
-  live rename now fsyncs `Tools/<platform>` rather than the directory the
-  review suspected was wrongly root. These remain source claims with no
-  independent review result yet, so nothing is written as accepted and the FAIL
-  at `51ced40` stands recorded below. This is a separate defect from the
-  manual-rollback one above and from the earlier auto-coexistence assumption.
-  Not merged. It adds
-  an independent `update_app.{h,c}` pair
-  with zero changes to the system `update_transaction.c`/`.h`, signed local
-  app install and update, and independent transaction recovery. Not merged; the
-  independent review result is not reported, so nothing is written as accepted.
+  as PR #37, merged 2026-11-16), and the dispatched local-file install entry
+  thread https://ampcode.com/threads/T-01a1e517-15fd-710c-bb01-300ef858376b
+  (Step Medium; dispatched 2026-11-16 on the real main `4c5398f`).
+- Status: merged into main; host-verified, not device-verified. PR #37
+  (https://github.com/4fuu/NextUI/pull/37, branch `app-install-transaction`,
+  "Add local signed app install/update/recovery (independent transaction)")
+  merged into main as `4c5398f2ec8b8201d352e37ee204a0a099e65ab6`
+  (2026-11-16T15:58:59Z per gh); final head `1ca216e`, which supersedes
+  `4ac9623`, `51ced40`, `00217d5`, and `117bc57`. The merge owner reports an
+  independent PASS on the exact head `1ca216e` -- a merge-owner review
+  result, not the source's self-report: real runs at 441 passed / 0 failed
+  with the app suite at 85 and 0 failures; an install whose target is
+  `universal` is refused with no transaction left behind; a plain `recover`
+  after the user deletes the app exits 0; the explicit rollback leaves the
+  system transaction bytes unchanged; and an LD_PRELOAD harness verified the
+  fsync of `Tools/tg5040` after the four rename windows. The independent
+  review FAILs recorded below at `51ced40` were fixed through `4ac9623` to
+  `1ca216e`; the FAIL records stay as history. Post-merge on `4c5398f`:
+  Feature checks and Development/Desktop are success per gh while the full CI
+  run is in progress (not recorded as passing). What landed: an independent
+  `update_app.{h,c}` pair with zero changes to the system
+  `update_transaction.c`/`.h`, signed local app install and update, and
+  independent transaction recovery.
+- Split (2026-11-16, after the merge): F6 is now two independently acceptable
+  parts. F6a, the backend (signature/stage/install/update/recovery), is on
+  main at `4c5398f`. F6b, the "install from a local file" entry plus real
+  production launcher discovery and launch evidence, is dispatched to
+  https://ampcode.com/threads/T-01a1e517-15fd-710c-bb01-300ef858376b (Step
+  Medium; based on the real main `4c5398f`): wire the existing signed, staged
+  app backend to a local install surface and produce real launcher
+  discovery/launch evidence, with Chinese, real progress and error states, and
+  isolated-root tests; no store, no uninstall, and no permission product; no
+  production key misuse and no device operation. The entry work starts now and
+  does not wait for the production source key. Shared settings/i18n hunks are
+  coordinated with PR #40, and each pull request goes to the sole merge owner
+  for independent review and merge.
 - Coexistence verified by the source (real nextupd A/B runs plus regression;
-  awaiting the merge owner's independent verification, and not recorded as a
-  defect): a terminal-state system `.nextupd-txn` record does not block the app
+  the head carrying it passed the merge owner's independent review and merged;
+  the A/B result itself is recorded as source-verified, not as a defect): a
+  terminal-state system `.nextupd-txn` record does not block the app
   recover in the same run; a non-terminal system record recovers first and the
   second recover handles the app; and `.system` is not rewritten by the app
   recovery. This plain auto-recover terminal coexistence finding is distinct
@@ -1355,8 +1380,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   launcher binary and not a shared production-function integration test. Host
   algorithm and layout are therefore verified; real launcher launch and
   rendering, and real-device behavior, remain unverified.
-- Remaining gap kept open: there is no real launcher discovery or launch
-  evidence yet, so that acceptance item is not closed.
+- Remaining gap kept open, now the F6b scope: there is no real launcher
+  discovery or launch evidence yet, so that acceptance item is not closed;
+  the backend evidence is host-level only.
 - Status before this delivery (audited and split into three layers; the install
   layer was not delivered). (1) The stage/verify layer for app packages IS delivered and
   host-verified: manifest plus Ed25519 signature plus per-file SHA-256, ZIP
@@ -1410,7 +1436,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   signature, manifest, or rollback and the landing spot is decided by the
   package. This is what a user can actually do today, and it is not a verified
   install.
-- Next block (does not need the production source, key, or device): an app
+- Delivered as PR #37 (merged at `4c5398f`; does not need the production
+  source, key, or device): an app
   install closed loop with a local signature fixture and an isolated app root
   -- after the `update_transaction.c:3793` kind gate, add an app install path;
   in `manifest_preflight` (:1750) add an app destination policy (proposed:
@@ -1435,7 +1462,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   "install from a local file" surface (settings page or launcher page) that
   runs stage plus install only on a user-provided local `.pakz`, choosing no
   store source, touching no network, and using no production key.
-- Dispatched scope (thread T-01a1e4aa): reuse the existing
+- Delivered and merged as PR #37 (thread T-01a1e4aa): reuse the existing
   `Tools/<platform>/*.pak` plus `pak.json`/`launch.sh` discovery protocol (the
   app manifest secure stage already exists), and add signed install and update
   after the install hard-refusal, an independent app transaction backup and
@@ -1455,8 +1482,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   directory and restoring it from backup) and any UI surface. Uninstall belongs
   to a later task, not to F6's acceptance. Store source selection is not a goal
   at all (owner decision, 2026-11-16), so it is neither in scope nor a
-  deferred acceptance item; the pre-existing third-party store download and
-  entry stay unchanged until the owner answers the Space's removal question.
+  deferred acceptance item; the owner then confirmed removing the original
+  third-party store download, entry, and preinstalled pak, and PR #38 carried
+  that removal (merged at `1f737c9`), which is separate from F6.
 - Product choices that stay open, all currently status quo and none blocking
   the local CLI closed loop: whether the production source key is provisioned
   and whether app signing may reuse the system production key (U5 key custody
@@ -1464,10 +1492,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   replaced by the verified install. The app root, the app id to directory
   mapping, and downgrade protection are engineering contracts to verify
   against the existing code, not items to block on a user decision. The app
-  store is not a goal at all, so no store item is listed here; the only
-  store-related open question is the Space's already-asked, unanswered one
-  about removing the original entry and build-time download, and nothing is
-  removed before that answer.
+  store is not a goal at all, so no store item is listed here; the Space's open
+  question about removing the original entry and build-time download was
+  answered by the owner (remove), and PR #38 carried that removal, merged at
+  `1f737c9`.
 - Audit evidence at HEAD `3a0b048`: updater 355 items all pass (177 + 55 + 67
   + 56, including "ok install rejects app package"); pak_manifest 550,
   app_state 937, app_capabilities 178, device_gate 1229, and the devserv
@@ -1478,16 +1506,22 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner: dispatched implementation thread
   https://ampcode.com/threads/T-01a1e4ce-8cef-71a5-b426-f58e89bc4a39
   (Step Medium; dispatched 2026-11-16 after the owner's confirmation).
-- Status: removal confirmed by the owner, dispatched, and the first pull
-  request is open; not merged. PR #38
+- Status: removal confirmed by the owner and merged into main. PR #38
   (https://github.com/4fuu/NextUI/pull/38, branch `remove/pak-store-preinstall`,
-  "Remove the built-in third-party Pak Store download and entry"), head
-  `595a7442ed075b24cf5de6d011ff46620c4a0c04`, base main, OPEN and MERGEABLE per
-  gh. The independent review FAILED this head (merge owner, 2026-11-16 15:31):
-  removing `*.pakz` also drops the necessary
-  `nextui.upgrade_bluez.tg5040.pakz`, which the real packaging run proved; the
-  source is fixing it with an explicit bluez keep plus positive and negative
-  tests. Not merged. The owner answered the Space's removal question
+  "Remove the built-in third-party Pak Store download and entry") merged into
+  main as `1f737c9` (2026-11-16T15:55:29Z per gh); final head `3086aa7`
+  ("Keep shipping the tg5040 Bluetooth upgrade pak in the base package"),
+  which supersedes `595a744` -- the head the independent review FAILED at
+  15:31 because removing `*.pakz` also dropped the necessary
+  `nextui.upgrade_bluez.tg5040.pakz`, proven in a real packaging run. The fix
+  keeps the bluez pak explicitly through the recipe instead of a `*.pakz`
+  glob, with a seeded-bluez real `make package` positive/negative control and
+  a poisoned curl; an explicit independent-review PASS for `3086aa7` has not
+  been relayed to me, so the review evidence is recorded as the FAIL at
+  `595a744` plus the fix at `3086aa7` and the merge itself by the sole merge
+  owner, not as a reported PASS. Post-merge on `1f737c9`: Feature checks,
+  Development/Desktop, and the full CI run are success per gh. The owner
+  answered the Space's removal question
   directly: remove it, no need to install it in the machine. Building an own
   store, switching the store index source, and authorizing own store
   repositories are not goals (a removed requirement is a scope change, never
@@ -1505,7 +1539,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   preinstalled pak are gone; a build without them succeeds; the remaining
   `Tools` discovery and launch behave exactly as before; a run without a pull
   request is not a delivery.
-- Next: the source delivers a head, then the merge owner reviews and merges.
+- Next: none for this task; it is merged at `1f737c9`. The generic `Tools`
+  discovery and launch after the removal stay verified through the existing
+  launcher tests plus the real launcher evidence F6b is to deliver.
 
 #### F5 — Application release pipeline
 - Owner: unassigned; blocked on owner repository authorization and U5 keys.
@@ -1546,7 +1582,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   option, not a delivery requirement.
 - Next: continuous with each task.
 
-### P6 — Modification debt (audited; two cleanup lines dispatched)
+### P6 — Modification debt (audited; both cleanup lines delivered, one under independent review)
 
 Source: the read-only audit thread
 https://ampcode.com/threads/T-01a1e4d0-21d1-72e8-a5d2-1440fe0eb44e at
@@ -1566,7 +1602,7 @@ Each dispatched line delivers its own independent pull request to the sole
 CI/merge owner gate (CI plus independent review, serial merges) and
 coordinates the root makefile with PR #38.
 
-#### D1 — Dispatched cleanup lines (A class, owner-approved)
+#### D1 — Delivered cleanup lines (A class, owner-approved)
 - Line 1 (thread https://ampcode.com/threads/T-01a1e4ec-a622-7652-94f9-0cb0ed58f4cc
   , Step Medium, dispatched 2026-11-16): A1 the RetroAchievements dead cluster
   -- the `ra_*` code (about 3900 lines) plus `http.c` and `notification.c`,
@@ -1574,8 +1610,37 @@ coordinates the root makefile with PR #38.
   table in `settings.cpp`, which have zero build entry, consumer, or test and
   are fully unsupported after PR #13 -- together with the nine dead i18n keys
   (A4, the emulator save formats) that the i18n and font tests still carry.
-  Status: dispatched; no head delivered, so nothing is recorded as done, and a
-  source self-test is not acceptance.
+  Status: delivered as PR #40 (https://github.com/4fuu/NextUI/pull/40, branch
+  `cleanup/remove-retroachievements-dead-code`, "Remove orphaned
+  RetroAchievements offline-sync dead cluster"), head `b0ce4d3`, base main,
+  OPEN, MERGEABLE and CLEAN per gh; CI at that head is green per gh (Feature
+  checks push and pull_request, Development/Desktop); the independent review
+  is in progress per the merge owner; not merged. Delivered, per the source:
+  15 files removed (12 `ra_*` files at about 3900 lines plus the dedicated
+  `http.c/h` and `notification.c/h`; 42 makefile references checked, zero
+  includes or symbol consumers outside the cluster, no test references, and
+  `nextupd`'s own `update_download` does not use `http.h`, so the generic
+  download path was not touched); the RA surface in `config.h`/`config.c` (the
+  `RA_SORT` enum, 12 RA fields including the plaintext `raPassword`/`raToken`,
+  the `CFG_DEFAULT_RA_*` defaults, getters/setters, and parse/save/serialize/
+  debug-dump paths, consumed only by the dead cluster); the two unused
+  settings tables `notify_duration` and `progress_duration`; and 12 dead i18n
+  keys with the a4 fixture dropping 276 to 264. Kept on purpose: the
+  `notify*` config fields, which still round-trip through config parsing and
+  saving and are not RA (removing them would change the user's config file
+  format, beyond this round); the a3-zh fixture, left frozen as the audit
+  snapshot because CI enforces the a4 multiset and rebuilding `font3.ttf` is
+  not needed; and the C-class capabilities. Old-config compatibility: the
+  config parser is a whitelist, so old `ra*` lines in `minuisettings.txt` are
+  ignored -- no migration and no user data is deleted. Correction to the
+  audit: the dead i18n keys measured 12, not 9 (6 save-format/instant-save/
+  extract-filename keys plus 6 Retroarch/Retroarch-ish/MinUI/Generic keys),
+  each grepped with zero live references across the repo, so 12 were removed.
+  Source-reported evidence: local `make -C tests test` all pass,
+  `make common PLATFORM=desktop` builds `nextui.elf` and `settings.elf`, and
+  CI Host tests, the tg5040 target build, and build-linux are green; a source
+  self-test is not acceptance, so this waits for the merge owner's
+  independent review.
 - Line 2 (thread https://ampcode.com/threads/T-01a1e4ec-b01e-73f4-ba3e-668ddd19ed1a
   , Step Medium, dispatched 2026-11-16): A2 Game Tracker / gametime -- the
   game-time statistics never fill because nothing calls `gametimectl start`,
@@ -1583,10 +1648,33 @@ coordinates the root makefile with PR #38.
   packaging still carry them -- together with A5 the `makefile:213` base zip
   stale entries (`Shaders/trimui/h700/em_ui.sh` do not exist and fail
   silently as warnings, while `Cheats` and `Palettes` are missed). Status:
-  dispatched; no head delivered, so nothing is recorded as done.
+  delivered as PR #39 (https://github.com/4fuu/NextUI/pull/39, branch
+  `clean/gametime-packaging-residue`, "Remove the game play-time statistics
+  service and stale package entries"), head `41d1a43`, base main, OPEN; CI at
+  that head is green per gh (Feature checks push and pull_request,
+  Development/Desktop), but gh now reports the pull request CONFLICTING and
+  DIRTY because main moved under it with the PR #37 and PR #38 merges, so it
+  needs a normal merge of the latest main -- the merge owner has notified the
+  source by message; not merged. Delivered, per the source: the gametime
+  service chain, the GameTracker preinstall, and their dedicated build and
+  callers are removed, together with the stale
+  `Shaders/trimui/h700/em_ui.sh` base-zip entries. Two audit misreadings are
+  corrected here, so nothing is recorded as deleting something that exists:
+  `trimui` is produced by `make special` from `BOOT/trimui`, and
+  `h700/dmenu.bin` is produced by the platform `makefile.copy`. Remove
+  Loading stays: the source proved the original factory
+  `/etc/init.d/runtrimui` `pic2fb` splash does not disappear when NextUI
+  replaces `/usr/trimui/bin/runtrimui.sh`, so the one-time patch still has a
+  use. The bluez pakz and the old boot path stay. Six new tests carry
+  old-tree negative controls; the source's own runs are not acceptance, so
+  the line waits for the merge owner's independent review and a serial merge.
 - Still not dispatched from the A class: A3 Remove Loading.pak -- an
   original-factory compatibility one-time hack whose "Done" string is
-  untranslated -- stays unless a delivered proof shows it is unnecessary.
+  untranslated -- stays unless it can be proven unnecessary. The PR #39
+  source delivered the proof that it is still necessary: the original factory
+  `/etc/init.d/runtrimui` `pic2fb` splash does not disappear when NextUI
+  replaces `/usr/trimui/bin/runtrimui.sh`, so the one-time patch keeps its
+  use and A3 stays.
 
 #### D2 — Items needing a user decision (B class; not authorized by the 15:13 approval)
 - B1 The old update bypass: the `MinUI.zip` and bare `*.pakz` boot-time
@@ -1604,11 +1692,14 @@ coordinates the root makefile with PR #38.
   kept; `Files.pak`, the h700 `curl`, `--require-grants`, and the HOOKS rom
   branch all stay.
 
-- Not done: neither dispatched line has a head, and how much the third-party
-  paks depend on the `Roms` layout is unknown.
-- Next: each dispatched line delivers an independent pull request to the sole
-  CI/merge owner (CI plus independent review, serial merges, root makefile
-  coordinated with PR #38); B1 and the version policy still wait on the user.
+- Not done: neither line is merged. PR #40 waits on the merge owner's
+  independent review; PR #39 must first merge the latest main and land a
+  non-conflicting head. How much the third-party paks depend on the `Roms`
+  layout is still unknown.
+- Next: PR #40's independent review result, then PR #39's normal merge of the
+  latest main and a fresh head, then serial merges through the sole CI/merge
+  owner (the root makefile coordination was with PR #38, which has merged at
+  `1f737c9`); B1 and the version policy still wait on the user.
 
 ## Decisions superseded by this schedule
 
@@ -1667,6 +1758,8 @@ coordinates the root makefile with PR #38.
   https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
 - System update install UI thread:
   https://ampcode.com/threads/T-01a1e400-3b99-7794-9cf1-ad8cb5433bbc
+- Local-file app install entry thread (F6b):
+  https://ampcode.com/threads/T-01a1e517-15fd-710c-bb01-300ef858376b
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
   in once confirmed; ran the exact libsamplerate co-render regression on main
   `1d9aea2` with `a6-host-adapter` @
@@ -1697,7 +1790,12 @@ as they happen; nothing is reported as passing without a run.
   the I4 fifth slice merged as PR #34 at `a6f507f` with the in-repo i18n
   fixture value test, the U10 first-update/output-safety task dispatched with
   its first head as PR #36, and the read-only application-install audit
-  recorded as F6 with its next block and owner decisions),
+  recorded as F6 with its next block and owner decisions; PR #37 merged into
+  main as `4c5398f` with the merge owner's independent PASS on the exact head
+  `1ca216e`; PR #38 merged into main as `1f737c9`; the two owner-approved
+  cleanup lines delivered PR #39 (open, conflicting on the moved main) and PR
+  #40 (open, under independent review); and the F6b local-file install entry
+  was dispatched to thread T-01a1e517),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
@@ -1715,5 +1813,5 @@ as they happen; nothing is reported as passing without a run.
   `8e4f744`). Its pull request is PR #31; while that pull request stays open,
   later real changes fold into it instead of opening another one, which is why
   the PR #32, PR #33, PR #34, PR #35, PR #36, U10, F6, and merge facts ride
-  the same branch. The schedule baseline moved to `3a0b048` with the PR #33
-  merge.
+  the same branch. The schedule baseline moved to `4c5398f` with the PR #37
+  merge (PR #38 merged just below it at `1f737c9`).
