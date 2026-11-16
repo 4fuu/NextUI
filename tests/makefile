@@ -136,5 +136,17 @@ test-led-render:
 test-show2-render:
 	../workspace/all/show2/tests/run_show2_render_proof.sh
 
+# Removal of the game play-time statistics service: nothing may reference it,
+# the skeleton Tools paks must be exactly the intended set per platform, and
+# the base/extras package zip recipes may not name anything that does not exist
+# at package time. Declared on its own lines rather than added to the .PHONY
+# and test lists above, so this hunk never collides with another thread
+# editing those lines.
+.PHONY: test-playtime-removal
+test: test-playtime-removal
+
+test-playtime-removal:
+	./run_playtime_removal_test.sh
+
 clean:
 	rm -f $(TEST_BIN)

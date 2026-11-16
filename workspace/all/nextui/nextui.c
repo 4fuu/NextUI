@@ -2019,9 +2019,6 @@ int main (int argc, char *argv[]) {
 	if(currentScreen == SCREEN_GAMESWITCHER)
 		lastScreen = SCREEN_GAME;
 
-	// make sure we have no running games logged as active anymore (we might be launching back into the UI here)
-	system("gametimectl.elf stop_all");
-
 	GFX_setVsync(VSYNC_STRICT);
 	PWR_setCPUSpeed(CPU_SPEED_AUTO);
 
