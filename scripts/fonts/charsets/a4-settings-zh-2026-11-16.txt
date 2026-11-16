@@ -1,7 +1,7 @@
 # Simplified Chinese values of the settings-app i18n table, verbatim, one per
-# line. Snapshot of workspace/all/common/i18n.c at the About page / shared
-# button hint chunk (A4 follow-up, 2026-11-16). The A3 fixture
-# a3-zh-2026-11-15.txt stays for audit; point the verifier at this file:
+# line. Snapshot of workspace/all/common/i18n.c at the Assignments (FN button)
+# page chunk (A4 follow-up, 2026-11-16). The A3 fixture a3-zh-2026-11-15.txt
+# stays for audit; point the verifier at this file:
 #
 #   scripts/fonts/verify-noto-sans-sc-subset.py --a3-values \
 #     scripts/fonts/charsets/a4-settings-zh-2026-11-16.txt --a3-i18n \
@@ -11,7 +11,7 @@
 # here, so no rebuild is needed; regenerate this file only after a wording
 # change and report any new character before shipping.
 
-# ---- values (206) ----
+# ---- values (241) ----
 最近游玩
 最近
 收藏
@@ -112,6 +112,41 @@ BusyBox 版本
 上档
 空格
 回车
+WiFi
+启用或禁用 WiFi。
+WiFi 诊断
+启用或禁用 WiFi 日志记录。
+正在启用 WiFi...
+正在禁用 WiFi...
+选项
+断开连接
+断开与此网络的连接。
+连接
+连接到此网络。
+忘记
+删除此网络的凭据。
+输入 WiFi 密码
+输入 WiFi 密码
+正在连接...
+启用或禁用蓝牙。
+蓝牙诊断
+启用或禁用蓝牙日志记录。
+最高采样率
+44100 Hz：兼容性更好；48000 Hz：音质更好
+正在启用蓝牙...
+正在禁用蓝牙...
+无
+退出到桌面
+系统浮层
+ 按键
+此按键的功能；选择 pak 后可从菜单中打开。
+（缺失）
+配对
+配对此设备。
+正在配对...
+忘记此设备。
+连接此设备。
+断开此设备的连接。
 亮度
 显示亮度（0 到 10）
 色温

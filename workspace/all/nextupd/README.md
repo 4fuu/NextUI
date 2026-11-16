@@ -8,6 +8,12 @@ and does not install or activate an update by itself. The install boot scripts
 call `recover` before `.system` is used, from a copy packaged in
 `.tmp_update/<platform>/`.
 
+A system package may also carry `.tmp_update/`. The installer treats that
+subtree as a second signed tree: it verifies the same manifest, keeps the old
+payload as `.tmp_update.bak`, publishes the new recovery tool before `.system`
+moves, and journals the boot phases in `.nextupd-txn/boot.json`. A system-only
+package keeps the old behavior and leaves `.tmp_update` untouched.
+
 There is no built-in feed address and no production key. `feed` and `fetch`
 report `feed_unconfigured` (exit 15) until the caller supplies `--feed` or
 `NEXTUI_UPDATE_FEED` and an owner-provisioned trusted key. HTTPS downloads use
@@ -54,12 +60,13 @@ against isolated roots with every device path rewritten into that root.
   the existing staging path. Reuses a valid staged package; never installs.
 - `stage`: verify, check free space, copy into a per-package staging directory,
   and write `staged.json` last.
-- `install`: re-verify a staged package, then apply its `.system/` tree to an
-  explicit `--target-root` through a recorded transaction. Requires an existing
-  `.system` with `version.txt`; refuses a missing or older version.
-- `recover`: offline arbitration entry point. Completes an interrupted commit or
-  restores `.system.bak`; `--rollback` also returns a committed install to its
-  recorded previous version.
+- `install`: re-verify a staged package, then apply its `.system/` tree and,
+  when present, its signed `.tmp_update/` tree to an explicit `--target-root`
+  through a recorded transaction. Requires an existing `.system` with
+  `version.txt`; refuses a missing or older version.
+- `recover`: offline arbitration entry point. Completes an interrupted commit
+  or restores `.system.bak` and `.tmp_update.bak`; `--rollback` also returns a
+  committed install to its recorded previous version.
 
 `install` and `recover` have no default roots. They never read `SDCARD_PATH` and
 never write the current working directory. The install boot scripts pass the

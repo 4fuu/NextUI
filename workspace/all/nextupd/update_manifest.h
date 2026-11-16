@@ -77,6 +77,27 @@ int upd_manifest_check_min_system(const UpdManifest* manifest, const char* syste
                                   UpdError* error);
 int upd_is_known_platform(const char* platform);
 
+/*
+ * Boot payload contract.
+ *
+ * A system package may carry a `.tmp_update/` subtree. When it does, the
+ * signed manifest must also list the files the boot chain needs to recover an
+ * interrupted install without reading `.system`:
+ *
+ *   .tmp_update/updater
+ *   .tmp_update/nextupd-recover.sh
+ *   .tmp_update/<platform>.sh
+ *   .tmp_update/<platform>/nextupd.elf
+ *
+ * The subtree is optional so existing `.system`-only packages keep working.
+ * Paths stay inside safe relative names; the installer still applies the same
+ * ZIP parser and manifest hash checks as before.
+ */
+int upd_manifest_has_boot(const UpdManifest* manifest);
+int upd_manifest_boot_bytes(const UpdManifest* manifest, uint64_t* bytes);
+int upd_manifest_check_boot(const UpdManifest* manifest, UpdError* error);
+int upd_boot_required_tool(const char* platform, char* out, size_t out_size);
+
 #ifdef __cplusplus
 }
 #endif
