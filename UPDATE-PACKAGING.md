@@ -145,10 +145,25 @@ Signing uses the committed test-only Ed25519 seed under
 `workspace/all/nextupd/tests/fixtures`; no production key is read, written, or
 required.
 
+## Continuous integration
+
+`test.yaml`'s `tg5040 target build` job packages a real tg5040 tree with a
+legal `v0.0.0` placeholder and verifies the archive with
+`scripts/verify_update_package.py`: exactly the `.system` and `.tmp_update`
+roots, no `Tools/`/`Roms/`/`Saves/` (or `Emus/`, `minarch/`, `cores/`); the boot
+contract files, with `.tmp_update/tg5040/nextupd.elf` at 0755; the device layout
+(`.system/tg5040/bin/nextui.elf` and `paks/MinUI.pak/launch.sh`); and every one
+of the 68 shared `.system/res` files with its SHA-256 against
+`skeleton/SYSTEM/res`. ZIP directory entries are excluded from the file counts.
+`tests/verify_update_package_negative_test.py` then injects a missing boot tool,
+a 0644 boot tool, a missing and a changed resource, a wrong layout, a missing
+launcher and a `Tools/` root into copies of that archive and requires the check
+to reject each one. The archive is unsigned and publishes nothing; the release
+source, feed configuration and production signing key stay owner decisions.
+Nothing here installs to a device.
+
 ## Not included
 
-- The release source address and the production signing key (owner decisions).
-  Nothing here publishes a release, configures a feed, or installs to a device.
 - Two release-time items this packaging work surfaces but does not decide:
   the bootstrap `MinUI.zip` writes `.system/version.txt` as
   `NextUI-<date>-<n>`, which `nextupd` rejects as a target version
@@ -156,6 +171,5 @@ required.
   bootstrapped card needs a policy for that file; and outputs are replaced
   per run rather than written atomically, so an interrupted run can leave a
   partial archive behind (the next run replaces it).
-- Wiring the archive into `ci.yaml`/`release.yaml`. Those workflows belong to
-  the CI owner; the `tg5040` build and package-content evidence they produce is
-  recorded separately.
+- Wiring the archive into `ci.yaml`/`release.yaml`. Those workflows stay with
+  the CI owner; the package-content evidence above is the test-only check.
