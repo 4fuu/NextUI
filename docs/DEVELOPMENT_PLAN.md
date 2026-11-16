@@ -573,4 +573,8 @@ as they happen; nothing is reported as passing without a run.
   CI/merge owner merges after checks pass. This thread performs no merges
   itself.
 - The current update travels on branch `docs/schedule-update-2` (based on
-  `origin/main` @ `3ecefd5`).
+  `origin/main` @ `3ecefd5`) and is delivered as pull request #10
+  (https://github.com/4fuu/NextUI/pull/10), head
+  `46beb296bec86f13a020b5a91f4df186b1e748ba`, state OPEN and mergeable. Its
+  Feature checks and Development/Desktop runs were in progress at the last
+  check; a job that has not finished is never recorded as passing.
