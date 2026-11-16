@@ -6,8 +6,9 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `cb622fa` (merge of PR #41, the local-file app install settings page;
-  below it PR #40 the RetroAchievements dead-cluster
+  rule): `5b66d70` (merge of PR #42, the expected-kind check on the tool;
+  below it PR #41 the local-file app install settings page `cb622fa`, PR #40
+  the RetroAchievements dead-cluster
   cleanup `1b73667`, PR #39 the gametime/stale-package cleanup `d72565a`, PR
   #37 the local signed app install/update/recovery backend `4c5398f`, PR #38
   the third-party Pak Store removal `1f737c9`, then PR #36 the atomic
@@ -129,7 +130,8 @@ Rules:
   `4c5398f`); the third-party Pak Store download and entry removal (PR #38,
   `1f737c9`); the gametime/stale-package cleanup (PR #39, `d72565a`); the
   RetroAchievements dead-cluster cleanup (PR #40, `1b73667`); the local-file
-  app install settings page (PR #41, `cb622fa`);
+  app install settings page (PR #41, `cb622fa`); the expected-kind check on
+  the tool (PR #42, `5b66d70`);
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
@@ -342,9 +344,13 @@ Rules:
   including main's actual package, and gh also shows Feature checks and
   Development/Desktop success. Device behavior is not verified. Dispatched the
   same day for the residual swap race: thread T-01a1e5c2 (recorded as F6c),
-  which delivered its first head as PR #42 on 2026-11-16 awaiting the merge
-  owner's independent review. Open at this check: only this schedule's own PR
-  #31.
+  whose head `dccda876651e240cae29d6d77e3a4c313a8c9a42` passed the merge
+  owner's independent review and merged PR #42 into main as
+  `5b66d70959245d4a47da373b3b7a6f72dee44f37` (2026-11-16T20:11:04Z per gh),
+  closing the race at host level; post-merge on `5b66d70`: Development/Desktop
+  is success per gh while Feature checks and the full CI run are in progress
+  through the existing subscription (not recorded as passing until they
+  finish). Open at this check: only this schedule's own PR #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -577,6 +583,18 @@ Rules:
   Real-machine status stays unverified: no further physical key presses are
   scheduled (owner decision), and the review records HOME/js0 as OPEN, so the
   fix waits for the V1 batch or a replay fixture on device.
+- Verified 2026-11-16 (schedule check for the next dispatchable block): the
+  source-side gap is closed in main -- `platform.h` no longer guesses a
+  joystick index (`JOY_MENU_ALT` is `JOY_NA` at platform.h:106, with
+  `BTN_FN3` = `BTN_HOME` on brickpro at :117), and api.c polls EVIOCGKEY on
+  the node that advertises key 172 with edge detection into `BTN_HOME`
+  (api.c:3875-3895, 4336), with the launcher's side-HOME overlay wired
+  through the shared `ui_overlay` module (workspace/all/common/ui_overlay.c)
+  and covered by the host wiring test
+  workspace/all/nextui/tests/home_overlay_test.c plus the real event3/js0
+  captures and replay test added by `3e66705`. What remains is real-device
+  verification only (physical HOME on hardware), which the owner decided not
+  to schedule; nothing in this item is host-implementable work anymore.
 - Evidence (ADB thread, batch2-1 `ee0eee7`): `/dev/input/event3` records five
   complete `KEY_HOMEPAGE` (172) press/release events, but `js0` exports only 11
   buttons (0-10) and HOME never appears as a button event. `platform.h` expects
@@ -708,6 +726,20 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### R3 — Rumble backend (input.rumble)
 - Owner: new backend thread.
 - Status: not started; haptics reports `unavailable`.
+- Verified 2026-11-16 (next-dispatchable check): the capability is already
+  declared (`workspace/all/common/device_caps.c:22` lists `input.rumble`),
+  `PLAT_setRumble` is implemented per platform
+  (`workspace/tg5040/platform/platform.c:352`, mapping strength 0..0xFFFF to
+  MIN_VOLTAGE 500000..MAX_VOLTAGE, which is 2500000 on brickpro and 3300000
+  elsewhere, through `/sys/class/motor/voltage` plus the
+  `/sys/class/gpio/gpio227/value` enable), api.c already drives it through the
+  `VIB_` thread (api.c:4481-4525), and devserv serves no rumble action yet, so
+  the work is the R1/R2-pattern backend module plus the devserv wiring (the
+  display/audio and LED modules at
+  `workspace/all/common/device_backend_display_audio.c` and
+  `device_backend_leds.c` are the templates), coordinated with the I1 owner
+  thread that holds devserv. All of it is host-verifiable (host tests,
+  desktop build, tg5040 cross-compile); only the physical effect needs V1.
 - Depends on: R1 seam.
 - Delivery/verification: `input.rumble` served through `PLAT_setRumble` with
   the Brick Pro voltage limit respected; host tests; desktop build; tg5040
@@ -1490,43 +1522,34 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   2026-11-16 19:16 that all six checks are success, including main's actual
   package, and gh also shows Feature checks and Development/Desktop success.
   The FAIL at `7418cf5` stays as history. Device behavior is not verified.
-- F6c — swap-race hardening (dispatched 2026-11-16; delivered, awaiting
-  independent review; stays open): the residual SD swap race recorded with the
-  PR #41 FAIL is not closed by the source's "closed" claim -- only an
-  independent review and merge close it. Dispatched to
-  https://ampcode.com/threads/T-01a1e5c2-0302-71cd-b14f-828546632bc9 (Step
-  Medium, an independent thread): backend expected-kind checks plus app UI
+- F6c — swap-race hardening (merged 2026-11-16; host hardening closed, device
+  unchanged): the residual SD swap race recorded with the PR #41 FAIL is
+  closed at host level by PR #42, which merged into main as
+  `5b66d70959245d4a47da373b3b7a6f72dee44f37` (2026-11-16T20:11:04Z per gh),
+  final head `dccda876651e240cae29d6d77e3a4c313a8c9a42`. The merge owner
+  reports an independent PASS on the exact head `dccda87` (a merge-owner
+  review result, not the source's self-report), with the expected-kind check
+ 实证 against the manifest the same invocation verified, before `stage`
+  creates its root and before `install` locks its target and distributes; a
+  wrong kind exits 3 with zero writes to staging, the target, the system
+  transaction, and the boot payload; both app calls pass `app`; and without
+  the flag the old system control installs normally. Exact-head evidence per
+  the merge owner: the full host suite 0 failures, controller 73, app 103,
+  the desktop build, and 6/6 checks; gh also shows CI green at the exact head
+  (Feature checks push and pull_request with Host tests at 652 passed / 0
+  failed per the run log and the tg5040 target build; Development/Desktop
+  with build-linux and build-macos). Post-merge on `5b66d70`: Development/
+  Desktop is success per gh while Feature checks and the full CI run are in
+  progress through the existing subscription (not recorded as passing until
+  they finish). The closing scope is the host hardening only -- device
+  behavior stays with V1, and no device, real SD card, power-loss, or
+  production key evidence exists; the tg5040 target build is not on-device
+  acceptance. The source thread T-01a1e5c2 has no further item.
+  Dispatched scope, as delivered: backend expected-kind checks plus app UI
   wiring that refuse a system package before the actual signature verification
   and distribution, a real isolated-root swap regression, and System Update
   backward compatibility; no permission product, no store, no production key
-  changes, and no device operation. Delivered 2026-11-16 as PR #42
-  (https://github.com/4fuu/NextUI/pull/42, branch
-  `feature/app-entry-expected-kind`, "Check the expected package kind on the
-  tool, not in the app page's scan"), head
-  `dccda876651e240cae29d6d77e3a4c313a8c9a42`, base main, OPEN, MERGEABLE and
-  CLEAN per gh; CI at the exact head is green per gh (Feature checks push and
-  pull_request with Host tests at 652 passed / 0 failed per the run log and
-  the tg5040 target build; Development/Desktop with build-linux and
-  build-macos). Source-reported content: `nextupd` gained
-  `--expected-kind <app|system>` on `check`, `stage`, and `install`, and the
-  "Install from file" page passes `--expected-kind app` to both of its calls;
-  the check runs against the manifest that same invocation verified, right
-  after the detached signature covers it -- before `stage` creates a staging
-  directory and before `install` chooses a system or app transaction; a
-  mismatch exits 3 with `kind_mismatch` and writes nothing. Existing checks
-  are unchanged and in the same order, and omitting the flag leaves routing as
-  it was, so System Update and any script that never named a kind keep
-  working. Source-reported local evidence: `make -C tests test` green,
-  SANITIZE=1 nextupd suites green, the desktop build `-Werror` clean, and with
-  the real desktop binary and isolated roots an app install works while a
-  validly signed system package is refused at stage and at install with
-  `.system`, `.tmp_update`, and the transaction bytes unchanged, while the
-  same staged system package without the flag applies a real system update.
-  Not merged; awaiting the merge owner's independent review, so nothing is
-  written as accepted and a source self-test is not acceptance. No device,
-  real SD card, power-loss, or production key evidence; the staged-system
-  fixture uses the committed test-only seed in isolated roots; the tg5040
-  target build is not on-device acceptance.
+  changes, and no device operation.
 - Residual precision (corrected, kept as the record): the scan-to-stage swap of
   a system manifest was already refused by the `.zip` archive-name rule
   (`invalid_archive`), which is a naming convention rather than a kind check;
@@ -2018,7 +2041,10 @@ as they happen; nothing is reported as passing without a run.
   T-01a1e5c2, which delivered its first head as PR #42 (head `dccda87`,
   exact-head CI green, awaiting the merge owner's independent review, not
   closed), with the residual's precision corrected so the scan-to-stage path
-  is no longer recorded as the gap),
+  is no longer recorded as the gap; PR #42 then merged into main as `5b66d70`
+  with the merge owner's independent PASS on the exact head `dccda87`, closing
+  F6c at host level, and the I7 and R3 entries were verified for the next
+  dispatchable block),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
