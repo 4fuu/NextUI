@@ -145,10 +145,17 @@ Signing uses the committed test-only Ed25519 seed under
 `workspace/all/nextupd/tests/fixtures`; no production key is read, written, or
 required.
 
+## Continuous integration
+
+`test.yaml`'s `tg5040 target build` job packages a real tg5040 tree with this
+target and asserts the archive content: exactly the `.system` and `.tmp_update`
+roots, no `Tools/`/`Roms/`/`Saves/`, the boot contract files, a populated
+`.system/res`, and the placeholder `version.txt`. It is unsigned and publishes
+nothing; the release source, feed configuration and production signing key stay
+owner decisions. Nothing here installs to a device.
+
 ## Not included
 
-- The release source address and the production signing key (owner decisions).
-  Nothing here publishes a release, configures a feed, or installs to a device.
 - Two release-time items this packaging work surfaces but does not decide:
   the bootstrap `MinUI.zip` writes `.system/version.txt` as
   `NextUI-<date>-<n>`, which `nextupd` rejects as a target version
@@ -156,6 +163,5 @@ required.
   bootstrapped card needs a policy for that file; and outputs are replaced
   per run rather than written atomically, so an interrupted run can leave a
   partial archive behind (the next run replaces it).
-- Wiring the archive into `ci.yaml`/`release.yaml`. Those workflows belong to
-  the CI owner; the `tg5040` build and package-content evidence they produce is
-  recorded separately.
+- Wiring the archive into `ci.yaml`/`release.yaml`. Those workflows stay with
+  the CI owner; the package-content evidence above is the test-only check.

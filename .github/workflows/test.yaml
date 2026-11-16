@@ -60,6 +60,45 @@ jobs:
           test -f workspace/all/devserv/build/tg5040/devserv.elf
           test -f workspace/all/nextdev/build/tg5040/nextdev.elf
 
+      # Transactional update package content, reusing the tree built above.
+      # Test-only: the archive is unsigned, the version is a placeholder, and
+      # nothing is published.
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zip zlib1g-dev
+
+      - name: Stage the system and boot payload
+        run: |
+          make system PLATFORM=tg5040
+          make special
+
+      - name: Package the transactional update archive
+        run: make update-package PLATFORM=tg5040 UPDATE_VERSION=v0.0.0-ci
+
+      - name: Verify package content
+        run: |
+          archive=releases/nextui-system-tg5040.zip
+          unzip -l "$archive"
+          unzip -Z1 "$archive" | cut -d/ -f1 | sort -u > roots.txt
+          echo "roots: $(tr '\n' ' ' < roots.txt)"
+          test "$(wc -l < roots.txt)" -eq 2
+          grep -qx '.system' roots.txt
+          grep -qx '.tmp_update' roots.txt
+          if unzip -Z1 "$archive" | grep -qE '^(Tools|Roms|Saves)/'; then
+            echo "archive carries a root the installer refuses" >&2
+            exit 1
+          fi
+          for boot in updater nextupd-recover.sh tg5040.sh tg5040/nextupd.elf; do
+            unzip -Z1 "$archive" | grep -qx ".tmp_update/$boot" || exit 1
+          done
+          for res in font3.ttf background.png assets.svg licenses; do
+            unzip -Z1 "$archive" | grep -q "^\.system/res/$res" || exit 1
+          done
+          test "$(unzip -Z1 "$archive" | grep -c '^\.system/res/')" -ge 60
+          test "$(unzip -Z1 "$archive" | grep -c '^\.system/tg5040/')" -ge 20
+          unzip -p "$archive" .system/version.txt | grep -qx 'v0.0.0-ci'
+
       - name: Upload target binaries
         uses: actions/upload-artifact@v7.0.2
         with:
