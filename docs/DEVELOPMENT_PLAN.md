@@ -5,14 +5,17 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `b28b126` (merge of PR #10, this schedule file's
-  update; fetched 2026-11-16). Landing points on main, oldest first: PR #5
-  (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
-  (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
-  (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
-  PR #8 (updater offline install transaction, `212a695`), PR #9 (schedule
-  update, `3ecefd5`), and PR #10 (schedule update, `b28b126`); `de69781` is an
-  ancestor of all of them. Later updates branch from `origin/main`.
+- Baseline: `origin/main` @ `ec05440` (merge of PR #14, the settings
+  Appearance i18n slice; fetched 2026-11-16). Landing points on main, oldest
+  first: PR #5 (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file,
+  `59a63e6`), PR #7 (updater staging, `bdab39e`), PR #4 (LED/boot
+  localization, `dea1f2d`), PR #6 (display/audio backend module, `b506dbd`),
+  PR #1 (runtime line, `3a50fe8`), PR #8 (updater offline install
+  transaction, `212a695`), PR #9 (schedule update, `3ecefd5`), PR #10
+  (schedule update, `b28b126`), PR #15 (updater transaction hardening,
+  `e2eba90`), and PR #14 (schedule file update target: settings i18n first
+  slice, `ec05440`); `de69781` is an ancestor of all of them. Later updates
+  branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -74,15 +77,17 @@ Rules:
   manifest/signature/staging module (PR #7, `bdab39e`); the LED and boot
   localization (PR #4, `dea1f2d`); the display/audio backend module (PR #6,
   `b506dbd`); the runtime line (PR #1, `3a50fe8`); the updater offline install
-  transaction and recovery core (PR #8, `212a695`); and this schedule file
-  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, and PR #10, `b28b126`).
-- Host-done, unpushed: none. Every in-flight line rides on an open pull
-  request: I4 (settings i18n, PR #14, head `6937959`), I8 (emulator removal,
-  PR #13, head `e1275e4`), U2/U3 (boot recovery, PR #11, head `329a7e1`), and
-  the updater transaction hardening (PR #15, head `c6dc914`). The runtime line
-  (I1) merged into main as `3a50fe8`; the updater staging module (I6,
-  `bdab39e`), the LED/boot localization (I5, `dea1f2d`), and the display/audio
-  backend module (PR #6, `b506dbd`) are on main as well.
+  transaction and recovery core (PR #8, `212a695`), hardened by PR #15
+  (`e2eba90`); the settings Appearance i18n slice (PR #14, `ec05440`); and
+  this schedule file (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, and PR #10,
+  `b28b126`).
+- Host-done, unpushed: none. The open pull requests are I8 (emulator removal,
+  PR #13, head `e1275e4`) and U2/U3 (boot recovery, PR #11, head `329a7e1`,
+  mergeable CONFLICTING against the moved main). The runtime line (I1) merged
+  into main as `3a50fe8`; the updater staging module (I6, `bdab39e`), the
+  LED/boot localization (I5, `dea1f2d`), the display/audio backend module
+  (PR #6, `b506dbd`), the transaction hardening (PR #15, `e2eba90`), and the
+  settings i18n first slice (PR #14, `ec05440`) are on main as well.
 - CI infrastructure: the Feature checks workflow
   (`.github/workflows/test.yaml`) runs the host test suite and a real tg5040
   cross-compile on every branch push and pull request; packaging and
@@ -97,17 +102,19 @@ Rules:
   `bdab39e` success, and `212a695` Feature checks success; `b28b126` has all
   three workflows (Feature checks, Development/Desktop, CI) success. PR #11
   (boot recovery wiring, head `329a7e1`) passed all six checks (Host tests
-  push/PR, tg5040 target build push/PR, build-linux, build-macos) and is
-  CLEAN/MERGEABLE with the merge owner reviewing — a run that has not finished
-  is never recorded as passing. PR #13 (built-in emulator removal, head
-  `e1275e4`) CI is green (Feature checks push/PR, Development/Desktop). PR #14
-  (settings Appearance page i18n, head `6937959`) and PR #15 (updater
-  transaction hardening, head `c6dc914`) CI runs are green.
+  push/PR, tg5040 target build push/PR, build-linux, build-macos); it is now
+  OPEN with mergeable CONFLICTING against the moved main (`ec05440`), so the
+  earlier CLEAN state no longer holds — a run that has not finished is never
+  recorded as passing. PR #13 (built-in emulator removal, head `e1275e4`) CI
+  is green (Feature checks push/PR, Development/Desktop). PR #14 (settings
+  Appearance page i18n, head `6937959`) and PR #15 (updater transaction
+  hardening, head `c6dc914`) CI runs are green. Main landings `e2eba90` and
+  `ec05440` had runs in progress at the last check.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
-  verification, not cloud CI); the settings i18n branch is pending; tg5050/h700
-  have no batch7 build evidence.
+  verification, not cloud CI); the settings i18n first slice is on main
+  (PR #14); tg5050/h700 have no batch7 build evidence.
 - Real-machine acceptance: none for batch7 work. The only device evidence on
   record is the early branch `batch2-1` (`ee0eee7`), where tests T1-T9 passed
   and T10 is partial (HOME unmapped, a source-side gap now tracked as I7); it
@@ -175,12 +182,11 @@ Rules:
 
 ### I4 — Settings pages i18n (remaining user-visible settings)
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-e50d-7610-be41-7417d83ab622
-- State: first slice delivered as PR #14
-  (https://github.com/4fuu/NextUI/pull/14, branch `i18n/settings-pages-main`,
-  based on `origin/main` @ `b28b126`), head
+- State: first slice merged into main. PR #14 (branch
+  `i18n/settings-pages-main`), head
   `69379591f256c8cde1713814b34d15f48bc4b540` "Translate the settings Appearance
-  page into Simplified Chinese"; OPEN, CI green (Feature checks push/PR,
-  Development/Desktop), not merged; handed to the CI/merge owner at 07:31.
+  page into Simplified Chinese", merged as `ec05440`. CI on that head was green
+  (Feature checks push/PR, Development/Desktop).
 - First slice covers: the whole Appearance page (font/style rows, color
   definitions, battery percentage, menu animations and transitions, artwork
   radius/width, recents/tools/quickswitcher/curtain rows, input prompt style,
@@ -411,15 +417,25 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Not delivered by PR #8: boot/launch activation wiring (see U2), the
   feed/updater source switch, application installs, the production key (test
   key only), and device install. PR #8 is not the whole update chain.
-- Follow-up in review: PR #15
+- Follow-up merged: PR #15
   (https://github.com/4fuu/NextUI/pull/15, branch
   `fix/updater-transaction-lock`, head
-  `c6dc91487060e27b4b1f69aef626dfc61694129a`) hardens the transaction from the
-  PR #8 independent review: `install` and `recover` take an exclusive `flock`
-  on the target root (a concurrent command exits `busy` (12) without writing;
-  the lock releases on exit or crash), and a candidate `version.txt` mismatch
-  goes through `rollback_precommit`, ending the record in `rolled_back` with
-  `.system` unchanged. OPEN, CI green, not merged.
+  `c6dc91487060e27b4b1f69aef626dfc61694129a`) merged into main as `e2eba90`. It
+  hardens the transaction from the PR #8 independent review: `install` and
+  `recover` take an exclusive `flock` on the target root (a concurrent command
+  exits `busy` (12) without writing; the lock releases on exit or crash), and a
+  candidate `version.txt` mismatch goes through `rollback_precommit`, ending
+  the record in `rolled_back` with `.system` unchanged.
+- Independent review of PR #15 at exact `c6dc914`: PASS. Evidence: the 177-check
+  ASan/UBSan source suite, 242 independent checks, and 39 concurrency checks
+  all pass; 15 rounds of dual-install serialization and 10 rounds of SIGKILL
+  lock release; the F3 stuck-backup hazard is re-verified eliminated; F1
+  refuses installs leaving only a `rolled_back` record; F2 keeps a documented
+  asymmetric boundary.
+- Long-term constraint (before any `.tmp_update` refresh ships): the
+  transaction record schema must stay compatible with the existing recovery
+  tools, or ship a fallback; otherwise old devices refuse to continue booting
+  until the payload is manually refreshed.
 - Depends on: I6 format family (in main).
 - Next: U2's startup recovery wiring, then the feed/source switch (U4).
 
@@ -440,8 +456,14 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Evidence: `make -C tests test` green (169 updater + 56 boot-recovery checks),
   the same under ASan/UBSan; desktop build green; real tg5040 cross-build with
   NEEDED only libz/libc. PR #11 CI at head `329a7e1`: all six checks passed
-  (Host tests push/PR, tg5040 target build push/PR, build-linux, build-macos);
-  PR state CLEAN/MERGEABLE with the merge owner reviewing. Not merged.
+  (Host tests push/PR, tg5040 target build push/PR, build-linux, build-macos).
+- Independent review at exact `329a7e1`: startup contract PASS.
+- Merge status (gh-verified, not guessed): PR #11 is still OPEN and reports
+  mergeable CONFLICTING because `main` moved (`ec05440`); the source thread
+  resolves the base delta, then the CI/merge owner merges.
+- Residual risks (not real power-cut acceptance): no real-device evidence for
+  `flock` on FAT; the h700 load path and the no-execution timeout are residual;
+  no real-device boot or power-cut test has run.
 - Open boundaries (not delivered): no real-device boot or power-cut test; no
   feed/source switch, production key, install UI, or online update;
   `.tmp_update` is still refreshed only by the legacy MinUI.zip/bootstrap path.
