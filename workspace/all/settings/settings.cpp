@@ -862,7 +862,16 @@ int main(int argc, char *argv[])
         {
             new StaticMenuItem{ListItemType::Generic, TR("NextUI version"), "",
             []() -> std::any {
-                return readVersionText(ROOT_SYSTEM_PATH "/version.txt");
+                // Only the placeholder goes through TR(); a real version string
+                // reaches the renderer exactly as the file holds it. The copy
+                // matters: TR() falls back to returning its key, so handing it a
+                // temporary's c_str() would leave the renderer with a dangling
+                // pointer. "Unknown" is settings/version.cpp's VERSION_FALLBACK,
+                // which is file-static and cannot be referenced from here.
+                std::string version = readVersionText(ROOT_SYSTEM_PATH "/version.txt");
+                if (version == "Unknown")
+                    return std::string(TR("Unknown"));
+                return version;
             }},
             new StaticMenuItem{ListItemType::Generic, TR("Platform"), "",
             []() -> std::any {
