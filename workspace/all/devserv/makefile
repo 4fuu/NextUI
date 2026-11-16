@@ -22,6 +22,8 @@ TARGET = devserv
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 SOURCE = $(TARGET).c \
 	../common/device_backend.c \
+	../common/device_backend_display_audio.c \
+	../common/device_backend_display_audio_platform.c \
 	../common/device_backend_leds.c \
 	../common/device_backend_leds_platform.c \
 	../common/device_caps.c \
@@ -48,7 +50,7 @@ CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 LDFLAGS += -lmsettings -lsamplerate
 
 ifeq ($(PLATFORM), desktop)
-CFLAGS += -DNEXTUI_SESSION_DESKTOP=1 -DNEXTUI_SESSION_NO_MUTE=1
+CFLAGS += -DNEXTUI_SESSION_DESKTOP=1 -DNEXTUI_SESSION_NO_MUTE=1 -DNEXTUI_DISPLAY_AUDIO_NO_MUTE=1
 endif
 ifeq ($(PLATFORM), h700)
 CFLAGS += -DNEXTUI_SESSION_NO_MUTE=1
