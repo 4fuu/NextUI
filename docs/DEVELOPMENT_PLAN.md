@@ -1304,10 +1304,28 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   no pull request; probe scripts stay in /tmp and are not in the repo) and the
   dispatched implementation thread
   https://ampcode.com/threads/T-01a1e4aa-91b9-766e-bc8d-71ea9189e7d4
-  (Step Medium; dispatched 2026-11-16; no head delivered yet, so nothing is
-  recorded as implemented).
-- Status: audited and split into three layers; the install layer is not
-  delivered. (1) The stage/verify layer for app packages IS delivered and
+  (Step Medium; dispatched 2026-11-16; first head delivered 2026-11-16 14:57
+  as PR #37, open and not merged).
+- Status: first head delivered and open; awaiting independent review, so this
+  is source-delivered, not acceptance-complete. PR #37
+  (https://github.com/4fuu/NextUI/pull/37, branch `app-install-transaction`),
+  head `00217d546b4194b79d91eaf9aac86d7e0ff66ba5` (supersedes
+  `117bc578663cdff3a7ed2dc4807079f0b10473a1`, whose CI was green per gh), OPEN
+  per gh; CI at the new head is in progress at the last check, so nothing is
+  recorded as passing on it. It adds an independent `update_app.{h,c}` pair
+  with zero changes to the system `update_transaction.c`/`.h`, signed local
+  app install and update, and independent transaction recovery; the source
+  reports 418 cases plus ASan/UBSan passing. Not merged; the independent
+  review result is not reported.
+- Review assumption flagged (to the source and the merge owner, 2026-11-16):
+  whether the final-state system `.nextupd-txn` record masks the app recover.
+  This is an untested assumption, not a confirmed defect, and it is recorded as
+  a review item rather than a finding.
+- Remaining gap kept open: the source provides the on-disk directory shape
+  only; there is no real launcher discovery or launch evidence yet, so that
+  acceptance item is not closed.
+- Status before this delivery (audited and split into three layers; the install
+  layer was not delivered). (1) The stage/verify layer for app packages IS delivered and
   host-verified: manifest plus Ed25519 signature plus per-file SHA-256, ZIP
   path safety (`update_zip.c:231-239` refuses `../`), ZIP64 and symlink
   refusals, capacity and space checks; a committed test seed proved
@@ -1427,8 +1445,14 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner: dispatched implementation thread
   https://ampcode.com/threads/T-01a1e4ce-8cef-71a5-b426-f58e89bc4a39
   (Step Medium; dispatched 2026-11-16 after the owner's confirmation).
-- Status: removal confirmed by the owner and dispatched; no head delivered, so
-  nothing is recorded as done. The owner answered the Space's removal question
+- Status: removal confirmed by the owner, dispatched, and the first pull
+  request is open; not merged. PR #38
+  (https://github.com/4fuu/NextUI/pull/38, branch `remove/pak-store-preinstall`,
+  "Remove the built-in third-party Pak Store download and entry"), head
+  `595a7442ed075b24cf5de6d011ff46620c4a0c04`, base main, OPEN and MERGEABLE per
+  gh with mergeStateStatus UNSTABLE; CI at that head is in progress at the last
+  check (Feature checks push and pull_request, Development/Desktop), so nothing
+  is recorded as passing on it. The owner answered the Space's removal question
   directly: remove it, no need to install it in the machine. Building an own
   store, switching the store index source, and authorizing own store
   repositories are not goals (a removed requirement is a scope change, never
@@ -1533,7 +1557,11 @@ user to decide.
 - Not done: no code change was made, and how much the third-party paks
   depend on the `Roms` layout is unknown.
 - Next: nothing is scheduled from this audit until the user or the schedule
-  thread decides; B1 is the first item that needs a decision.
+  thread decides; B1 is the first item that needs a decision. No audit cleanup
+  is approved, so B1 and the other suggestions are not converted into
+  implementation. The Space has answered its own modification-debt question and
+  is currently asking the user only one thing: whether to clean the
+  achievement-sync residue (the RetroAchievements material in A1) first.
 
 ## Decisions superseded by this schedule
 
