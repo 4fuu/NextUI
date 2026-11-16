@@ -130,13 +130,7 @@ Rules:
   pull_request run per gh while Development/Desktop succeeded; per the merge
   owner the failure is the invalid version placeholder `v0.0.0-ci` (exit 64),
   and the packaging thread is changing it to `v0.0.0` while keeping the tool
-  exec bit and the res assertions. PR #34 (I4 fifth slice: the System, Display
-  and FN switch Off/On rows in Chinese, plus the in-repo i18n fixture value
-  test, branch `i18n/on-off-labels`) is open at head
-  `a6cb5c228975fb35659d6e66b7204b736cd7e2d9` (supersedes
-  `2528d0e23aff90e2348cb272a8efb45a3843904a`; the change content is not yet
-  reported by the source), cut fresh from `origin/main`
-  `d25543b`. Merged
+  exec bit and the res assertions. Merged
   since the last check: PR #27 (U8 transactional update package build, final
   head `c6b5e6f`) merged into main as
   `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh)
@@ -165,7 +159,14 @@ Rules:
   fixture test has since landed as PR #34. PR #30 merged into main as
   `d25543b4b21db9e368fdc8c80fb8dece03a93b57` (2026-11-16T11:55:57Z per gh,
   final head `a51da4b`), and the post-merge runs on `d25543b` (Feature checks,
-  Development/Desktop, and CI) are success per gh. PR #32 stays open and is
+  Development/Desktop, and CI) are success per gh. PR #34 (I4 fifth slice: the
+  System, Display and FN switch Off/On rows in Chinese, plus the in-repo
+  i18n fixture value test, branch `i18n/on-off-labels`, final head
+  `a6cb5c228975fb35659d6e66b7204b736cd7e2d9`) merged into main as
+  `a6f507f04917e0da4c9862bdcba918fe62e37811` (2026-11-16T12:42:20Z per gh);
+  CI at the merged head was green per gh, and on the merge commit Feature
+  checks and Development/Desktop are success per gh while the full CI run is
+  in progress (not recorded as passing). PR #32 stays open and is
   not merged. This
   schedule file's own
   update travels as PR #31. PR #29
