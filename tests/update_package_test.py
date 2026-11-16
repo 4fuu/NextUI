@@ -1088,10 +1088,10 @@ def test_make_target(key_pem, public_key):
         ok("make target system-only installs: .tmp_update untouched")
 
     # A missing boot payload with UPDATE_BOOT=1 must fail loudly, not fall
-    # back to a system-only archive.
+    # back to a system-only archive. Make reports its own exit 2 here.
     missing = os.path.join(fresh("make-target-missing"), "no-tmp-update")
     proc = run(base + ["UPDATE_BOOT_DIR=" + missing], env={"MAKEFLAGS": ""})
-    expect("make target requires the boot payload", proc, 69, "make special")
+    expect("make target requires the boot payload", proc, 2, "make special")
 
 
 def test_rebuild_residue(key_pem, public_key):
