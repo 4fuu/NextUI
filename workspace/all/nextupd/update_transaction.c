@@ -2587,6 +2587,106 @@ static int boot_tree_usable(const char* tree, const char* platform)
     return (status.st_mode & 0111) != 0;
 }
 
+static int boot_compare_trees(const char* source, const char* copy, int depth,
+                              size_t* entries, UpdError* error)
+{
+    struct stat source_status;
+    struct stat copy_status;
+    DIR* directory;
+    struct dirent* entry;
+    int result = 1;
+
+    if (depth > 64 || *entries > 8192)
+    {
+        upd_error_set(error, UPD_E_STATE, "boot_backup_unsafe",
+                      "boot payload tree is too deep or too large");
+        return 0;
+    }
+    if (lstat(source, &source_status) != 0 || lstat(copy, &copy_status) != 0)
+    {
+        upd_error_set(error, UPD_E_STATE, "boot_backup_corrupt",
+                      "boot backup is missing a copied path");
+        return 0;
+    }
+    if (S_ISDIR(source_status.st_mode))
+    {
+        if (!S_ISDIR(copy_status.st_mode))
+        {
+            upd_error_set(error, UPD_E_STATE, "boot_backup_corrupt",
+                          "boot backup is not a directory: %s", copy);
+            return 0;
+        }
+        directory = opendir(source);
+        if (directory == NULL)
+        {
+            upd_error_set(error, UPD_E_IO, "io_error", "cannot open %s: %s", source,
+                          strerror(errno));
+            return 0;
+        }
+        for (;;)
+        {
+            char source_child[PATH_MAX];
+            char copy_child[PATH_MAX];
+
+            errno = 0;
+            entry = readdir(directory);
+            if (entry == NULL)
+            {
+                if (errno != 0)
+                {
+                    upd_error_set(error, UPD_E_IO, "io_error", "cannot read %s: %s", source,
+                                  strerror(errno));
+                    result = 0;
+                }
+                break;
+            }
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+                continue;
+            if (depth == 0 && strcmp(entry->d_name, "staging") == 0) continue;
+            if (!join_path(source_child, sizeof source_child, source, entry->d_name, error)
+                || !join_path(copy_child, sizeof copy_child, copy, entry->d_name, error)
+                || !boot_compare_trees(source_child, copy_child, depth + 1, entries,
+                                       error))
+            {
+                result = 0;
+                break;
+            }
+        }
+        closedir(directory);
+        return result;
+    }
+    if (S_ISREG(source_status.st_mode))
+    {
+        unsigned char source_digest[UPD_SHA256_BYTES];
+        unsigned char copy_digest[UPD_SHA256_BYTES];
+        uint64_t source_size = 0;
+        uint64_t copy_size = 0;
+
+        if (!S_ISREG(copy_status.st_mode))
+        {
+            upd_error_set(error, UPD_E_STATE, "boot_backup_corrupt",
+                          "boot backup is not a regular file: %s", copy);
+            return 0;
+        }
+        if (!upd_hash_file(source, source_digest, &source_size, UPD_MAX_FILE_BYTES, error)
+            || !upd_hash_file(copy, copy_digest, &copy_size, UPD_MAX_FILE_BYTES, error))
+            return 0;
+        if (source_size != copy_size
+            || memcmp(source_digest, copy_digest, UPD_SHA256_BYTES) != 0
+            || (source_status.st_mode & 0777) != (copy_status.st_mode & 0777))
+        {
+            upd_error_set(error, UPD_E_STATE, "boot_backup_corrupt",
+                          "boot backup does not match the live payload: %s", copy);
+            return 0;
+        }
+        (*entries)++;
+        return 1;
+    }
+    upd_error_set(error, UPD_E_UNSAFE, "boot_backup_unsafe",
+                  "refusing to compare special file %s", source);
+    return 0;
+}
+
 static int boot_backup_live(const UpdPaths* paths, UpdError* error)
 {
     struct stat status;
@@ -2607,6 +2707,12 @@ static int boot_backup_live(const UpdPaths* paths, UpdError* error)
     }
     remove_tree_quiet(paths->boot_backup);
     if (!boot_copy_tree(paths->boot_live, paths->boot_backup, 0, &entries, error))
+    {
+        remove_tree_quiet(paths->boot_backup);
+        return 0;
+    }
+    entries = 0;
+    if (!boot_compare_trees(paths->boot_live, paths->boot_backup, 0, &entries, error))
     {
         remove_tree_quiet(paths->boot_backup);
         return 0;
