@@ -1849,10 +1849,13 @@ as they happen; nothing is reported as passing without a run.
   because the required checks on the new head are still running); `gh pr view
   31` and `git ls-remote origin refs/pull/31/head` agree, so the updates do
   reach PR #31 and no other pull request is created or closed over an older
-  reading. The head is now `3ccc1ea`, the normal merge of `origin/main`
-  `1b73667` (which also brought main's own F3 status update from the cleanup
-  pull request), OPEN and MERGEABLE per gh (UNSTABLE only because the
-  required checks on the new head are still running). The merge of
+  reading. At that check the head was `3ccc1ea`, the normal merge of
+  `origin/main` `1b73667` (which also brought main's own F3 status update from
+  the cleanup pull request), OPEN and MERGEABLE per gh (UNSTABLE only because
+  the required checks on the new head were still running); the head then
+  advances with each real-change commit on the same branch, and `gh pr view
+  31` plus `git ls-remote origin refs/pull/31/head` are the ground truth for
+  the current head. The merge of
   `4c5398f` produced one conflict in this file: main's copy still carried the
   old "F4 — Pak Store single-sourcing" entry, which PR #38's commit `052a72b`
   had updated, while this schedule had already replaced it with the
