@@ -45,6 +45,7 @@ endif
 	cd ./$(PLATFORM)/libmsettings && make
 	cd ./$(PLATFORM) && make early # eg. other libs
 	cd ./$(PLATFORM)/keymon && make
+	cd ./all/libs/ && make
 	cd ./all/nextui/ && make
 	cd ./all/battery/ && make
 	cd ./all/clock/ && make
@@ -94,6 +95,7 @@ ifeq ($(PLATFORM), h700)
 endif
 endif
 	cd ./$(PLATFORM)/libmsettings && make clean
+	cd ./all/libs/ && make clean
 	cd ./all/nextui/ && make clean
 	cd ./all/battery/ && make clean
 	cd ./all/clock/ && make clean

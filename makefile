@@ -112,6 +112,12 @@ endif
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
 	cp ./workspace/all/bootlogo/build/$(PLATFORM)/bootlogo.elf ./build/EXTRAS/Tools/$(PLATFORM)/Bootlogo.pak/
 endif
+ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
+	# Audio resampling. api.c resamples through libsamplerate, so every binary
+	# that links api.c (and devserv, and the Apostrophe co-render harness) has a
+	# NEEDED entry for it. The desktop platform resolves it from the host.
+	cp ./workspace/all/libs/build/$(PLATFORM)/libsamplerate.so.* ./build/SYSTEM/$(PLATFORM)/lib/
+endif
 common: build system
 	
 clean:
