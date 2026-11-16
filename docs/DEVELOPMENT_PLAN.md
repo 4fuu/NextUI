@@ -1306,23 +1306,27 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e4aa-91b9-766e-bc8d-71ea9189e7d4
   (Step Medium; dispatched 2026-11-16; first head delivered 2026-11-16 14:57
   as PR #37, open and not merged).
-- Status: first head delivered and open; source-verified, awaiting the merge
+- Status: a new head is delivered and open; source-verified, awaiting the merge
   owner's independent verification, so this is not acceptance-complete. PR #37
   (https://github.com/4fuu/NextUI/pull/37, branch `app-install-transaction`),
-  head `51ced40a6b83ecb703a30ec24a7e0abfb43e8e13` (supersedes
+  head `4ac962397513bfa9c72a5058f2f63f5c95263454` (supersedes
+  `51ced40a6b83ecb703a30ec24a7e0abfb43e8e13`,
   `00217d546b4194b79d91eaf9aac86d7e0ff66ba5` and
   `117bc578663cdff3a7ed2dc4807079f0b10473a1`, whose CI was green per gh), OPEN,
   MERGEABLE and CLEAN per gh; CI at this head is green per gh (Feature checks
-  push and pull_request, Development/Desktop), and the source reports 435
-  passed / 0 failed with the app suite at 79 and ASan/UBSan the same. The
-  independent review FAILED this head (merge owner, 2026-11-16 15:31; a review
+  push and pull_request, with Host tests and the tg5040 target build inside,
+  and Development/Desktop), and the source reports 441
+  passed / 0 failed with the app suite at 85 and ASan/UBSan the same. The
+  source claims this head fixes the three items the independent review FAILED
+  at `51ced40` (merge owner, 2026-11-16 15:31; a review
   FAIL outranks a green source CI): an install whose target is `universal` is
-  accepted, yet the transaction is then not recoverable and the launcher does
-  not scan it; a committed app record stays permanently pending, and after the
-  user deletes the app a plain `recover` reports `state_invalid` and can make
-  boot refuse to start; and the fsync target directory is suspected to be
-  wrongly set to root, pending the source's verification. The merge owner has
-  sent the fix to the source directly. This is a separate defect from the
+  now pre-rejected; a terminal-state committed app record makes a plain
+  `recover` a no-op and `txn_present` ignores a terminal state, so a corrupt
+  record fails closed while the explicit app rollback is preserved; and the
+  live rename now fsyncs `Tools/<platform>` rather than the directory the
+  review suspected was wrongly root. These remain source claims with no
+  independent review result yet, so nothing is written as accepted and the FAIL
+  at `51ced40` stands recorded below. This is a separate defect from the
   manual-rollback one above and from the earlier auto-coexistence assumption.
   Not merged. It adds
   an independent `update_app.{h,c}` pair
