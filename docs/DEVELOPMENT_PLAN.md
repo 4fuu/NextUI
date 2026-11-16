@@ -72,11 +72,12 @@ Rules:
   `feature/updater-manifest` (I6) is pushed to origin at head `8afab34` with no
   PR open yet.
 - CI infrastructure: PR #3 (`ci/feature-checks`) merged as `684260d` adds the
-  Feature checks workflow, which runs the host test suite and a real tg5040
-  cross-compile on branch pushes and pull requests; packaging and attestation
-  remain main-only. Per the CI/merge owner, PR #3's own runs passed (host
-  tests, tg5040, desktop macOS/Linux). PR #5 (`integration/batch7` -> `main`)
-  is open with Feature checks running and is not merged.
+  Feature checks workflow (`.github/workflows/test.yaml`), which runs the host
+  test suite and a real tg5040 cross-compile on every branch push and pull
+  request; packaging and attestation remain main-only (ci.yaml/release.yaml).
+  Per the CI/merge owner, PR #3's own runs passed (host tests, tg5040, desktop
+  macOS/Linux). PR #5 (`integration/batch7` -> `main`) is open with Feature
+  checks running and is not merged.
 - Target compile: tg5040 passes on batch7; the runtime branch
   (`be88c2028196d5249e8819adba07bcd4e7fc7a4c`) has a formal PASS from the
   toolchain thread (own verification, not cloud CI); `feature/updater-manifest`
@@ -500,9 +501,11 @@ as they happen; nothing is reported as passing without a run.
   the PR diff stays docs-only and the Feature checks workflow runs on it.
   Pushed to origin and delivered as pull request #2
   (https://github.com/4fuu/NextUI/pull/2) into `integration/batch7`.
-- CI on PR #2 (as of 2026-11-16): Development/Desktop runs completed with
-  success (macOS and Linux); the device CI runs are still in progress. A job
-  that has not finished is never recorded as passing.
+- CI on PR #2 (as of 2026-11-16): after merging the batch7 baseline, the
+  Feature checks workflow (`.github/workflows/test.yaml`) and
+  Development/Desktop are running on `2ec3468`; earlier Development/Desktop
+  runs completed with success. A job that has not finished is never recorded as
+  passing.
 - Handover: the CI/merge owner will retarget PR #2 to `main` after PR #5
   (`integration/batch7` -> `main`) merges, and merge it after checks pass. This
   thread performs no merges into main.
