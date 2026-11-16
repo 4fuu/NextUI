@@ -1,5 +1,9 @@
 #include "keyboardprompt.hpp"
 
+extern "C" {
+#include "i18n.h"
+}
+
 constexpr int keyboardRows = 5;
 constexpr int keyboardColumns = 14;
 // keyboard_layout_lowercase is the default keyboard layout
@@ -292,6 +296,18 @@ int KeyboardPrompt::adjustOffsetEnterLastRow(int offset, int col, int center)
         return offset;
 }
 
+// The special keys are matched by name elsewhere in this file, so only their
+// caption is translated; the layout tables keep the English identifiers.
+static std::string keyCaption(const std::string &key)
+{
+    if (key != "shift" && key != "space" && key != "enter")
+        return key;
+    // Copy the result: TR() falls back to the key itself, which for a literal
+    // argument would dangle once this function returns.
+    const char *translated = TR(key.c_str());
+    return translated ? std::string(translated) : key;
+}
+
 const KeyboardLayout &KeyboardPrompt::getCurrentLayout(const AppState &state)
 {
     if (state.keyboard.layout == 0)
@@ -315,7 +331,7 @@ void KeyboardPrompt::drawKeyboard(SDL_Surface *screen, const AppState &state)
     const auto key = currentLayout->at(state.keyboard.row).at(state.keyboard.col);
 
     // draw the button group on the button-right
-    char *hints[] = {(char *)("Y"), (char *)("EXIT"), (char *)("X"), ((char *)"ENTER"), NULL};
+    char *hints[] = {(char *)("Y"), (char *)TR("EXIT"), (char *)("X"), (char *)TR("ENTER"), NULL};
     GFX_blitButtonGroup(hints, 1, screen, 1);
 
     // draw keyboard title
@@ -372,9 +388,9 @@ void KeyboardPrompt::drawKeyboard(SDL_Surface *screen, const AppState &state)
     // so we need to compute their width separately
     // compute them here to avoid doing it conditionally for each row
     int shift_width, space_width, enter_width;
-    TTF_SizeUTF8(font.medium, "shift", &shift_width, NULL);
-    TTF_SizeUTF8(font.medium, "space", &space_width, NULL);
-    TTF_SizeUTF8(font.medium, "enter", &enter_width, NULL);
+    TTF_SizeUTF8(font.medium, keyCaption("shift").c_str(), &shift_width, NULL);
+    TTF_SizeUTF8(font.medium, keyCaption("space").c_str(), &space_width, NULL);
+    TTF_SizeUTF8(font.medium, keyCaption("enter").c_str(), &enter_width, NULL);
     int special_key_width = std::max(shift_width, std::max(space_width, enter_width)) + (column_spacing * 4);
 
     for (int row = 0; row < num_rows; row++)
@@ -409,7 +425,8 @@ void KeyboardPrompt::drawKeyboard(SDL_Surface *screen, const AppState &state)
                 continue;
 
             SDL_Color text_color = (row == state.keyboard.row && col == state.keyboard.col) ? COLOR_BLACK : COLOR_WHITE;
-            SDL_Surface *key_text = TTF_RenderUTF8_Blended(font.medium, key.c_str(), text_color);
+            const std::string caption = keyCaption(key);
+            SDL_Surface *key_text = TTF_RenderUTF8_Blended(font.medium, caption.c_str(), text_color);
 
             // special keys are not the same width as the other keys
             // so we need to compute their width separately
