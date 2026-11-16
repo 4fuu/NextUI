@@ -5,12 +5,13 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `b506dbd` (merge of PR #6
-  `backend-display-audio`; fetched 2026-11-16). Earlier landing points on main:
+- Baseline: `origin/main` @ `3a50fe8` (merge of PR #1
+  `runtime-fn-actions`; fetched 2026-11-16). Earlier landing points on main:
   PR #5 (`201526c`, batch7 line @ `684260d`), this schedule file (PR #2,
-  `59a63e6`), the updater staging module (PR #7, `bdab39e`), and the LED/boot
-  localization (PR #4, `dea1f2d`); `de69781` is an ancestor of all of them.
-  Later updates branch from `origin/main`.
+  `59a63e6`), the updater staging module (PR #7, `bdab39e`), the LED/boot
+  localization (PR #4, `dea1f2d`), the display/audio backend module (PR #6,
+  `b506dbd`), and the runtime line (PR #1, `3a50fe8`); `de69781` is an ancestor
+  of all of them. Later updates branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -73,10 +74,9 @@ Rules:
   localization (PR #4, `dea1f2d`); the display/audio backend module (PR #6,
   `b506dbd`); and this schedule file (PR #2, `59a63e6`).
 - Host-done, unpushed: the settings i18n branch (I4, `i18n/settings-pages`)
-  only. `runtime-fn-actions` (I1) is pushed as draft PR #1 (based on `main`) at
-  head `ae4309f`, which carries the display/audio devserv wiring but predates
-  `b506dbd`; `feature/updater-manifest` (I6), `localization-ledcontrol-boot`
-  (I5), and the display/audio backend module (PR #6) are merged into main.
+  only. The runtime line (I1) merged into main as `3a50fe8`; the updater
+  staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
+  and the display/audio backend module (PR #6, `b506dbd`) are on main as well.
 - CI infrastructure: the Feature checks workflow
   (`.github/workflows/test.yaml`) runs the host test suite and a real tg5040
   cross-compile on every branch push and pull request; packaging and
@@ -88,7 +88,9 @@ Rules:
   Development/Desktop: success per the source; it predates `b506dbd`). Main
   landings: `201526c` full-platform packaging success and `bdab39e` success;
   `dea1f2d` and `b506dbd` runs were still in progress at the last check — a run
-  that has not finished is never recorded as passing.
+  that has not finished is never recorded as passing. Main @ `3a50fe8` has its
+  full-platform runs (Development/Desktop, Feature checks, CI) still in
+  progress at the last check.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -103,39 +105,33 @@ Rules:
 
 ### I1 — Runtime FN actions, app exit, Clock adapter, default-allow policy
 - Owner thread: https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
-- State: pushed to origin. Branch `runtime-fn-actions`; remote HEAD (verified
-  against origin and PR #1 headRefOid, 2026-11-16) is
-  `ae4309f7d94d321dbdb0977eb408f9f8da96a860` "Cover stale session ownership in
-  the launch fixture", which carries the display/audio devserv wiring merge
-  `763cefa`, a merge of an earlier main `86b9ebc`, and the earlier HOME mapping
-  fix `3e66705` and `-lrt` fix `b46227ac` on top of
-  `be88c2028196d5249e8819adba07bcd4e7fc7a4c` (the commit the toolchain PASS in
-  I2 covers). The head predates `b506dbd` (verified: it does not contain it):
-  the branch has integrated the display/audio devserv wiring and race tests,
-  and the final candidate will merge `b506dbd` again before the owner's final
-  joint check. Delivered as draft PR #1
-  (https://github.com/4fuu/NextUI/pull/1), based on `main`; PR state OPEN,
-  draft, GitHub reports mergeable CONFLICTING. Still awaiting the independent
-  review verdict (I3); HOME/js0 remains OPEN. Not merged; the merge decision
-  belongs to the CI/merge owner after real CI and review pass. No status is
-  upgraded without executed evidence.
+- State: merged into main. PR #1 (`runtime-fn-actions` -> `main`) merged as
+  `3a50fe8`; final head `739595450e774b032e6c37f54dc5ee8e19f4b43d`, tree
+  `8ee56a41` (per the CI/merge owner). The independent review (I3) returned a
+  formal PASS with no must-fix items; HOME/js0 remains OPEN and N1/N2 are
+  recorded as residual risks. That head's Feature checks were all green (Host
+  tests, build-linux, build-macos, tg5040 target build). Main @ `3a50fe8` has
+  its full-platform runs still in progress at the last check, so no pass is
+  recorded for the merge itself.
 - Covers: C4 exit/force-exit path (never removes `/tmp/nextui_exec`), B6 Clock
-  as the reference adapted pak, and the install-default-highest-permission
-  policy (legacy grant store only behind `--require-grants`).
-- Not covered: HOME key mapping. `be88c20`'s SDL joystick path does not make
-  HOME work; the old SDL-only implementation is not HOME-complete. See I7.
+  as the reference adapted pak, the install-default-highest-permission
+  policy (legacy grant store only behind `--require-grants`), the HOME mapping
+  fix (I7), and the display/audio devserv wiring (R1/R2) together with race
+  tests.
+- Not covered: real-machine verification. The HOME/js0 gap is recorded as OPEN
+  by the review (the mapping fix `3e66705` is in, device behavior unverified),
+  and N1/N2 remain residual risks.
 - Depends on: nothing beyond the baseline.
 - Delivery/verification: source-thread self-test reported green (host suite,
-  desktop build); independent review checks still pending — keymon forwards FN
-  without grabbing app input; late requests rejected by session generation;
-  adapted HOME drawn only by the app; one exit per FN2 press; parent
-  supervision SIGTERM/1500 ms/SIGKILL and C2/C3 restore; no arbitrary client
-  PID accepted; no killing of new sessions, other apps, or the desktop. Formal
-  PASS reports from I2/I3 are outstanding.
-- Next: the source thread resolves the PR #1 base delta with `main`; the
-  CI/merge owner decides the merge after CI and the I3 review conclude. The
-  earlier macOS `-lrt` failure is fixed by `b46227ac`, and the HOME mapping fix
-  (`3e66705`) rides on the same branch as I7's increment.
+  desktop build); the toolchain thread confirmed the `be88c2028...` tree with a
+  formal PASS (I2); the independent review (I3) returned a formal PASS with no
+  must-fix items, recording HOME/js0 as OPEN and N1/N2 as residual risks; the
+  final head's Feature checks were all green. Main @ `3a50fe8` full-platform
+  runs were still in progress at the last check.
+- Next: residual risks stay on the record (HOME/js0 OPEN, N1/N2); real-machine
+  behavior for the runtime line and the R1/R2 backends is verified in the V1
+  batch. The earlier macOS `-lrt` failure is fixed by `b46227ac`, and the HOME
+  mapping fix (`3e66705`) shipped in the same PR #1.
 
 ### I2 — Toolchain target compile of the runtime branch
 - Owner: retained toolchain-target thread (tg5040 cross-build).
@@ -228,12 +224,11 @@ Rules:
 
 ### I7 — HOME input mapping fix (new task after `be88c20`)
 - Owner thread: https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
-- State: fix landed on the runtime branch. Commit `3e66705` "Map the real HOME
-  key and wire the desktop overlay" rides on `runtime-fn-actions` head
-  `d7443da`, whose Feature checks and Development/Desktop runs are green.
+- State: fix shipped in PR #1 (merged as `3a50fe8`). Commit `3e66705` "Map the
+  real HOME key and wire the desktop overlay" is part of final head `73959545`.
   Real-machine status stays unverified: no further physical key presses are
-  scheduled (owner decision), so the fix waits for the V1 batch or a replay
-  fixture on device.
+  scheduled (owner decision), and the review records HOME/js0 as OPEN, so the
+  fix waits for the V1 batch or a replay fixture on device.
 - Evidence (ADB thread, batch2-1 `ee0eee7`): `/dev/input/event3` records five
   complete `KEY_HOMEPAGE` (172) press/release events, but `js0` exports only 11
   buttons (0-10) and HOME never appears as a button event. `platform.h` expects
@@ -292,8 +287,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Honest degradation: desktop display stays `unavailable`; responses carry
   `verified:"settings","hardware_ack":false` — a void setter cannot prove the
   physical effect, so no physical brightness claim is made.
-- Next: the devserv wiring rides on the runtime combo (see I1, `ae4309f`,
-  awaiting its merge-main and the final joint check); real-machine behavior in
+- Next: the devserv wiring shipped inside PR #1 (merged as `3a50fe8`, final
+  head `73959545`, review PASS with HOME/js0 OPEN); real-machine behavior in
   V1.
 
 #### R2 — Audio backend (volume, sink, mute where the switch exists)
@@ -314,9 +309,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   source only in `devserv.c` and `devserv/makefile`) produced an AArch64
   `devserv.elf` (142,104 B, sha256 10b402f3..., NEEDED libmsettings.so) and
   packaged successfully — compile/link evidence only, no real machine.
-- Next: the runtime combo at `ae4309f` carries the wiring but predates
-  `b506dbd`; the runtime thread merges main and reports a new SHA for the
-  final joint check. Real-machine acceptance in V1.
+- Next: the runtime combo's wiring shipped inside PR #1 (merged as `3a50fe8`);
+  real-machine acceptance in V1.
 
 #### R3 — Rumble backend (input.rumble)
 - Owner: new backend thread.
