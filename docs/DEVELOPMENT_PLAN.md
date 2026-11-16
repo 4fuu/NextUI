@@ -1229,8 +1229,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   closed.
 - Delivery/verification: isolated-root tests for the version contract and the
   interrupted-group failure path, plus an independent pull request; a run
-  without a pull request is not a delivery. At this head the atomic-output
-  suite is 36/36 and fails 6 against the pre-fix script.
+  without a pull request is not a delivery. At the merged head the
+  atomic-output suite is 55/55 (it was 36/36 at `ed7b9de` and fails 6 against
+  the pre-fix script) and `test-update-package` is 132 passed / 0 failed.
 - Next: the only remaining gate for this workstream is the bootstrap version
   policy -- an owner decision among the three documented options (a real
   version source, an explicit legacy mapping, or a one-time migration), with no
