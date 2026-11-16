@@ -60,6 +60,55 @@ jobs:
           test -f workspace/all/devserv/build/tg5040/devserv.elf
           test -f workspace/all/nextdev/build/tg5040/nextdev.elf
 
+      # Transactional update package content, reusing the tree built above.
+      # Test-only: the archive is unsigned, the version is a placeholder, and
+      # nothing is published.
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zip zlib1g-dev
+
+      - name: Stage the system and boot payload
+        run: |
+          make system PLATFORM=tg5040
+          make special
+
+      - name: Package the transactional update archive
+        run: |
+          # The toolchain container built workspace/ as root, so the host
+          # nextupd build needs a writable build directory.
+          sudo mkdir -p workspace/all/nextupd/build/desktop
+          sudo chown -R "$(id -u):$(id -g)" workspace/all/nextupd/build
+          make update-package PLATFORM=tg5040 UPDATE_VERSION=v0.0.0
+
+      # The content contract on the archive this job built: exact roots, the
+      # device layout, executable boot tools, and every shared resource file
+      # with its hash against skeleton/SYSTEM/res. Directory entries in the ZIP
+      # are not files and do not count toward the 68 resources.
+      - name: Verify package content
+        run: |
+          python3 scripts/verify_update_package.py \
+            --archive releases/nextui-system-tg5040.zip \
+            --platform tg5040 \
+            --version v0.0.0 \
+            --res-source skeleton/SYSTEM/res \
+            --expect-res-count 68
+
+      # A content check that accepts everything would pass the step above, so
+      # each defect is injected into a copy of the real archive and must be
+      # rejected: a missing boot tool, a non-executable boot tool, a missing or
+      # changed resource, a wrong layout, a missing launcher, and a bootstrap
+      # root the installer refuses.
+      - name: Verify the content check rejects defective packages
+        run: |
+          python3 tests/verify_update_package_negative_test.py \
+            --archive releases/nextui-system-tg5040.zip \
+            --verifier scripts/verify_update_package.py \
+            --platform tg5040 \
+            --version v0.0.0 \
+            --res-source skeleton/SYSTEM/res \
+            --expect-res-count 68
+
       - name: Upload target binaries
         uses: actions/upload-artifact@v7.0.2
         with:

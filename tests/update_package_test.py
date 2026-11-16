@@ -16,8 +16,9 @@ Coverage:
   - the installed tree keeps the device layout (.system/<platform>/bin/nextui.elf
     and paks/MinUI.pak/launch.sh exist after install), which is what the boot
     scripts launch
-  - the shared resource tree ships and survives install: the live
-    .system/res/font3.ttf is the packaged file and the previous tree lands in
+  - the shared resource tree ships and survives install in full: every file of
+    the repository's skeleton/SYSTEM/res is in the archive with its hash, and
+    the live .system/res matches after install with the previous tree in
     .system.bak, because install replaces the whole .system
   - .system/version.txt, the manifest version, the archive hash and the file
     hashes agree, and a tampered or renamed archive is rejected
@@ -339,6 +340,17 @@ def tree_state(root):
     return entries
 
 
+def res_expectations():
+    """{archive path: sha256} for the repository's real shared resource tree."""
+    expected = {}
+    for directory, _dirs, files in os.walk(REAL_RES):
+        for name in files:
+            path = os.path.join(directory, name)
+            relative = os.path.relpath(path, REAL_RES).replace(os.sep, "/")
+            expected[".system/res/" + relative] = sha256_file(path)
+    return expected
+
+
 def assert_installed_res(name, target, archive, label):
     """After an install the live .system/res is the packaged resource tree.
 
@@ -346,21 +358,30 @@ def assert_installed_res(name, target, archive, label):
     silently delete the device's fonts and icons; the previous tree must end up
     in .system.bak instead.
     """
-    with zipfile.ZipFile(archive) as handle:
-        expected = handle.read(".system/res/font3.ttf")
-    live = os.path.join(target, ".system", "res", "font3.ttf")
-    if not os.path.isfile(live) or open(live, "rb").read() != expected:
-        fail(name, "the live .system/res/font3.ttf is not the packaged one")
+    expected = res_expectations()
+    live_root = os.path.join(target, ".system", "res")
+    live = {}
+    if os.path.isdir(live_root):
+        for directory, _dirs, files in os.walk(live_root):
+            for name in files:
+                path = os.path.join(directory, name)
+                relative = os.path.relpath(path, live_root).replace(os.sep, "/")
+                live[".system/res/" + relative] = sha256_file(path)
+    if live != expected:
+        missing = sorted(set(expected) - set(live))[:3]
+        extra = sorted(set(live) - set(expected))[:3]
+        changed = [path for path in expected
+                   if path in live and live[path] != expected[path]][:3]
+        fail(name, "the live .system/res does not match the packaged tree "
+                   "(missing %s, extra %s, changed %s)" % (missing, extra, changed))
         return False
-    if os.path.exists(os.path.join(target, ".system", "res", "old-marker.txt")):
-        fail(name, "the live .system/res still holds the previous tree")
-        return False
+    ok("%s: the full live .system/res matches the packaged tree (%d files)"
+       % (label, len(expected)))
     backup = os.path.join(target, ".system.bak", "res", "old-marker.txt")
     if not os.path.isfile(backup) or open(backup, "rb").read() != b"old res\n":
         fail(name, ".system.bak does not hold the previous resource tree")
         return False
-    ok("%s: live .system/res is the packaged tree, previous tree in .system.bak"
-       % label)
+    ok("%s: the previous resource tree is in .system.bak" % label)
     return True
 
 
@@ -456,12 +477,23 @@ def assert_archive_shape(name, archive, expect_boot, platform=PLATFORM):
             return None
     ok("%s: shared libsamplerate and libz survive packaging" % name)
 
-    # The shared resource tree ships: install replaces the whole .system, so a
-    # package without .system/res would delete the device's fonts and icons.
-    if ".system/res/font3.ttf" not in content:
-        fail(name, "shared resource tree .system/res is missing from the archive")
+    # The shared resource tree ships in full: install replaces the whole
+    # .system, so a package without .system/res would delete the device's
+    # fonts and icons.
+    expected_res = res_expectations()
+    missing = [path for path in expected_res if path not in content]
+    if missing:
+        fail(name, "shared resource tree .system/res is incomplete "
+                   "(missing %s of %d)" % (missing[:3], len(expected_res)))
         return None
-    ok("%s: shared .system/res resources ship" % name)
+    changed = [path for path, digest in expected_res.items()
+               if sha256_bytes(content[path]) != digest]
+    if changed:
+        fail(name, "shared resource files differ from the repository's "
+                   "(%s)" % changed[:3])
+        return None
+    ok("%s: the full shared .system/res tree ships (%d files)"
+       % (name, len(expected_res)))
 
     # Device shape: the boot scripts look for the launcher under
     # .system/<platform>/paks/MinUI.pak/launch.sh.
@@ -1206,6 +1238,24 @@ def test_make_target(key_pem, public_key):
     missing = os.path.join(fresh("make-target-missing"), "no-tmp-update")
     proc = run(base + ["UPDATE_BOOT_DIR=" + missing], env={"MAKEFLAGS": ""})
     expect("make target requires the boot payload", proc, 2, "make special")
+
+    # An empty resource directory fails loudly too: install would otherwise
+    # replace the device's whole .system/res with nothing.
+    empty_res = os.path.join(fresh("make-target-empty-res"), "res")
+    os.makedirs(empty_res, exist_ok=True)
+    proc = run(base + ["UPDATE_RES_DIR=" + empty_res], env={"MAKEFLAGS": ""})
+    expect("make target refuses an empty res", proc, 2, "shared resource tree")
+
+    # A spaced output directory works through the make target as well.
+    spaced = os.path.join(fresh("make-target-spaced"), "out dir")
+    proc = run(base + ["UPDATE_OUT_DIR=" + spaced, "UPDATE_BOOT=0"],
+               env={"MAKEFLAGS": ""})
+    if not expect("make target with a spaced out-dir", proc, 0):
+        return
+    if not os.path.isfile(os.path.join(spaced, "nextui-system-%s.zip" % PLATFORM)):
+        fail("make target with a spaced out-dir", "no archive in the spaced directory")
+    else:
+        ok("make target with a spaced out-dir")
 
 
 def test_rebuild_residue(key_pem, public_key):
