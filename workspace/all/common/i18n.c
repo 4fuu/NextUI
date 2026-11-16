@@ -41,8 +41,6 @@ static const I18nEntry zhTable[] = {
     {"FN switch settings", "FN 开关设置"},
     {"Assignments", "按键分配"},
     {"Customize button assignments", "自定义按键功能"},
-    {"In-Game", "游戏内"},
-    {"In-game settings for MinArch", "MinArch 的游戏内设置"},
     {"Network", "网络"},
     {"Bluetooth", "蓝牙"},
     {"About", "关于"},
