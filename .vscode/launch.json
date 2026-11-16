@@ -43,18 +43,6 @@
       "envFile": "${workspaceFolder}/.env_desktop"
     },
     {
-      "name": "App: Gametime",
-      "request": "launch",
-      "type": "cppdbg",
-      "osx": {
-        "MIMode": "lldb"
-      },
-      "cwd": "${workspaceFolder}/workspace/all/gametime/build/desktop",
-      "program": "${workspaceFolder}/workspace/all/gametime/build/desktop/gametime.elf",
-      "preLaunchTask": "make desktop",
-      "envFile": "${workspaceFolder}/.env_desktop"
-    },
-    {
       "name": "App: Clock",
       "request": "launch",
       "type": "cppdbg",
@@ -65,22 +53,6 @@
       "program": "${workspaceFolder}/workspace/all/clock/build/desktop/clock.elf",
       "preLaunchTask": "make desktop",
       "envFile": "${workspaceFolder}/.env_desktop"
-    },
-    {
-      "name": "App: Gametimectl",
-      "request": "launch",
-      "type": "cppdbg",
-      "osx": {
-        "MIMode": "lldb"
-      },
-      "cwd": "${workspaceFolder}/workspace/all/gametimectl/build/desktop",
-      "program": "${workspaceFolder}/workspace/all/gametimectl/build/desktop/gametimectl.elf",
-      "preLaunchTask": "make desktop",
-      "envFile": "${workspaceFolder}/.env_desktop",
-      "args": [
-        "start",
-        "foo.txt"
-      ]
     },
     {
       "name": "App: Settings",

@@ -179,11 +179,14 @@ def build_sandbox(work):
     os.chmod(os.path.join(repo, "commits.sh"), 0o755)
 
     base = os.path.join(repo, "build", "BASE")
-    for name in ("Bios", "Roms", "Saves", "Shaders", "Overlays", "trimui", "h700"):
+    # Shaders and em_ui.sh used to be stubbed here because the base zip
+    # recipe named them; they produce nothing and were removed as stale
+    # entries, so the package no longer carries them.
+    for name in ("Bios", "Roms", "Saves", "Overlays", "trimui", "h700"):
         os.makedirs(os.path.join(base, name))
         with open(os.path.join(base, name, ".keep"), "w") as handle:
             handle.write("stub\n")
-    for name in ("em_ui.sh", "README.txt"):
+    for name in ("README.txt",):
         with open(os.path.join(base, name), "w") as handle:
             handle.write("stub\n")
     # The real tg5040 Bluetooth upgrade pakz, staged by
@@ -293,7 +296,7 @@ def test_package_downloads_nothing():
             fail("the base package keeps shipping the Bluetooth upgrade pak",
                  "nextui.upgrade_bluez.tg5040.pakz missing from %s" % base_zips[0])
             return
-        for expected in ("Bios/", "Roms/", "Saves/", "em_ui.sh", "MinUI.zip", "README.txt"):
+        for expected in ("Bios/", "Roms/", "Saves/", "MinUI.zip", "README.txt"):
             if expected not in names:
                 fail("the base package keeps its generic content",
                      "%s missing from %s" % (expected, base_zips[0]))

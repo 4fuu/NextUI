@@ -11,8 +11,13 @@
 # The font (skeleton/SYSTEM/res/font3.ttf) already covers every character used
 # here, so no rebuild is needed; regenerate this file only after a wording
 # change and report any new character before shipping.
+#
+# 2026-11-16: dropped the 12 dead save-format / save-state-format / Retroarch
+# option i18n keys left orphaned by the built-in emulator removal (276 -> 264),
+# removed together with the RetroAchievements dead cluster. a3-zh is left as the
+# frozen audit snapshot and still lists those characters.
 
-# ---- values (276) ----
+# ---- values (264) ----
 最近游玩
 最近
 收藏
@@ -191,12 +196,6 @@ FN 开关关闭 LED
 通过网络时间协议（NTP）自动调整系统时间（需要联网）
 时区
 您所在的时区
-存档格式
-MinUI：Game.gba.sav，Retroarch：Game.srm，通用：Game.sav
-即时存档格式
-MinUI：st0，类 Retroarch：state.0，Retroarch：state0
-使用解压文件名
-使用解压文件名而非压缩包名。仅对不支持压缩包的内核生效。
 安全关机
 绕过原厂关机流程以避免“limbo bug”，直接指示 PMIC 软断开电池。
 USB 连接时保持唤醒
@@ -207,12 +206,6 @@ USB 连接时保持唤醒
 内容列表
 游戏切换器
 快捷菜单
-MinUI（默认）
-Retroarch（压缩）
-Retroarch（未压缩）
-类 Retroarch（压缩）
-类 Retroarch（未压缩）
-通用
 性能
 标准
 安静

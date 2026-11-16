@@ -95,19 +95,6 @@ void CFG_defaults(NextUISettings *cfg)
         .notifyScreenshot = CFG_DEFAULT_NOTIFY_SCREENSHOT,
         .notifyAdjustments = CFG_DEFAULT_NOTIFY_ADJUSTMENTS,
         .notifyDuration = CFG_DEFAULT_NOTIFY_DURATION,
-
-        .raEnable = CFG_DEFAULT_RA_ENABLE,
-        .raUsername = CFG_DEFAULT_RA_USERNAME,
-        .raPassword = CFG_DEFAULT_RA_PASSWORD,
-        .raHardcoreMode = CFG_DEFAULT_RA_HARDCOREMODE,
-        .raToken = CFG_DEFAULT_RA_TOKEN,
-        .raServerUsername = CFG_DEFAULT_RA_SERVER_USERNAME,
-        .raAuthenticated = CFG_DEFAULT_RA_AUTHENTICATED,
-        .raShowNotifications = CFG_DEFAULT_RA_SHOW_NOTIFICATIONS,
-        .raShowChallengeIndicators = CFG_DEFAULT_RA_SHOW_CHALLENGE_INDICATORS,
-        .raNotificationDuration = CFG_DEFAULT_RA_NOTIFICATION_DURATION,
-        .raProgressNotificationDuration = CFG_DEFAULT_RA_PROGRESS_NOTIFICATION_DURATION,
-        .raAchievementSortOrder = CFG_DEFAULT_RA_ACHIEVEMENT_SORT_ORDER,
     };
 
     *cfg = defaults;
@@ -552,74 +539,6 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
             if (sscanf(line, "notifyDuration=%i", &temp_value) == 1)
             {
                 CFG_setNotifyDuration(temp_value);
-                continue;
-            }
-            if (sscanf(line, "raEnable=%i", &temp_value) == 1)
-            {
-                CFG_setRAEnable((bool)temp_value);
-                continue;
-            }
-            if (strncmp(line, "raUsername=", 11) == 0)
-            {
-                char *value = line + 11;
-                value[strcspn(value, "\n")] = 0;
-                CFG_setRAUsername(value);
-                continue;
-            }
-            if (strncmp(line, "raPassword=", 11) == 0)
-            {
-                char *value = line + 11;
-                value[strcspn(value, "\n")] = 0;
-                CFG_setRAPassword(value);
-                continue;
-            }
-            if (sscanf(line, "raHardcoreMode=%i", &temp_value) == 1)
-            {
-                CFG_setRAHardcoreMode((bool)temp_value);
-                continue;
-            }
-            if (strncmp(line, "raToken=", 8) == 0)
-            {
-                char *value = line + 8;
-                value[strcspn(value, "\n")] = 0;
-                CFG_setRAToken(value);
-                continue;
-            }
-            if (strncmp(line, "raServerUsername=", 17) == 0)
-            {
-                char *value = line + 17;
-                value[strcspn(value, "\n")] = 0;
-                CFG_setRAServerUsername(value);
-                continue;
-            }
-            if (sscanf(line, "raAuthenticated=%i", &temp_value) == 1)
-            {
-                CFG_setRAAuthenticated((bool)temp_value);
-                continue;
-            }
-            if (sscanf(line, "raShowNotifications=%i", &temp_value) == 1)
-            {
-                CFG_setRAShowNotifications((bool)temp_value);
-                continue;
-            }
-            if (sscanf(line, "raShowChallengeIndicators=%i", &temp_value) == 1)
-            {
-                CFG_setRAShowChallengeIndicators((bool)temp_value);
-                continue;
-            }
-            if (sscanf(line, "raNotificationDuration=%i", &temp_value) == 1)
-            {
-                CFG_setRANotificationDuration(temp_value);
-                continue;
-            }
-            if (sscanf(line, "raProgressNotificationDuration=%i", &temp_value) == 1)
-            {
-                CFG_setRAProgressNotificationDuration(temp_value);
-                continue;
-            }
-            if (sscanf(line, "raAchievementSortOrder=%i", &temp_value) == 1)
-            {
-                CFG_setRAAchievementSortOrder(temp_value);
                 continue;
             }
             if (sscanf(line, "fontStyle=%i", &temp_value) == 1)
@@ -1251,183 +1170,6 @@ void CFG_setNotifyDuration(int seconds)
     CFG_sync();
 }
 
-bool CFG_getRAEnable(void)
-{
-    return settings.raEnable;
-}
-
-void CFG_setRAEnable(bool enable)
-{
-    settings.raEnable = enable;
-    CFG_sync();
-}
-
-const char* CFG_getRAUsername(void)
-{
-    return settings.raUsername;
-}
-
-void CFG_setRAUsername(const char* username)
-{
-    if (username) {
-        strncpy(settings.raUsername, username, sizeof(settings.raUsername) - 1);
-        settings.raUsername[sizeof(settings.raUsername) - 1] = '\0';
-    } else {
-        settings.raUsername[0] = '\0';
-    }
-    CFG_sync();
-}
-
-const char* CFG_getRAPassword(void)
-{
-    return settings.raPassword;
-}
-
-void CFG_setRAPassword(const char* password)
-{
-    if (password) {
-        strncpy(settings.raPassword, password, sizeof(settings.raPassword) - 1);
-        settings.raPassword[sizeof(settings.raPassword) - 1] = '\0';
-    } else {
-        settings.raPassword[0] = '\0';
-    }
-    CFG_sync();
-}
-
-bool CFG_getRAHardcoreMode(void)
-{
-    return settings.raHardcoreMode;
-}
-
-void CFG_setRAHardcoreMode(bool enable)
-{
-    settings.raHardcoreMode = enable;
-    CFG_sync();
-}
-
-const char* CFG_getRAToken(void)
-{
-    return settings.raToken;
-}
-
-void CFG_setRAToken(const char* token)
-{
-    if (token) {
-        strncpy(settings.raToken, token, sizeof(settings.raToken) - 1);
-        settings.raToken[sizeof(settings.raToken) - 1] = '\0';
-    } else {
-        settings.raToken[0] = '\0';
-    }
-    CFG_sync();
-}
-
-const char* CFG_getRAServerUsername(void)
-{
-    return settings.raServerUsername;
-}
-
-void CFG_setRAServerUsername(const char* username)
-{
-    if (username) {
-        strncpy(settings.raServerUsername, username, sizeof(settings.raServerUsername) - 1);
-        settings.raServerUsername[sizeof(settings.raServerUsername) - 1] = '\0';
-    } else {
-        settings.raServerUsername[0] = '\0';
-    }
-    CFG_sync();
-}
-
-bool CFG_setRAServerUsernameFromAvatarUrl(const char* str)
-{
-    if (!str) return false;
-    /* Accept both unescaped "/UserPic/" (rcheevos-decoded strings) and
-     * JSON-escaped "\/UserPic\/" (raw RA API response bodies). */
-    const char* marker = strstr(str, "/UserPic/");
-    size_t marker_skip = 9; /* strlen("/UserPic/") */
-    if (!marker) {
-        marker = strstr(str, "\\/UserPic\\/");
-        marker_skip = 11; /* strlen("\\/UserPic\\/") */
-        if (!marker) return false;
-    }
-    marker += marker_skip;
-    /* Name ends at ".png" (or its escaped form, though ".png" has no slash). */
-    const char* dot = strstr(marker, ".png");
-    if (!dot || dot <= marker) return false;
-    size_t len = (size_t)(dot - marker);
-    if (len == 0 || len >= sizeof(settings.raServerUsername)) return false;
-    char username[64];
-    memcpy(username, marker, len);
-    username[len] = '\0';
-    CFG_setRAServerUsername(username);
-    return true;
-}
-
-bool CFG_getRAAuthenticated(void)
-{
-    return settings.raAuthenticated;
-}
-
-void CFG_setRAAuthenticated(bool authenticated)
-{
-    settings.raAuthenticated = authenticated;
-    CFG_sync();
-}
-
-bool CFG_getRAShowNotifications(void)
-{
-    return settings.raShowNotifications;
-}
-
-void CFG_setRAShowNotifications(bool show)
-{
-    settings.raShowNotifications = show;
-    CFG_sync();
-}
-
-bool CFG_getRAShowChallengeIndicators(void)
-{
-    return settings.raShowChallengeIndicators;
-}
-
-void CFG_setRAShowChallengeIndicators(bool show)
-{
-    settings.raShowChallengeIndicators = show;
-    CFG_sync();
-}
-
-int CFG_getRANotificationDuration(void)
-{
-    return settings.raNotificationDuration;
-}
-
-void CFG_setRANotificationDuration(int seconds)
-{
-    settings.raNotificationDuration = clamp(seconds, 1, 5);
-    CFG_sync();
-}
-
-int CFG_getRAProgressNotificationDuration(void)
-{
-    return settings.raProgressNotificationDuration;
-}
-
-void CFG_setRAProgressNotificationDuration(int seconds)
-{
-    settings.raProgressNotificationDuration = clamp(seconds, 0, 5);
-    CFG_sync();
-}
-
-int CFG_getRAAchievementSortOrder(void)
-{
-    return settings.raAchievementSortOrder;
-}
-
-void CFG_setRAAchievementSortOrder(int sortOrder)
-{
-    settings.raAchievementSortOrder = clamp(sortOrder, 0, RA_SORT_COUNT - 1);
-    CFG_sync();
-}
-
 int CFG_getFontStyle(void)
 {
     return settings.fontStyle;
@@ -1668,50 +1410,6 @@ void CFG_get(const char *key, char *value)
     {
         sprintf(value, "%i", CFG_getNotifyDuration());
     }
-    else if (strcmp(key, "raEnable") == 0)
-    {
-        sprintf(value, "%i", (int)(CFG_getRAEnable()));
-    }
-    else if (strcmp(key, "raUsername") == 0)
-    {
-        sprintf(value, "%s", CFG_getRAUsername());
-    }
-    else if (strcmp(key, "raHardcoreMode") == 0)
-    {
-        sprintf(value, "%i", (int)(CFG_getRAHardcoreMode()));
-    }
-    else if (strcmp(key, "raToken") == 0)
-    {
-        sprintf(value, "%s", CFG_getRAToken());
-    }
-    else if (strcmp(key, "raServerUsername") == 0)
-    {
-        sprintf(value, "%s", CFG_getRAServerUsername());
-    }
-    else if (strcmp(key, "raAuthenticated") == 0)
-    {
-        sprintf(value, "%i", (int)(CFG_getRAAuthenticated()));
-    }
-    else if (strcmp(key, "raShowNotifications") == 0)
-    {
-        sprintf(value, "%i", (int)(CFG_getRAShowNotifications()));
-    }
-    else if (strcmp(key, "raShowChallengeIndicators") == 0)
-    {
-        sprintf(value, "%i", (int)(CFG_getRAShowChallengeIndicators()));
-    }
-    else if (strcmp(key, "raNotificationDuration") == 0)
-    {
-        sprintf(value, "%i", CFG_getRANotificationDuration());
-    }
-    else if (strcmp(key, "raProgressNotificationDuration") == 0)
-    {
-        sprintf(value, "%i", CFG_getRAProgressNotificationDuration());
-    }
-    else if (strcmp(key, "raAchievementSortOrder") == 0)
-    {
-        sprintf(value, "%i", CFG_getRAAchievementSortOrder());
-    }
     else if (strcmp(key, "fontStyle") == 0)
     {
         sprintf(value, "%i", CFG_getFontStyle());
@@ -1820,18 +1518,6 @@ void CFG_sync(void)
     fprintf(file, "notifyScreenshot=%i\n", settings.notifyScreenshot);
     fprintf(file, "notifyAdjustments=%i\n", settings.notifyAdjustments);
     fprintf(file, "notifyDuration=%i\n", settings.notifyDuration);
-    fprintf(file, "raEnable=%i\n", settings.raEnable);
-    fprintf(file, "raUsername=%s\n", settings.raUsername);
-    fprintf(file, "raPassword=%s\n", settings.raPassword);
-    fprintf(file, "raHardcoreMode=%i\n", settings.raHardcoreMode);
-    fprintf(file, "raToken=%s\n", settings.raToken);
-    fprintf(file, "raServerUsername=%s\n", settings.raServerUsername);
-    fprintf(file, "raAuthenticated=%i\n", settings.raAuthenticated);
-    fprintf(file, "raShowNotifications=%i\n", settings.raShowNotifications);
-    fprintf(file, "raShowChallengeIndicators=%i\n", settings.raShowChallengeIndicators);
-    fprintf(file, "raNotificationDuration=%i\n", settings.raNotificationDuration);
-    fprintf(file, "raProgressNotificationDuration=%i\n", settings.raProgressNotificationDuration);
-    fprintf(file, "raAchievementSortOrder=%i\n", settings.raAchievementSortOrder);
     fprintf(file, "fontStyle=%i\n", settings.fontStyle);
     fprintf(file, "gameSwitcherCurtain=%i\n", settings.gameSwitcherCurtain);
     fprintf(file, "inputPromptStyle=%i\n", settings.inputPromptStyle);
@@ -1896,17 +1582,6 @@ void CFG_print(void)
     printf("\t\"notifyScreenshot\": %i,\n", settings.notifyScreenshot);
     printf("\t\"notifyAdjustments\": %i,\n", settings.notifyAdjustments);
     printf("\t\"notifyDuration\": %i,\n", settings.notifyDuration);
-    printf("\t\"raEnable\": %i,\n", settings.raEnable);
-    printf("\t\"raUsername\": \"%s\",\n", settings.raUsername);
-    printf("\t\"raHardcoreMode\": %i,\n", settings.raHardcoreMode);
-    printf("\t\"raToken\": \"%s\",\n", settings.raToken);
-    printf("\t\"raServerUsername\": \"%s\",\n", settings.raServerUsername);
-    printf("\t\"raAuthenticated\": %i,\n", settings.raAuthenticated);
-    printf("\t\"raShowNotifications\": %i,\n", settings.raShowNotifications);
-    printf("\t\"raShowChallengeIndicators\": %i,\n", settings.raShowChallengeIndicators);
-    printf("\t\"raNotificationDuration\": %i,\n", settings.raNotificationDuration);
-    printf("\t\"raProgressNotificationDuration\": %i,\n", settings.raProgressNotificationDuration);
-    printf("\t\"raAchievementSortOrder\": %i,\n", settings.raAchievementSortOrder);
     printf("\t\"fontStyle\": %i,\n", settings.fontStyle);
     printf("\t\"gameSwitcherCurtain\": %i,\n", settings.gameSwitcherCurtain);
     printf("\t\"inputPromptStyle\": %i,\n", settings.inputPromptStyle);

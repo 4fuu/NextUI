@@ -4700,7 +4700,6 @@ void PWR_update(int *_dirty, int *_show_setting, PWR_callback_t before_sleep, PW
 	{
 		if (before_sleep)
 			before_sleep();
-		system("gametimectl.elf stop_all");
 		PWR_powerOff(0);
 	}
 
@@ -4972,16 +4971,12 @@ void PWR_sleep(void)
 {
 	LOG_info("Entering hybrid sleep\n");
 
-	system("gametimectl.elf stop_all");
-
 	GFX_clear(gfx.screen);
 	PAD_reset();
 	PWR_enterSleep();
 	PWR_waitForWake();
 	PWR_exitSleep();
 	PAD_reset();
-
-	system("gametimectl.elf resume");
 
 	pwr.resume_tick = SDL_GetTicks();
 }

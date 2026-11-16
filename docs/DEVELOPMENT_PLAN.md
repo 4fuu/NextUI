@@ -1312,8 +1312,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 #### F3 — Bundled tool paks manifest and de-gaming rename
 - Owner: unassigned; Space to dispatch.
-- Status: not started; the remaining bundled tool paks have no `pak.json` and
-  Game Tracker keeps its game-era name.
+- Status: not started; the remaining bundled tool paks have no `pak.json`. The
+  play-time statistics app and its service were removed in the game-statistics
+  cleanup (nothing ever started a session, so its database stayed empty and its
+  pak listed nothing), so the de-gaming rename no longer applies to it.
 - Depends on: F2 for the new reference app; B1 manifest scan already pushed.
 - Delivery/verification: each bundled pak gets a `pak.json` (id/version/
   capabilities); missing manifest still behaves exactly as today; rename does
