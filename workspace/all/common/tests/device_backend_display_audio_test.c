@@ -75,6 +75,12 @@ static void copy_text(char* out, size_t out_size, const char* text)
     out[length] = '\0';
 }
 
+static void run_quiet(const char* command)
+{
+    int status = system(command);
+    (void)status;
+}
+
 static int write_text(const char* path, const char* text)
 {
     FILE* file = fopen(path, "wb");
@@ -96,7 +102,7 @@ static int create_pak(const char* name, const char* capabilities_json)
 
     snprintf(directory, sizeof directory, "%s/%s", temp_path, name);
     snprintf(command, sizeof command, "rm -rf -- '%s'", directory);
-    (void)system(command);
+    run_quiet(command);
     if (mkdir(directory, 0755) != 0) return 0;
     snprintf(path, sizeof path, "%s/launch.sh", directory);
     if (!write_text(path, "#!/bin/sh\nexit 0\n")) return 0;
@@ -794,7 +800,7 @@ int main(void)
     {
         char command[600];
         snprintf(command, sizeof command, "rm -rf -- '%s'", temp_path);
-        (void)system(command);
+        run_quiet(command);
     }
 
     if (failures != 0)
