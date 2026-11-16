@@ -54,17 +54,23 @@ PREVIOUS_VERSION = "v6.15.0"
 OLDER_VERSION = "v6.14.0"
 MIN_SYSTEM = "v6.0.0"
 
-BOOT_REQUIRED = (
-    ".tmp_update/updater",
-    ".tmp_update/nextupd-recover.sh",
-    ".tmp_update/%s.sh" % PLATFORM,
-    ".tmp_update/%s/nextupd.elf" % PLATFORM,
-)
-BOOT_EXECUTABLE = BOOT_REQUIRED + (
-    ".tmp_update/%s/show2.elf" % PLATFORM,
-    ".tmp_update/%s/unzip" % PLATFORM,
-)
 FORBIDDEN_ROOTS = ("Tools", "Roms", "Saves", "Bios", "EXTRAS", "Overlays", "Shaders")
+
+
+def boot_required(platform):
+    return (
+        ".tmp_update/updater",
+        ".tmp_update/nextupd-recover.sh",
+        ".tmp_update/%s.sh" % platform,
+        ".tmp_update/%s/nextupd.elf" % platform,
+    )
+
+
+def boot_executable(platform):
+    return boot_required(platform) + (
+        ".tmp_update/%s/show2.elf" % platform,
+        ".tmp_update/%s/unzip" % platform,
+    )
 
 PASS = 0
 FAIL = 0
@@ -232,10 +238,10 @@ def build_source_tree(name="build"):
 
 
 def package_args(system, out_dir, boot=None, version=VERSION, name=None, key=None,
-                 min_system=MIN_SYSTEM, extra=()):
+                 min_system=MIN_SYSTEM, platform=PLATFORM, extra=()):
     args = [
         PACKAGE_SCRIPT,
-        "--platform", PLATFORM,
+        "--platform", platform,
         "--version", version,
         "--system-dir", system,
         "--out-dir", out_dir,
@@ -254,30 +260,30 @@ def package_args(system, out_dir, boot=None, version=VERSION, name=None, key=Non
     return args
 
 
-def staged_dir(staging_root):
+def staged_dir(staging_root, platform=PLATFORM):
     matches = sorted(
         entry for entry in os.listdir(staging_root)
-        if entry.startswith("nextui.system.%s-" % PLATFORM)
+        if entry.startswith("nextui.system.%s-" % platform)
     )
     if len(matches) != 1:
         return None
     return os.path.join(staging_root, matches[0])
 
 
-def make_target(name, version=PREVIOUS_VERSION, boot=True):
+def make_target(name, version=PREVIOUS_VERSION, boot=True, platform=PLATFORM):
     """An isolated target root: an older installed system plus a live payload."""
     target = fresh(name)
-    write_file(os.path.join(target, ".system", PLATFORM, "bin", "nextui.elf"),
+    write_file(os.path.join(target, ".system", platform, "bin", "nextui.elf"),
                b"old nextui\n", 0o755)
     write_file(os.path.join(target, ".system", "version.txt"), version + "\n")
-    write_file(os.path.join(target, ".userdata", PLATFORM, "logs", "install.txt"), b"")
+    write_file(os.path.join(target, ".userdata", platform, "logs", "install.txt"), b"")
     if boot:
         write_file(os.path.join(target, ".tmp_update", "updater"), b"old updater\n", 0o755)
         write_file(os.path.join(target, ".tmp_update", "nextupd-recover.sh"),
                    b"old recover helper\n", 0o755)
-        write_file(os.path.join(target, ".tmp_update", "%s.sh" % PLATFORM),
+        write_file(os.path.join(target, ".tmp_update", "%s.sh" % platform),
                    b"#!/bin/sh\n# old boot\n", 0o755)
-        write_file(os.path.join(target, ".tmp_update", PLATFORM, "nextupd.elf"),
+        write_file(os.path.join(target, ".tmp_update", platform, "nextupd.elf"),
                    b"old nextupd tool\n", 0o755)
     return target
 
@@ -315,16 +321,16 @@ def check_args(package, manifest, signature, public_key, platform=PLATFORM,
     return args
 
 
-def stage_args(package, manifest, signature, staging_root):
+def stage_args(package, manifest, signature, staging_root, platform=PLATFORM):
     return [BIN, "stage", "--package", package, "--manifest", manifest,
-            "--platform", PLATFORM, "--system-version", PREVIOUS_VERSION,
+            "--platform", platform, "--system-version", PREVIOUS_VERSION,
             "--staging-root", staging_root,
             "--signature", signature, "--trusted-key", PUBLIC_KEY]
 
 
-def install_args(staged, target):
+def install_args(staged, target, platform=PLATFORM):
     return [BIN, "install", "--staged-dir", staged, "--target-root", target,
-            "--trusted-key", PUBLIC_KEY, "--platform", PLATFORM,
+            "--trusted-key", PUBLIC_KEY, "--platform", platform,
             "--system-version", PREVIOUS_VERSION]
 
 
@@ -340,7 +346,7 @@ def entry_mode(info):
     return (info.external_attr >> 16) & 0o7777
 
 
-def assert_archive_shape(name, archive, expect_boot):
+def assert_archive_shape(name, archive, expect_boot, platform=PLATFORM):
     entries = zip_entries(archive)
     roots = sorted({info.filename.split("/")[0] for info in entries})
     expected_roots = [".system", ".tmp_update"] if expect_boot else [".system"]
@@ -394,11 +400,11 @@ def assert_archive_shape(name, archive, expect_boot):
     ok("%s: shared libsamplerate and libz survive packaging" % name)
 
     if expect_boot:
-        for required in BOOT_REQUIRED:
+        for required in boot_required(platform):
             if required not in names:
                 fail(name, "boot contract file %s missing" % required)
                 return None
-        for executable in BOOT_EXECUTABLE:
+        for executable in boot_executable(platform):
             info = next((item for item in entries if item.filename == executable), None)
             if info is None or entry_mode(info) != 0o755:
                 fail(name, "%s is not executable in the archive (mode %s)"
@@ -408,18 +414,18 @@ def assert_archive_shape(name, archive, expect_boot):
     return content
 
 
-def assert_manifest_matches(name, archive, manifest_path, content):
+def assert_manifest_matches(name, archive, manifest_path, content, platform=PLATFORM):
     manifest = read_json(manifest_path)
     problems = []
     if manifest.get("schema") != "nextui-update-v1":
         problems.append("schema is %r" % manifest.get("schema"))
-    if manifest.get("id") != "nextui.system.%s" % PLATFORM:
+    if manifest.get("id") != "nextui.system.%s" % platform:
         problems.append("id is %r" % manifest.get("id"))
     if manifest.get("kind") != "system":
         problems.append("kind is %r" % manifest.get("kind"))
     if manifest.get("version") != VERSION:
         problems.append("version is %r" % manifest.get("version"))
-    if manifest.get("platform") != PLATFORM:
+    if manifest.get("platform") != platform:
         problems.append("platform is %r" % manifest.get("platform"))
     if manifest.get("min_system") != MIN_SYSTEM:
         problems.append("min_system is %r" % manifest.get("min_system"))
@@ -727,43 +733,47 @@ def test_bootstrap_refused(public_key):
         ok("recover after refusal: applied trees untouched")
 
 
-def test_boot_end_to_end(archive, manifest, signature):
+def test_boot_end_to_end(archive, manifest, signature, platform=PLATFORM,
+                         label="boot"):
     """Full install lifecycle for a package that carries .tmp_update/.
 
     Requires the nextupd build to understand the boot payload contract; the
     probe skips this section on a build that does not (see module docstring).
     """
-    probe = run(check_args(archive, manifest, signature, PUBLIC_KEY) + ["--json"])
+    probe = run(check_args(archive, manifest, signature, PUBLIC_KEY,
+                           platform=platform, json_output=True))
     if probe.returncode != 0 or "boot_payload" not in probe.stdout:
-        skip("boot end-to-end",
+        skip("%s end-to-end" % label,
              "this nextupd build predates the signed .tmp_update payload contract")
         return
 
-    target = make_target("e2e-boot-target")
-    staging = fresh("e2e-boot-staging")
-    if run(stage_args(archive, manifest, signature, staging)).returncode != 0:
-        fail("stage boot package", "staging failed")
+    target = make_target("e2e-%s-target" % label, platform=platform)
+    staging = fresh("e2e-%s-staging" % label)
+    if run(stage_args(archive, manifest, signature, staging, platform=platform)).returncode != 0:
+        fail("stage %s package" % label, "staging failed")
         return
-    staged = staged_dir(staging)
+    staged = staged_dir(staging, platform=platform)
     if staged is None:
-        fail("stage boot package", "staging directory not found")
+        fail("stage %s package" % label, "staging directory not found")
         return
-    value = expect_json("install boot package", run(install_args(staged, target) + ["--json"]))
+    value = expect_json("install %s package" % label,
+                        run(install_args(staged, target, platform=platform) + ["--json"]))
     if value is None:
         return
     if value.get("outcome") != "installed" or value.get("state") != "committed":
-        fail("install boot package", "outcome %s state %s"
+        fail("install %s package" % label, "outcome %s state %s"
              % (value.get("outcome"), value.get("state")))
     elif value.get("boot_outcome") != "committed":
-        fail("install boot package", "boot outcome %s" % value.get("boot_outcome"))
+        fail("install %s package" % label, "boot outcome %s" % value.get("boot_outcome"))
     elif value.get("boot_version") != VERSION:
-        fail("install boot package", "boot version %s" % value.get("boot_version"))
+        fail("install %s package" % label, "boot version %s" % value.get("boot_version"))
     else:
-        ok("install boot package: system and boot payload committed at %s" % VERSION)
+        ok("install %s package: system and boot payload committed at %s"
+           % (label, VERSION))
 
     version = open(os.path.join(target, ".system", "version.txt"), encoding="ascii").read().strip()
     if version != VERSION:
-        fail("install boot package", ".system is %s" % version)
+        fail("install %s package" % label, ".system is %s" % version)
         return
 
     with zipfile.ZipFile(archive) as handle:
@@ -774,51 +784,121 @@ def test_boot_end_to_end(archive, manifest, signature):
     for relative, data in sorted(expected.items()):
         path = os.path.join(target, relative)
         if not os.path.isfile(path):
-            fail("install boot package", "live payload is missing %s" % relative)
+            fail("install %s package" % label, "live payload is missing %s" % relative)
             return
         if open(path, "rb").read() != data:
-            fail("install boot package", "live payload %s differs from the archive"
+            fail("install %s package" % label, "live payload %s differs from the archive"
                  % relative)
             return
         mode = os.stat(path).st_mode & 0o777
-        if relative in BOOT_EXECUTABLE and mode != 0o755:
-            fail("install boot package", "live %s has mode %s" % (relative, oct(mode)))
+        if relative in boot_executable(platform) and mode != 0o755:
+            fail("install %s package" % label, "live %s has mode %s" % (relative, oct(mode)))
             return
-    ok("install boot package: live payload matches the signed archive")
+    ok("install %s package: live payload matches the signed archive" % label)
 
     if not os.path.isfile(os.path.join(live, ".nextupd-boot.json")):
-        fail("install boot package", "the boot stamp was not generated")
+        fail("install %s package" % label, "the boot stamp was not generated")
         return
-    ok("install boot package: boot stamp generated")
+    ok("install %s package: boot stamp generated" % label)
     if os.path.exists(os.path.join(target, ".tmp_update.bak")):
-        fail("install boot package", ".tmp_update.bak survived the commit")
+        fail("install %s package" % label, ".tmp_update.bak survived the commit")
     else:
-        ok("install boot package: .tmp_update.bak removed after commit")
+        ok("install %s package: .tmp_update.bak removed after commit" % label)
 
-    value = expect_json("recover after boot install",
+    value = expect_json("recover after %s install" % label,
                         run([BIN, "recover", "--target-root", target, "--json"]))
     if value is None:
         return
     if value.get("outcome") != "nothing_to_recover":
-        fail("recover after boot install", "unexpected outcome %s" % value.get("outcome"))
+        fail("recover after %s install" % label, "unexpected outcome %s" % value.get("outcome"))
     else:
-        ok("recover after boot install: nothing_to_recover")
+        ok("recover after %s install: nothing_to_recover" % label)
 
-    value = expect_json("rollback after boot install",
+    value = expect_json("rollback after %s install" % label,
                         run([BIN, "recover", "--target-root", target,
                              "--rollback", "--json"]))
     if value is None:
         return
     version = open(os.path.join(target, ".system", "version.txt"), encoding="ascii").read().strip()
-    tool = os.path.join(target, ".tmp_update", PLATFORM, "nextupd.elf")
+    tool = os.path.join(target, ".tmp_update", platform, "nextupd.elf")
     usable = os.path.isfile(tool) and os.access(tool, os.X_OK)
     if value.get("outcome") != "recovered_rollback" or version != PREVIOUS_VERSION \
             or not usable:
-        fail("rollback after boot install", "outcome %s version %s usable tool %s"
+        fail("rollback after %s install" % label, "outcome %s version %s usable tool %s"
              % (value.get("outcome"), version, usable))
     else:
-        ok("rollback after boot install: back to %s with a usable recovery tool"
-           % PREVIOUS_VERSION)
+        ok("rollback after %s install: back to %s with a usable recovery tool"
+           % (label, PREVIOUS_VERSION))
+
+
+def test_h700_symlink_tree(key_pem, public_key):
+    """A real h700 tree carries libSDL2 symlinks; the archive must store files.
+
+    workspace/h700/platform/makefile.copy copies libSDL2*.so* into the system
+    tree with `cp -a`, so build/SYSTEM/h700/lib can contain links. Packaging
+    dereferences them: the verifier accepts regular files only, and the archive
+    must still contain exactly the applied roots with no Tools/.
+    """
+    root = fresh("build-h700")
+    system = os.path.join(root, "SYSTEM", "h700")
+    write_file(os.path.join(system, "lib", "libSDL2-2.0.so.0.18.1"),
+               b"fake SDL2 real file\n", 0o644)
+    os.symlink("libSDL2-2.0.so.0.18.1",
+               os.path.join(system, "lib", "libSDL2-2.0.so.0"))
+    os.symlink("libSDL2-2.0.so.0", os.path.join(system, "lib", "libSDL2.so"))
+    write_file(os.path.join(system, "lib", "libsamplerate.so.0.2.2"),
+               b"fake libsamplerate\n", 0o644)
+    write_file(os.path.join(system, "lib", "libz.so.1"), b"fake libz\n", 0o644)
+    write_file(os.path.join(system, "bin", "nextui.elf"), b"\x7fELF fake nextui\n", 0o755)
+    write_file(os.path.join(system, "version.txt"), b"stale\n")
+
+    boot = os.path.join(root, "BOOT", ".tmp_update")
+    write_file(os.path.join(boot, "updater"), b"#!/bin/sh\n# updater\n", 0o755)
+    write_file(os.path.join(boot, "nextupd-recover.sh"), b"# recover helper\n", 0o644)
+    write_file(os.path.join(boot, "boot_strings.sh"), b"# boot strings\n", 0o644)
+    write_file(os.path.join(boot, "h700.sh"), b"#!/bin/sh\n# boot\n", 0o755)
+    write_file(os.path.join(boot, "h700", "nextupd.elf"), b"\x7fELF fake nextupd\n", 0o755)
+    write_file(os.path.join(boot, "h700", "show2.elf"), b"\x7fELF fake show2\n", 0o755)
+    write_file(os.path.join(boot, "h700", "unzip"), b"\x7fELF fake unzip\n", 0o755)
+    # Optional files the real h700 payload also ships.
+    write_file(os.path.join(boot, "h700", "shim-common.sh"), b"# shim\n", 0o644)
+    write_file(os.path.join(boot, "h700", "h700-install.sh"), b"# install\n", 0o644)
+    write_file(os.path.join(root, "EXTRAS", "Tools", "h700", "Files.pak", "launch.sh"),
+               b"#!/bin/sh\n", 0o755)
+
+    out_dir = fresh("out-h700")
+    archive = os.path.join(out_dir, "nextui-system-h700.zip")
+    manifest = os.path.join(out_dir, "nextui-system-h700.manifest.json")
+    signature = os.path.join(out_dir, "nextui-system-h700.manifest.sig")
+    proc = run(package_args(system, out_dir, boot=boot, key=key_pem, platform="h700"))
+    if not expect("package h700 symlink tree", proc, 0):
+        return None
+    content = assert_archive_shape("h700 archive", archive, expect_boot=True,
+                                   platform="h700")
+    if content is None:
+        return None
+    if not assert_manifest_matches("h700 archive", archive, manifest, content,
+                                   platform="h700"):
+        return None
+
+    # Every SDL2 link must be a regular file carrying the real library bytes.
+    real = open(os.path.join(system, "lib", "libSDL2-2.0.so.0.18.1"), "rb").read()
+    for relative in (".system/lib/libSDL2-2.0.so.0", ".system/lib/libSDL2.so"):
+        if content.get(relative) != real:
+            fail("h700 archive", "%s was not dereferenced into the real library"
+                 % relative)
+            return None
+        info = next((item for item in zip_entries(archive)
+                     if item.filename == relative), None)
+        if info is None or (info.external_attr >> 16) & 0o170000 != 0o100000:
+            fail("h700 archive", "%s is not a regular file in the archive" % relative)
+            return None
+    ok("h700 archive: libSDL2 symlinks dereferenced into regular files")
+
+    expect("h700 check",
+           run(check_args(archive, manifest, signature, public_key, platform="h700")),
+           0)
+    return archive, manifest, signature
 
 
 def test_script_refusals():
@@ -847,8 +927,11 @@ def test_script_refusals():
     def add_stamp(source, boot_dir):
         write_file(os.path.join(boot_dir, ".nextupd-boot.json"), b'{"schema":"x"}')
 
-    def add_symlink(source, boot_dir):
-        os.symlink("nextupd.elf", os.path.join(boot_dir, PLATFORM, "nextupd-link"))
+    def add_broken_symlink(source, boot_dir):
+        os.symlink("nowhere.elf", os.path.join(boot_dir, PLATFORM, "nextupd-link"))
+
+    def add_fifo(source, boot_dir):
+        os.mkfifo(os.path.join(boot_dir, PLATFORM, "pipe"))
 
     def empty_system(source, boot_dir):
         shutil.rmtree(source)
@@ -857,7 +940,8 @@ def test_script_refusals():
         ("missing-boot-tool", drop_tool, None),
         ("reserved-staging", add_staging, None),
         ("reserved-stamp", add_stamp, None),
-        ("symlink", add_symlink, None),
+        ("broken-symlink", add_broken_symlink, None),
+        ("fifo", add_fifo, None),
         ("empty-system", empty_system, None),
     ):
         proc, archive = run_script(name, setup)
@@ -913,6 +997,9 @@ def main():
             os.path.join(out_dir, "nextui-system-%s.manifest.sig" % PLATFORM))
     else:
         fail("package boot e2e archive", "packaging failed", proc)
+    h700 = test_h700_symlink_tree(key_pem, PUBLIC_KEY)
+    if h700 is not None:
+        test_boot_end_to_end(h700[0], h700[1], h700[2], platform="h700", label="h700 boot")
     test_script_refusals()
 
     print("%d passed, %d failed, %d skipped" % (PASS, FAIL, SKIPPED))

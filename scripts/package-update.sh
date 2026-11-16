@@ -134,14 +134,33 @@ staging=$(mktemp -d "${TMPDIR:-/tmp}/nextui-update.XXXXXX")
 key_pub="$staging.pub"
 trap 'rm -rf "$staging" "$key_pub"' EXIT INT TERM
 mkdir -p "$staging/payload"
-cp -R "$system_dir" "$staging/payload/.system"
+
+# Stage with symlinks dereferenced. The archive stores regular files only, and
+# real build trees do contain links: the h700 system tree ships libSDL2*.so*
+# through `cp -a` (workspace/h700/platform/makefile.copy), so a link must become
+# its target file here instead of an archive the verifier would reject. A
+# broken link fails the copy instead of being silently dropped.
+stage_tree() {
+    stage_source=$1
+    stage_destination=$2
+    links=$(find "$stage_source" -type l -print 2>/dev/null || true)
+    if [ -n "$links" ]; then
+        echo "$PROGRAM: dereferenced symlinks into regular files:"
+        printf '%s\n' "$links" | sed 's/^/  /'
+    fi
+    if ! cp -RL "$stage_source" "$stage_destination"; then
+        fail "staging $stage_source failed; a broken symlink or unreadable file is the usual cause" 65
+    fi
+}
+
+stage_tree "$system_dir" "$staging/payload/.system"
 
 # version.txt is package identity, not build metadata: the manifest version,
 # the archive's .system/version.txt and the installed version must agree.
 printf '%s\n' "$version" > "$staging/payload/.system/version.txt"
 
 if [ "$include_boot" = 1 ]; then
-    cp -R "$boot_dir" "$staging/payload/.tmp_update"
+    stage_tree "$boot_dir" "$staging/payload/.tmp_update"
     # Executable modes are part of the signed contract: the boot tool and the
     # boot scripts run from .tmp_update, and the verifier rejects a recovery
     # tool without an executable mode in the archive.
@@ -165,11 +184,11 @@ if [ "$include_boot" = 1 ]; then
     done
 fi
 
-# The verifier accepts regular files and directory entries that a listed file
-# implies, and rejects symlinks and special files outright, so refuse them here
-# with the offending paths instead of shipping an archive that cannot install.
+# Links are dereferenced above; what remains must be regular files or
+# directories. Refuse anything else (FIFO, socket, device) with the offending
+# paths instead of shipping an archive the verifier rejects.
 specials=$(find "$staging/payload" \! -type d \! -type f -print 2>/dev/null || true)
-[ -z "$specials" ] || fail "package tree contains symlinks or special files: $specials" 65
+[ -z "$specials" ] || fail "package tree contains special files: $specials" 65
 
 # Empty directories cannot be listed in the manifest (every directory entry
 # must be a prefix of a listed file) and the installer creates parents while

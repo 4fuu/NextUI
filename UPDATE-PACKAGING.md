@@ -70,8 +70,12 @@ an archive that cannot install:
   tool and boot scripts are stored executable (0755)
 - `.tmp_update/.nextupd-boot.json` and `.tmp_update/staging/` are reserved for
   the installer and are refused in a package
-- symlinks and special files are refused: the verifier accepts regular files
-  and directory entries only
+- symlinks are dereferenced into regular files while staging. The verifier
+  accepts regular files only, and real build trees do contain links: the h700
+  system tree ships `libSDL2*.so*` through `cp -a`
+  (`workspace/h700/platform/makefile.copy`), so the link becomes its target
+  file instead of an archive that cannot install. A broken symlink fails the
+  copy, and a FIFO, socket, or device is refused
 - empty directories are dropped: every directory entry must be a prefix of a
   listed file, and the installer creates parents while extracting
 - the manifest is generated from the final archive bytes, so its
@@ -96,11 +100,12 @@ NEXTUPD_BIN=/path/to/nextupd tests/run_update_package_test.sh
 
 It covers the archive shape (roots, forbidden roots, modes, `version.txt`,
 manifest and file hashes, tamper and rename rejection), the shared libraries,
-the script's refusals (incomplete or reserved boot payload, symlink, empty
-system tree, bad identity), a system-only `check`/`stage`/`install`/`recover`
-cycle including downgrade refusal, and the old bootstrap shape: `check`
-accepts it, `install` refuses it with `unexpected_path`, and the applied trees
-do not change.
+the script's refusals (incomplete or reserved boot payload, broken symlink,
+special file, empty system tree, bad identity), a system-only
+`check`/`stage`/`install`/`recover` cycle including downgrade refusal, an
+h700 tree whose `libSDL2` symlinks are dereferenced into regular files, and
+the old bootstrap shape: `check` accepts it, `install` refuses it with
+`unexpected_path`, and the applied trees do not change.
 
 The `.tmp_update` install lifecycle needs a `nextupd` build that understands
 the signed boot payload contract. The test detects that from `check` output and
