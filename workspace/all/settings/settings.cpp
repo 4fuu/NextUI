@@ -840,35 +840,35 @@ int main(int argc, char *argv[])
         // stock OS was modified in way that are known to cause issues
         std::string bbver = extractBusyBoxVersion(execCommand("cat --help"));
         if (bbver.empty())
-            bbver = "BusyBox version not found.";
+            bbver = TR("BusyBox version not found.");
         else if(deviceInfo.getPlatform() == DeviceInfo::tg5040 && bbver.find(BUSYBOX_STOCK_VERSION) == std::string::npos)
             ctx.menu->showOverlay(
-                "Stock OS changes detected.\n"
-                "This may cause instability or issues.\n"
-                "If you experience problems, please consider\n"
-                "reverting to clean stock firmware.",
+                TR("Stock OS changes detected.\n"
+                   "This may cause instability or issues.\n"
+                   "If you experience problems, please consider\n"
+                   "reverting to clean stock firmware."),
                 OverlayDismissMode::DismissOnA);
 
-        auto aboutMenu = new MenuList(MenuItemType::Fixed, "About",
+        auto aboutMenu = new MenuList(MenuItemType::Fixed, TR("About"),
         {
-            new StaticMenuItem{ListItemType::Generic, "NextUI version", "",
+            new StaticMenuItem{ListItemType::Generic, TR("NextUI version"), "",
             []() -> std::any {
                 std::ifstream t(ROOT_SYSTEM_PATH "/version.txt");
                 std::stringstream buffer;
                 buffer << t.rdbuf();
                 return buffer.str();
             }},
-            new StaticMenuItem{ListItemType::Generic, "Platform", "",
+            new StaticMenuItem{ListItemType::Generic, TR("Platform"), "",
             []() -> std::any {
                 return std::string(PLAT_getModel()); }
             },
-            new StaticMenuItem{ListItemType::Generic, "Stock OS version", "",
+            new StaticMenuItem{ListItemType::Generic, TR("Stock OS version"), "",
             []() -> std::any {
                 char osver[128];
                 PLAT_getOsVersionInfo(osver, 128);
                 return std::string(osver); }
             },
-            new StaticMenuItem{ListItemType::Generic, "Busybox version", "",
+            new StaticMenuItem{ListItemType::Generic, TR("Busybox version"), "",
             [&]() -> std::any { return bbver; }
             },
         });
