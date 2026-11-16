@@ -6,9 +6,9 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `4699226` (merge of PR #17, the U4 update feed block; fetched
-  2026-11-16). Docs-only main heads do not move this baseline; main's tip at
-  the last fetch was `6594dce` (merge of PR #22, docs-only). Landing points on
+  rule): `5698908` (merge of PR #23, the settings Network/Bluetooth i18n;
+  fetched 2026-11-16). Docs-only main heads do not move this baseline; the
+  last docs-only tip was `6594dce` (merge of PR #22). Landing points on
   main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
@@ -20,9 +20,10 @@ history; its top section mirrors the current schedule in this file.
   file, `3ae1ddf`), PR #13 (built-in emulator removal, `1d9aea2`), PR #16
   (schedule file, `0385b21`), PR #18 (schedule file, `471de2c`), PR #19
   (schedule file, `3380fe4`), PR #20 (settings About/hints i18n, `6a98573`),
-  PR #17 (U4 update feed, `4699226`), PR #21 (schedule file, `c9230cf`), and
-  PR #22 (schedule file, `6594dce`); `de69781` is an ancestor of all of them.
-  Later updates branch from `origin/main`.
+  PR #17 (U4 update feed, `4699226`), PR #21 (schedule file, `c9230cf`), PR #22
+  (schedule file, `6594dce`), and PR #23 (settings Network/Bluetooth i18n,
+  `5698908`); `de69781` is an ancestor of all of them. Later updates branch
+  from `origin/main`.
 - Maintenance rule (2026-11-16, owner 4fuu): this schedule's baseline is the
   real functional code version; the file is committed only when a feature, fix,
   requirement, acceptance, or owner dependency actually changes. A docs-only
@@ -96,13 +97,15 @@ Rules:
   `3ae1ddf`, PR #16, `0385b21`, PR #18, `471de2c`, PR #19, `3380fe4`, PR #21,
   `c9230cf`, and PR #22, `6594dce`);
   the built-in emulator removal (PR #13, `1d9aea2`); the settings
-  About/hints i18n slice (PR #20, `6a98573`); and the U4 update feed block
+  About/hints i18n slice (PR #20, `6a98573`); the settings Network/Bluetooth
+  i18n slice (PR #23, `5698908`); and the U4 update feed block
   (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #24 (U7 `.tmp_update`
-  payload sync, head `27c9547`, Feature checks success on that head per gh with
-  Development/Desktop in progress, review pending, not merged) and
-  PR #23 (I4 settings Network/Bluetooth translation, head `bd2a40c`, CI green on
-  that head per gh, open). This schedule file's updates merged into main as
+  payload sync, head `beae0cf`, CI green on that head per gh with the source
+  reporting six checks, review pending, not merged) and this schedule file's
+  own update (PR #25). PR #23 (I4 settings Network/Bluetooth translation, head
+  `bd2a40c`) merged into main as `5698908b44e8a0b09275440d5ff8bb7483e12239`.
+  This schedule file's updates merged into main as
   PR #12 `3ae1ddf`, PR #16 `0385b21`, PR #18 `471de2c`, PR #19 `3380fe4`, PR #21
   `c9230cf`, and PR #22 `6594dce`. The runtime line (I1) merged into main as
   `3a50fe8`; the updater
@@ -213,14 +216,21 @@ Rules:
 
 ### I4 — Settings pages i18n (remaining user-visible settings)
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-e50d-7610-be41-7417d83ab622
-- State: two slices merged into main. PR #14 (branch
+- State: three slices merged into main. PR #14 (branch
   `i18n/settings-pages-main`), head
   `69379591f256c8cde1713814b34d15f48bc4b540` "Translate the settings Appearance
   page into Simplified Chinese", merged as `ec05440`; CI on that head was green
   (Feature checks push/PR, Development/Desktop). The second slice is PR #20
   (branch `i18n/settings-about-hints`), head `b2bd02b` "Translate the settings
   About page and the shared button hints", merged as `6a98573`; CI on that head
-  was green (Feature checks push/PR, Development/Desktop).
+  was green (Feature checks push/PR, Development/Desktop). The third slice is
+  PR #23 (same branch, head `bd2a40c` "Translate the settings Network (WiFi)
+  and Bluetooth pages"), merged as `5698908b44e8a0b09275440d5ff8bb7483e12239`
+  with independent review PASS; CI on that head was green per gh. The PR body
+  was corrected to 236 width counts.
+- Scope boundary for PR #23: the new WiFi Connect row with saved credentials
+  is desktop-unreachable and was not visually verified; do not read the slice
+  as full visual coverage.
 - First slice covers: the whole Appearance page (font/style rows, color
   definitions, battery percentage, menu animations and transitions, artwork
   radius/width, recents/tools/quickswitcher/curtain rows, input prompt style,
@@ -237,14 +247,12 @@ Rules:
   devserv/keymon/launch/updater or revive the stopped permission UI.
 - Depends on: baseline; I5 coordination.
 - Next: the remaining settings pages continue in follow-up slices. The
-  Network/Bluetooth slice is open as PR #23 (branch
-  `i18n/settings-about-hints`, head `bd2a40c` "Translate the settings Network
-  (WiFi) and Bluetooth pages"), with CI green on that head per gh and not
-  merged at the last check; Assignments remains. The second block (About plus
-  the shared menu/keyboard hints) is delivered as PR #20. Per the owner's
-  decision the In-Game menu is gone with PR #13, so it is not a translation
-  gap; the Notifications and RetroAchievements submenus went with the In-Game
-  menu and are not listed as gaps either.
+  Network/Bluetooth slice is merged as PR #23 (head `bd2a40c`, independent
+  review PASS), and Assignments is released as the remaining page. The second
+  block (About plus the shared menu/keyboard hints) is delivered as PR #20. Per
+  the owner's decision the In-Game menu is gone with PR #13, so it is not a
+  translation gap; the Notifications and RetroAchievements submenus went with
+  the In-Game menu and are not listed as gaps either.
 
 ### I5 — LedControl and boot text i18n
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-ed1c-779c-965c-e559b98248b0
@@ -609,30 +617,35 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   chain).
 - Status: implemented and pushed; not merged. PR #24
   (https://github.com/4fuu/NextUI/pull/24, branch `feature/boot-payload-sync`),
-  head `27c95475f2c41617259618a716dd0cc1e666a1b8` (advanced from
-  `e339d61cc9fbfa9da4f9764c0600931631993a3e`; the old head's green CI is
+  head `beae0cf902ddcf09193ea00a8d3751c0e1fa224f` (advanced from
+  `27c95475f2c41617259618a716dd0cc1e666a1b8`, itself advanced from
+  `e339d61cc9fbfa9da4f9764c0600931631993a3e`; each older head's CI result is
   superseded and is not recorded for this head), base `origin/main`
-  `4699226`; OPEN and mergeable per gh. CI on `27c9547`: Feature checks (push
-  and pull_request) success per gh, Development/Desktop in progress at the last
-  check — not all checks are recorded as passing. Independent review is with
+  `4699226`; OPEN and mergeable per gh. CI on `beae0cf`: gh shows Feature
+  checks (push and pull_request) and Development/Desktop success; the source
+  reports six checks green. Independent review is with
   https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0, and the
   merge owner T-01a1e2e1 gates on CI plus review.
-- Delivered (including the 09:47 hardening): signed-package-driven `.system`
-  plus optional `.tmp_update` sync, the independent recovery tool published
-  first, `.tmp_update.bak` rollback, a separate v1-compatible boot journal,
-  legacy system-only packages untouched, fail-closed on
-  missing/corrupt/unknown/mismatched state, and an isolated-root/test-key
-  crash matrix with repeat recovery. The hardening publishes the boot payload
-  before `txn.json`, so a tool that understands a future transaction schema is
-  live before that schema can be written; an install that dies before the
-  record leaves an orphan boot journal, which `recover` rolls back instead of
-  advancing the boot tree alone; and `.tmp_update.bak` is verified
-  byte-for-byte/mode-for-mode against the live payload before any live boot
-  write. Crash/corruption tests and contract docs follow the new ordering.
-  Evidence: nextupd 341 passed/0 failed (177 updater + 55 feed + 53 new
-  boot-sync + 56 boot recovery), desktop build pass, `make -C tests test`
-  rerunning at the last report; the tg5040 target compile is owned by CI.
-- Contract (unchanged by the hardening): signed archive = `.system/` plus
+- Delivered: signed-package-driven `.system` plus optional `.tmp_update` sync,
+  the independent recovery tool published first, `.tmp_update.bak` rollback, a
+  separate v1-compatible boot journal, legacy system-only packages untouched,
+  fail-closed on missing/corrupt/unknown/mismatched state, and an
+  isolated-root/test-key crash matrix with repeat recovery.
+- Head history (source-corrected): the boot prepare/publish-before-`txn.json`
+  ordering and the orphan-journal rollback were already in the original
+  implementation at `e339d61`; `27c9547` added only `boot_compare_trees` (about
+  106 lines in `update_transaction.c`) to verify `.tmp_update.bak` byte/mode
+  before live boot writes — it did not add the ordering, and its commit message
+  is inaccurate; `beae0cf` added only about 37 lines in `tests/test_boot_sync.py`
+  with the real `nextupd-recover.sh` gate test for a root holding only
+  `boot.json` and no `txn.json`, proving the gate reaches recovery in the
+  pre-record window and restores the old payload. The independent review still
+  owns the actual ordering verification; it is not recorded as a review result.
+- Evidence on `beae0cf`: `workspace/all/nextupd/tests/run_tests.sh` 342
+  passed/0 failed (177 updater + 55 feed + 54 boot-sync + 56 boot recovery),
+  desktop build pass, `make -C tests test` pass at the last report; the
+  tg5040 target compile is owned by CI.
+- Contract (unchanged): signed archive = `.system/` plus
   optional `.tmp_update/`; legacy system-only packages leave `.tmp_update`
   untouched; a `Tools`-bearing bootstrap is still refused by `install`; no ZIP
   whitelist relaxation.
