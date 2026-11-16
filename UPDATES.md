@@ -444,12 +444,25 @@ id, removed only after the `installed` record is durable, so the window between
 the two directory renames is recoverable. The states mirror the system
 transaction (`preparing`, `prepared`, `backing_up`, `installing`, `installed`,
 `committed`, `rolling_back`, `rolled_back`) and `recover` applies the same
-commit-or-rollback arbitration. `recover` resolves a system transaction first
-when `.nextupd-txn` exists and never disturbs it; an app transaction is resolved
-only through `.nextupd-app-txn`, so the two lifecycles cannot interfere. A
-corrupt or unknown-schema app record fails closed (exit 13) without touching the
-live app. Rollback of a fresh install is refused (`backup_missing`) because
-removing an app (uninstall) is out of scope.
+commit-or-rollback arbitration.
+
+Recovery coexistence is deliberate: `recover` resolves a system transaction
+first when `.nextupd-txn` exists, then resolves a pending app transaction only
+through `.nextupd-app-txn`; the two lifecycles never read or rewrite each
+other's records. A committed (terminal) system record resolves to
+`nothing_to_recover`, so a normal system update leaves a record that does **not**
+block recovery of a pending app install in the same `recover` call. A genuinely
+interrupted system transaction is resolved first and the app transaction follows
+on the next idempotent `recover`. A corrupt or unknown-schema app record fails
+closed (exit 13) without touching the live app. Rollback of a fresh install is
+refused (`backup_missing`) because removing an app (uninstall) is out of scope.
+
+The installed tree is what the launcher scans: `Tools/<platform>/<id>.pak/` is a
+`.pak` directory containing an executable `launch.sh`, which is exactly the
+`nextui.c` discovery predicate (`getApps`/`addPakEntries`/`isLaunchablePak`). The
+host tests run that predicate against a real install and assert the app is
+listed while non-launchable neighbours (no `launch.sh`, hidden, `.disabled`,
+non-`.pak`, or a `.pak` file) are not.
 
 ## Boot payload lifecycle
 

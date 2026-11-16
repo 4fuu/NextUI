@@ -29,6 +29,9 @@ SIGN_SCRIPT = os.path.abspath(sys.argv[4])
 KEY_ID = "nextui-test-only-1"
 FIXTURE_PUB = os.path.join(FIXTURES, "test-public-key")
 SEED_HEX = os.path.join(FIXTURES, "test-ed25519-seed.hex")
+FIXTURE_ZIP = os.path.join(FIXTURES, "package", "MinUI.zip")
+FIXTURE_MANIFEST = os.path.join(FIXTURES, "package", "MinUI.manifest.json")
+FIXTURE_SIG = os.path.join(FIXTURES, "package", "MinUI.manifest.sig")
 
 PASS = 0
 FAIL = 0
@@ -232,6 +235,30 @@ def pak_version(target, app_id="com.example.demo", platform="tg5040"):
     if not os.path.isfile(path):
         return None
     return read_json(path).get("version")
+
+
+def scanner_discovered_apps(root, platform):
+    """Faithful replication of the launcher discovery predicate: nextui.c
+    getApps/addPakEntries/isLaunchablePak plus utils.c hide/suffixMatch/exists.
+    Returns the Tools/<platform>/*.pak directories the launcher would list
+    (non-hidden, .pak-suffixed directories that contain launch.sh). The SDL
+    launcher is interactive and cannot run headless here, so this exercises the
+    exact filesystem decision it makes."""
+    tools = os.path.join(root, "Tools", platform)
+    found = []
+    if not os.path.isdir(tools):
+        return found
+    for name in sorted(os.listdir(tools)):
+        if name.startswith(".") or name.lower().endswith(".disabled") or name == "map.txt":
+            continue
+        if not name.lower().endswith(".pak"):
+            continue
+        full = os.path.join(tools, name)
+        if not os.path.isdir(full):
+            continue
+        if os.path.isfile(os.path.join(full, "launch.sh")):
+            found.append(full)
+    return found
 
 
 def assert_discoverable(name, target, app_id="com.example.demo", platform="tg5040"):
@@ -581,6 +608,146 @@ def test_recover_without_transaction():
         ok("recover with no app txn creates no state")
 
 
+def make_system_target(name, version="v6.15.0"):
+    root = fresh(name)
+    live = os.path.join(root, ".system")
+    os.makedirs(os.path.join(live, "tg5040", "bin"), exist_ok=True)
+    os.makedirs(os.path.join(live, "tg5040", "paks", "MinUI.pak"), exist_ok=True)
+    with open(os.path.join(live, "version.txt"), "w") as handle:
+        handle.write(version + "\n")
+    elf = os.path.join(live, "tg5040", "bin", "nextui.elf")
+    with open(elf, "wb") as handle:
+        handle.write(b"\x7fELF" + bytes(range(20)))
+    os.chmod(elf, 0o755)
+    launch = os.path.join(live, "tg5040", "paks", "MinUI.pak", "launch.sh")
+    with open(launch, "wb") as handle:
+        handle.write(b"#!/bin/sh\n")
+    os.chmod(launch, 0o755)
+    return root
+
+
+def install_fixture_system(root, system="v6.15.0", crash=None):
+    staging = os.path.join(fresh("coexist-sysstage"), "staging")
+    env = {"NEXTUPD_TEST_CRASH_PHASE": crash} if crash else None
+    proc = run(["stage", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
+                "--signature", FIXTURE_SIG, "--trusted-key", FIXTURE_PUB, "--platform", "tg5040",
+                "--system-version", system, "--staging-root", staging], env)
+    if proc.returncode != 0:
+        return proc
+    staged = os.path.join(staging, "nextui.system.tg5040-v6.16.0-tg5040")
+    return run(["install", "--staged-dir", staged, "--target-root", root, "--trusted-key",
+                FIXTURE_PUB, "--platform", "tg5040", "--system-version", system, "--json"], env)
+
+
+def test_recover_coexists_with_system_txn(key_der):
+    """A leftover terminal system record must not block app recovery, and a
+    genuinely pending system transaction is resolved first (app follows on the
+    next idempotent recover). Both lifecycles stay independent."""
+    # Scenario A: committed system txn + pending app txn -> one recover does both.
+    root = make_system_target("coexist-A")
+    proc = install_fixture_system(root)
+    if not expect("coexist A system update", proc, 0):
+        return
+    sys_txn = os.path.join(root, ".nextupd-txn", "txn.json")
+    if os.path.isfile(sys_txn) and read_json(sys_txn).get("state") == "committed":
+        ok("coexist A leaves a terminal system record")
+    else:
+        fail("coexist A leaves a terminal system record", "system txn not committed")
+    _p, _m, _s, r, proc = build_stage("coexist-A-app", "v1.0.0", key_der=key_der)
+    staged = os.path.join(r, "com.example.demo-v1.0.0-universal")
+    crashed = run(install_args(staged, root), env={"NEXTUPD_TEST_CRASH_PHASE": "app_installing"})
+    if crashed.returncode != 70:
+        fail("coexist A app crash", "install did not crash", crashed)
+        return
+    value = expect_json("coexist A recover resolves the app", run(recover_args(root)), 0)
+    if value and value.get("outcome") in ("recovered_rollback", "recovered_commit"):
+        ok("coexist A terminal system record does not block app recovery")
+    else:
+        fail("coexist A terminal system record does not block app recovery", str(value))
+    if pak_version(root) is None:
+        ok("coexist A app rolled back to absent")
+    else:
+        fail("coexist A app rolled back to absent", str(pak_version(root)))
+    with open(os.path.join(root, ".system", "version.txt")) as handle:
+        if handle.read().strip() == "v6.16.0":
+            ok("coexist A app recovery leaves the system tree untouched")
+        else:
+            fail("coexist A app recovery leaves the system tree untouched", ".system changed")
+
+    # Scenario B: interrupted system txn + pending app txn -> system first, app next.
+    root = make_system_target("coexist-B")
+    proc = install_fixture_system(root, crash="installing")
+    if proc.returncode != 70:
+        fail("coexist B system crash", "system install did not crash", proc)
+        return
+    _p, _m, _s, r, proc = build_stage("coexist-B-app", "v1.0.0", key_der=key_der)
+    staged = os.path.join(r, "com.example.demo-v1.0.0-universal")
+    crashed = run(install_args(staged, root), env={"NEXTUPD_TEST_CRASH_PHASE": "app_installing"})
+    if crashed.returncode != 70:
+        fail("coexist B app crash", "app install did not crash", crashed)
+        return
+    first = expect_json("coexist B first recover resolves the system", run(recover_args(root)), 0)
+    if first and first.get("outcome") in ("recovered_commit", "recovered_rollback"):
+        ok("coexist B resolves the pending system transaction first")
+    else:
+        fail("coexist B resolves the pending system transaction first", str(first))
+    second = expect_json("coexist B second recover resolves the app", run(recover_args(root)), 0)
+    if second and second.get("outcome") in ("recovered_rollback", "recovered_commit",
+                                            "nothing_to_recover"):
+        ok("coexist B resolves the app on the next recover")
+    else:
+        fail("coexist B resolves the app on the next recover", str(second))
+    with open(os.path.join(root, ".system", "version.txt")) as handle:
+        sysver = handle.read().strip()
+    if sysver in ("v6.15.0", "v6.16.0"):
+        ok("coexist B system stays coherent")
+    else:
+        fail("coexist B system stays coherent", sysver)
+
+
+def test_launcher_discovery(key_der):
+    """Run the launcher's discovery predicate against a real install and prove
+    it lists the installed app and nothing that is not a launchable .pak."""
+    target = fresh("app-discover")
+    _p, _m, _s, r, proc = build_stage("app-discover-stage", "v1.0.0", key_der=key_der)
+    if proc.returncode != 0:
+        fail("stage app for discovery", "failed", proc)
+        return
+    staged = os.path.join(r, "com.example.demo-v1.0.0-universal")
+    if not expect("install app for discovery", run(install_args(staged, target)), 0):
+        return
+    tools = os.path.join(target, "Tools", "tg5040")
+    discovered = scanner_discovered_apps(target, "tg5040")
+    if discovered == [pak_dir(target)]:
+        ok("launcher predicate discovers the installed app")
+    else:
+        fail("launcher predicate discovers the installed app", str(discovered))
+    # Plant non-discoverable neighbours; none may be listed.
+    os.makedirs(os.path.join(tools, "broken.pak"))                       # no launch.sh
+    open(os.path.join(tools, "broken.pak", "readme"), "w").write("x")
+    os.makedirs(os.path.join(tools, ".hidden.pak"))                      # hidden
+    open(os.path.join(tools, ".hidden.pak", "launch.sh"), "w").write("#!/bin/sh\n")
+    os.makedirs(os.path.join(tools, "off.pak.disabled"))                 # .disabled
+    open(os.path.join(tools, "off.pak.disabled", "launch.sh"), "w").write("#!/bin/sh\n")
+    os.makedirs(os.path.join(tools, "notapak"))                          # not .pak
+    open(os.path.join(tools, "notapak", "launch.sh"), "w").write("#!/bin/sh\n")
+    open(os.path.join(tools, "file.pak"), "w").write("x")                # file, not dir
+    discovered = scanner_discovered_apps(target, "tg5040")
+    if discovered == [pak_dir(target)]:
+        ok("launcher predicate ignores non-launchable .pak neighbours")
+    else:
+        fail("launcher predicate ignores non-launchable .pak neighbours", str(discovered))
+    # An update keeps the same discoverable directory.
+    _p, _m, _s, r2, proc = build_stage("app-discover-v2", "v2.0.0", key_der=key_der)
+    assert run(install_args(os.path.join(r2, "com.example.demo-v2.0.0-universal"),
+                            target)).returncode == 0
+    if scanner_discovered_apps(target, "tg5040") == [pak_dir(target)] \
+            and pak_version(target) == "v2.0.0":
+        ok("updated app stays discoverable at the same directory")
+    else:
+        fail("updated app stays discoverable at the same directory", str(pak_version(target)))
+
+
 def main():
     key_dir = os.path.join(WORK, "keys")
     key_der = make_key(open(SEED_HEX).read(), key_dir)
@@ -596,6 +763,8 @@ def main():
     test_crash_reentry(key_der)
     test_corrupt_txn_fail_closed(key_der)
     test_recover_without_transaction()
+    test_recover_coexists_with_system_txn(key_der)
+    test_launcher_discovery(key_der)
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)
 
