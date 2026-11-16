@@ -20,6 +20,17 @@ fi
 . "$INIT_PATH"
 h700_init_install
 
+# Localized splash text: zh when the shared settings file says so, English for a
+# missing file, an unknown value, or a payload without the strings file.
+if [ -f "$SCRIPT_DIR/boot_strings.sh" ]; then
+	. "$SCRIPT_DIR/boot_strings.sh"
+fi
+: "${BOOT_TEXT_INSTALLING:=Installing...}"
+: "${BOOT_TEXT_EXTRACTING:=Extracting}"
+: "${BOOT_TEXT_INSTALLING_PAK:=Installing}"
+: "${BOOT_TEXT_UPDATING:=Updating NextUI}"
+: "${BOOT_TEXT_INSTALLING_NEXTUI:=Installing NextUI}"
+
 cd "$SCRIPT_DIR/$PLATFORM" || exit 1
 
 mkdir -p "$LOGS_PATH"
@@ -28,7 +39,7 @@ echo "install: starting $(date)" > "$INSTALL_LOG"
 # Installation splash
 shim_log "Installing..."
 if [ -x ./show2.elf ]; then
-	./show2.elf --mode=daemon --image="logo.png" --text="Installing..." --logoheight=128 --progress=-1 >/dev/null 2>&1 &
+	./show2.elf --mode=daemon --image="logo.png" --text="$BOOT_TEXT_INSTALLING" --logoheight=128 --progress=-1 >/dev/null 2>&1 &
 fi
 
 h700_prepare_install
@@ -36,7 +47,7 @@ h700_prepare_install
 # generic NextUI package install
 for pakz in $PAKZ_PATH; do
 	if [ ! -e "$pakz" ]; then continue; fi
-	echo "TEXT:Extracting $pakz" > /tmp/show2.fifo 2>/dev/null || true
+	echo "TEXT:$BOOT_TEXT_EXTRACTING $pakz" > /tmp/show2.fifo 2>/dev/null || true
 	shim_log "extracting $pakz"
 	./unzip -o -d "$SDCARD_PATH" "$pakz" >> "$INSTALL_LOG" 2>&1
 	unzip_status=$?
@@ -46,7 +57,7 @@ for pakz in $PAKZ_PATH; do
 
 	# run postinstall if present
 	if [ -f "$SDCARD_PATH/post_install.sh" ]; then
-		echo "TEXT:Installing $pakz" > /tmp/show2.fifo 2>/dev/null || true
+		echo "TEXT:$BOOT_TEXT_INSTALLING_PAK $pakz" > /tmp/show2.fifo 2>/dev/null || true
 		shim_log "running post_install.sh for $pakz"
 		sh "$SDCARD_PATH/post_install.sh" >> "$INSTALL_LOG" 2>&1
 		post_status=$?
@@ -59,9 +70,9 @@ done
 # install/update
 if [ -f "$UPDATE_PATH" ]; then
 	if [ -d "$SYSTEM_PATH/$PLATFORM" ]; then
-		echo "TEXT:Updating NextUI" > /tmp/show2.fifo 2>/dev/null || true
+		echo "TEXT:$BOOT_TEXT_UPDATING" > /tmp/show2.fifo 2>/dev/null || true
 	else
-		echo "TEXT:Installing NextUI" > /tmp/show2.fifo 2>/dev/null || true
+		echo "TEXT:$BOOT_TEXT_INSTALLING_NEXTUI" > /tmp/show2.fifo 2>/dev/null || true
 	fi
 
 	# clean replacement for core paths
