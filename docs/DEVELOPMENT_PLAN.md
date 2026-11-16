@@ -104,9 +104,11 @@ Rules:
   feed block (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #27 (U8 transactional
   update package build, head `38b8cdc`, CI green on that head per gh with the
-  source reporting six of six, independent review FAIL, open) and this schedule
-  file's own update (PR #28). PR #24 (U7 boot payload sync, final head
-  `95b601a`) merged into main as
+  source reporting six of six, independent review FAIL, open), PR #29 (I9
+  settings abnormal-data fault tolerance, head `acf1d3f`, CI green on that head
+  per gh with the source reporting six checks, awaiting independent review and
+  merge, open), and this schedule file's own update (PR #28). PR #24 (U7 boot
+  payload sync, final head `95b601a`) merged into main as
   `dc4bef086f651b3369618b80218da004a8b9e71f` after review PASS (114 ok / 0
   failed). PR #23 (I4 settings Network/Bluetooth translation, head
   `bd2a40c`) merged into main as
@@ -150,8 +152,9 @@ Rules:
   CI success (Feature checks, Development/Desktop, CI). Main landings `e2ca971`
   and the current tip `dc4bef0` (merge of PR #24) show: `e2ca971` has
   full-platform CI success (Feature checks, Development/Desktop, CI all success
-  per gh); `dc4bef0` had runs in progress at the last check and is not recorded
-  as passing. The docs-only landings
+  per gh); on `dc4bef0`, Feature checks and Development/Desktop are success per
+  gh while the full CI run 43852956464 was still in progress at the last check
+  — pending, not failed, and not recorded as passing. The docs-only landings
   `c9230cf` and `6594dce` do not move the schedule baseline and their CI state
   is not tracked here.
   PR #13 (built-in emulator removal, head `e1275e4`) merged into main as
@@ -785,9 +788,33 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
   (dispatched 2026-11-16; works in isolation from the translation pull
   requests and hands results to the sole CI/merge owner).
-- Status: running (verified by the merge owner 2026-11-16; the absence of a
-  pull request is not evidence of no work). The source was asked to report
-  progress to this schedule.
+- Status: delivered and pushed; awaiting independent review and merge. PR #29
+  (https://github.com/4fuu/NextUI/pull/29, branch
+  `fix/settings-missing-data-crashes`), head
+  `acf1d3f9918dbc670a5179414120a30af7fc3c8b` (commits `7cdf81ca` + `acf1d3f9`),
+  base `e2ca971`; OPEN and mergeable per gh. CI on that head: gh shows Feature
+  checks (push and pull_request) and Development/Desktop success; the source
+  reports all six checks green. The merge owner T-01a1e2e1 holds the handoff
+  for independent review and sequential merge.
+- Reproduced first on unmodified main: About with a missing
+  `.system/version.txt` segfaults at `menu.cpp:756` (gdb-confirmed); a
+  `version.txt` with a trailing newline renders a missing-glyph box (font3
+  render proof); an empty timezone list aborts on the `menu.hpp:258` assert.
+- Fixes: `readVersionText()` trims the trailing newline and falls back to
+  "Unknown"; the Time zone row is offered only when zones exist; `MenuItem`
+  `getValue()`/`getLabel()` degrade to "no selection" instead of aborting; row
+  renderers skip NULL TTF surfaces. Two host regression tests are wired into
+  `make -C tests test` (target `test-settings`) and both fail against the
+  unfixed code.
+- Desktop end-to-end (Xvfb, real `settings.elf`): the System menu opens with
+  no Time zone row when the zone list is empty; About shows "Unknown" and then
+  "1.2.3" for both the newline and the plain version file; with a `zone.tab`
+  fixture the Time zone row selects normally (RIGHT moves
+  America/Los_Angeles to Asia/Shanghai).
+- Not delivered: no device runs (this orb has no Docker), so the device
+  evidence is the CI tg5040 build plus the desktop verification, which does
+  not speak for real hardware. "Unknown" stays a plain literal per the merge
+  owner's call; I4 adds the zh entry after the merge.
 - Scope: fix the settings crashes and corruption cases found in abnormal
   data — the missing-version crash, the trailing-newline missing glyphs, and
   the empty-timezone abort — with host regression coverage; no translation
@@ -797,7 +824,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Delivery/verification: host tests reproduce each abnormal case before the
   fix and pass after; English output unchanged; real-machine behavior stays
   with V1.
-- Next: closes when the owner merges the fix.
+- Next: independent review plus the merge owner's sequential merge; I4 adds
+  the zh entry for "Unknown" after the merge.
 
 ### P3 — Full UI translation remainder
 
