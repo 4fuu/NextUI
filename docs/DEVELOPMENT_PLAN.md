@@ -1253,6 +1253,98 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   not change stored values.
 - Next: F4/F5 when authorized.
 
+#### F6 — Application install closed loop (stage exists, install refused, store source absent)
+- Owner thread: read-only audit thread
+  https://ampcode.com/threads/T-01a1e497-08ae-779b-8d8f-868a46c184ee
+  (findings delivered 2026-11-16 at HEAD `3a0b048`; no files changed, no branch,
+  no pull request; probe scripts stay in /tmp and are not in the repo).
+- Status: audited and split into three layers; the install layer is not
+  delivered. (1) The stage/verify layer for app packages IS delivered and
+  host-verified: manifest plus Ed25519 signature plus per-file SHA-256, ZIP
+  path safety (`update_zip.c:231-239` refuses `../`), ZIP64 and symlink
+  refusals, capacity and space checks; a committed test seed proved
+  `manifest --kind app` stages clean. (2) The install layer explicitly refuses
+  app packages: `update_transaction.c:3793-3796` is a hard
+  `unsupported_kind` gate ("this installer only applies system packages"), a
+  probe install of a signed app package exits 3 with zero target-tree change,
+  and `test_updater.py:854-876` locks that refusal -- so "application install
+  is delivered" does not hold. (3) Store source selection does not exist at
+  all: the only "store" is a build-time third-party download
+  (`makefile:36-42`, UncleJunVIP/nextui-pak-store to `nextui.pak_store.pakz`,
+  `curl -Ls` without `-f`, so a failed download would ship the error page as a
+  package), the launcher only shows a quick entry when
+  `Tools/<platform>/Pak Store.pak` exists (`nextui.c:544-552`, `727-729`),
+  `nextui-feed-v1` carries only system rows (`update_feed.c:183-320` has no
+  kind or app id field), and UPDATES.md states the store source is not in the
+  feed.
+- Delivered around it (audited, not new work): app discovery lists only
+  `Tools/<platform>/*.pak` with a `launch.sh` (`nextui.c:661-676`, with the
+  comment that `Tools/$PLATFORM` is the canonical app install root) and
+  rebuilds the root list when a root directory is opened, so a newly installed
+  pak appears on the next root listing with no live refresh; `pak.json`
+  metadata (id/name/version/icon/capabilities) is really read
+  (`nextui.c:160-175`, `933-938`, `962-969`, `workspace/all/common/pak_manifest.c`),
+  with version records under `.userdata/shared/.paks/<version>/<id>.version`;
+  launch state (`nextstate`, `app_state` B3, session snapshots) ships in the
+  image; installed apps need no grant file, manifest declaration, or settings
+  page (default-allow matches the install-default-highest-permission policy,
+  and capabilities are not authorization); package security is the same rule
+  for system and app packages.
+- Gaps recorded as gaps, not completion: no application destination path
+  policy exists (`manifest_preflight`, `update_transaction.c:1750-1800`, allows
+  only `.system/` and `.tmp_update/` and only during an install call; the probe
+  showed an arbitrary top-level path such as `launch.sh` or `Emu/whatever` can
+  be signed and staged, so opening the kind gate without a path policy would
+  let a package choose its own landing spot); transaction, rollback, and
+  interrupted recovery are hardcoded for the system
+  (`.nextupd-txn`, `.system.bak`, `.tmp_update.bak` in `setup_paths`,
+  `update_transaction.c:36-43`, `211-263`), so an app install has no
+  independent state directory, backup, or recovery entry; there is no
+  uninstall implementation in the repo at all; and `pak.json`'s `min_system`
+  is not enforced at launch (`pak_manifest_meets_min_system` appears only in
+  `pak_manifest_test.c`; `nextui.c` never calls it).
+- Unverified but real boot path (the easiest thing to mistake for a delivered
+  app install): `workspace/tg5040/install/boot.sh:97-105` (tg5050 and h700 are
+  isomorphic) unzips SD-root `*.pakz` with `unzip -o -d $SDCARD_PATH` at boot
+  and deletes the package, and can run `post_install.sh`; there is no
+  signature, manifest, or rollback and the landing spot is decided by the
+  package. This is what a user can actually do today, and it is not a verified
+  install.
+- Next block (does not need the production source, key, or device): an app
+  install closed loop with a local signature fixture and an isolated app root
+  -- after the `update_transaction.c:3793` kind gate, add an app install path;
+  in `manifest_preflight` (:1750) add an app destination policy (proposed:
+  only `Tools/<platform>/<id>.pak/`, everything else refused before any write
+  with a new `app_path_outside_root` error code); add an independent app
+  transaction directory and backup outside `setup_paths` (:211) that never
+  touches `.system` or `.tmp_update`; extend the request/result in
+  `update_transaction.h:27-63`; turn the `test_updater.py:854` refusal test
+  into a positive plus negative pair. Verification, all host-doable: after
+  install the target root gains only `Tools/<platform>/<App>.pak/` with
+  permissions preserved (tree diff, modeled on `expect_unchanged`); out-of-root
+  and traversal paths are refused before any write; an old version over a new
+  one needs an explicit switch; after a SIGKILL at each stage `recover`
+  restores the previous version or completes with `.system` unchanged; an
+  uninstall removes only that application directory and can be restored from
+  backup; the new `tests/makefile` target sits on its own line to avoid a
+  conflict with PR #36's lines. The then-still-source-free second step is an
+  "install from a local file" surface (settings page or launcher page) that
+  runs stage plus install only on a user-provided local `.pakz`, choosing no
+  store source, touching no network, and using no production key.
+- Owner decisions needed (engineering does not default these): (1) keep the
+  boot `unzip -o` path in parallel or replace it with the verified install;
+  (2) whether the app install root is exactly `Tools/<platform>/<App>.pak`
+  and whether the app id maps to the directory name; (3) whether app updates
+  refuse downgrades the same way; (4) whether app signing reuses the system
+  production key (U5 key custody is still undecided); (5) whether the
+  third-party Pak Store build-time download stays as-is until the owner
+  authorizes a fork and index.
+- Audit evidence at HEAD `3a0b048`: updater 355 items all pass (177 + 55 + 67
+  + 56, including "ok install rejects app package"); pak_manifest 550,
+  app_state 937, app_capabilities 178, device_gate 1229, and the devserv
+  end-to-end and default-allow suites all pass;
+  `make setup && make common PLATFORM=desktop` exits 0; `git status` clean.
+
 #### F4 — Pak Store single-sourcing
 - Owner: unassigned; blocked on owner repository authorization.
 - Status: not started; the store pak still comes from a third-party source.
