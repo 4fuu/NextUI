@@ -876,7 +876,12 @@ static int load_txn(const UpdPaths* paths, TxnRecord* record, int* found, UpdErr
     if (!upd_read_file(paths->record, UPD_MAX_STAGED_BYTES, &raw, &raw_length, error))
         return 0;
     if (!read_flat_json(raw, raw_length, fields, sizeof fields / sizeof fields[0], error))
+    {
+        char detail[256];
+        snprintf(detail, sizeof detail, "%s", error->detail);
+        upd_error_set(error, UPD_E_STATE, "transaction_corrupt", "%s", detail);
         goto failed;
+    }
     if (strcmp(record->schema, TXN_SCHEMA) != 0 || !txn_state_known(record->state))
     {
         upd_error_set(error, UPD_E_STATE, "transaction_corrupt",
@@ -1555,6 +1560,9 @@ static int commit_candidate(const UpdPaths* paths, TxnRecord* record,
         if (!sync_root_and_state(paths, error)) return 0;
     }
     test_crash_phase("backup_evicted");
+    if (!verify_directory_version(paths->live, record->previous_version, "state_ambiguous",
+                                  error))
+        return 0;
     snprintf(record->state, sizeof record->state, "%s", TXN_STATE_BACKING_UP);
     if (!write_txn(paths, record, error)) return 0;
     test_crash_phase("backing_up");
@@ -1693,6 +1701,21 @@ int upd_install_execute(const UpdInstallRequest* request, UpdTransactionResult* 
     }
     if (!require_directory(paths.live, "target_missing", error)) return 0;
     if (!optional_directory(paths.backup, error)) return 0;
+    {
+        int backup_exists = 0;
+        char backup_version[UPD_MAX_VERSION + 1];
+        state = path_is_directory(paths.backup, &backup_exists);
+        if (state < 0)
+        {
+            upd_error_set(error, UPD_E_STATE, "backup_corrupt",
+                          "%s is not an accessible plain directory", paths.backup);
+            return 0;
+        }
+        if (backup_exists
+            && !read_directory_version(paths.backup, backup_version,
+                                       sizeof backup_version, "backup_corrupt", error))
+            return 0;
+    }
     if (!read_directory_version(paths.live, installed_version, sizeof installed_version,
                                 "target_version_missing", error))
         return 0;
