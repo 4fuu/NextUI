@@ -255,12 +255,14 @@ public:
 
     const std::any getValue() const override
     {
-        assert(valueIdx >= 0);
+        // A picker can be built from a dynamic list that turned out empty
+        // (e.g. no timezones on the system); it then has no selection at all.
+        if (valueIdx < 0) return {};
         return values[valueIdx];
     }
     const std::string getLabel() const override
     {
-        assert(valueIdx >= 0);
+        if (valueIdx < 0) return "";
         return labels[valueIdx];
     }
     const std::vector<std::any> getValues() const override{ return values; }

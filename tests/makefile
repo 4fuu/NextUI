@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render test-update-package clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-settings test-led-render test-show2-render test-update-package clean
 
-test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings test-update-package
+test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings test-settings test-update-package
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -89,6 +89,14 @@ test-led-i18n:
 
 test-boot-strings:
 	../workspace/all/show2/tests/run_boot_strings_test.sh
+
+# Settings crash regressions: the About version text (missing file, trailing
+# newline) and the menu row renderers (empty value, empty option list). The
+# menu part needs the desktop SDL/msettings build dependencies and prepares
+# its own fake SD root; the version part needs neither.
+test-settings:
+	../workspace/all/settings/tests/run_settings_version_test.sh
+	../workspace/all/settings/tests/run_settings_menu_test.sh
 
 test-led-render:
 	../workspace/all/ledcontrol/tests/run_led_render_proof.sh
