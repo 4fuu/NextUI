@@ -5,7 +5,10 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/integration/batch7` @ `de69781` (fetched 2026-11-16).
+- Baseline: `origin/integration/batch7` @ `684260d` (merge of PR #3
+  `ci/feature-checks`; fetched 2026-11-16). The earlier baseline `de69781` is an
+  ancestor. PR #5 (`integration/batch7` -> `main`, head `684260d`) is open with
+  checks running and is not merged.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -53,19 +56,27 @@ Rules:
 
 ## Progress snapshot (kept on separate axes)
 
-- Pushed to `integration/batch7` @ `de69781` (host-level): UTF-8 layout fixes
-  (A1); FN action kinds `home`/`overlay` with index fallback (A2); i18n table of
-  138 zh keys with `lang=` and the Appearance Language item (A3, partial
-  coverage); Noto Sans SC subset font3.ttf (A4); show2 embedded CJK font (A5,
-  partial: boot.sh text still hardcoded English); Apostrophe `AP_VERSION` macros
-  (A6); pak manifest scan (B1); pak-scan launcher root (B2); app state slots and
+- Pushed to `integration/batch7` (host-level): UTF-8 layout fixes (A1); FN
+  action kinds `home`/`overlay` with index fallback (A2); i18n table of 138 zh
+  keys with `lang=` and the Appearance Language item (A3, partial coverage);
+  Noto Sans SC subset font3.ttf (A4); show2 embedded CJK font (A5, partial:
+  boot.sh text still hardcoded English); Apostrophe `AP_VERSION` macros (A6);
+  pak manifest scan (B1); pak-scan launcher root (B2); app state slots and
   `nextstate` (B3); `saves` capability gating (B4); shared overlay module (B5);
   devserv/nextdev permission core (C1); LED app-profile lease (C2); session
-  snapshot/restore (C3).
-- Host-done, unpushed: none. `runtime-fn-actions` @
-  `be88c2028196d5249e8819adba07bcd4e7fc7a4c` (app exit path C4, Clock reference
-  wiring B6, default-allow policy) is pushed as draft PR #1; the i18n branches
-  (I4/I5) and `feature/updater-manifest` (I6) remain local for now.
+  snapshot/restore (C3). Baseline head `684260d` additionally merges PR #3
+  (CI feature checks plus two fixes it exposed: host-test cleanup failure
+  handling and a `PATH_MAX` buffer for `realpath` in devserv).
+- Host-done, unpushed: the i18n branches (I4/I5) only.
+  `runtime-fn-actions` (I1) is pushed as draft PR #1 at head `b46227ac`, and
+  `feature/updater-manifest` (I6) is pushed to origin at head `8afab34` with no
+  PR open yet.
+- CI infrastructure: PR #3 (`ci/feature-checks`) merged as `684260d` adds the
+  Feature checks workflow, which runs the host test suite and a real tg5040
+  cross-compile on branch pushes and pull requests; packaging and attestation
+  remain main-only. Per the CI/merge owner, PR #3's own runs passed (host
+  tests, tg5040, desktop macOS/Linux). PR #5 (`integration/batch7` -> `main`)
+  is open with Feature checks running and is not merged.
 - Target compile: tg5040 passes on batch7; the runtime branch
   (`be88c2028196d5249e8819adba07bcd4e7fc7a4c`) has a formal PASS from the
   toolchain thread (own verification, not cloud CI); `feature/updater-manifest`
@@ -107,16 +118,15 @@ Rules:
   PID accepted; no killing of new sessions, other apps, or the desktop. Formal
   PASS reports from I2/I3 are outstanding.
 - Next: PR #1 CI to finish and I3 to conclude; then the CI/merge owner decides
-  the merge. CI status on PR #1 (2026-11-16): the Development/Desktop run on
-  `be88c2028...` completed with failure — `build-macos` fails linking
-  `devserv.elf` with `ld: library 'rt' not found` (`build-linux` succeeds); the
-  baseline `workspace/all/devserv/makefile` does not link `-lrt`, so the runtime
-  branch introduced it. The source thread pushed fix `b46227ac` "Keep librt out
-  of macOS desktop links", which is now the PR head and has fresh CI runs
-  triggered (Development/Desktop in_progress, CI queued as of this write); the
-  `be88c2028...` device CI run is still in progress (prepare and core-matrix
-  pass; many `build-core` jobs pass, some pending). Each increment is verified
-  on its own; the HOME gap is handled as I7 on a separate increment.
+  the merge. CI status on PR #1 (2026-11-16): the `be88c2028...` head failed
+  Development/Desktop on macOS (`devserv.elf` link: `library 'rt' not found`;
+  `build-linux` succeeded; the baseline devserv makefile does not link `-lrt`,
+  so the runtime branch introduced it); the source thread's fix `b46227ac`
+  "Keep librt out of macOS desktop links" is the current head and its
+  Development/Desktop run completed with success (macOS and Linux). The device
+  CI run on `b46227ac` is still in progress (the `be88c2028...` device CI run
+  completed with success). Each increment is verified on its own; the HOME gap
+  is handled as I7 on a separate increment.
 
 ### I2 — Toolchain target compile of the runtime branch
 - Owner: retained toolchain-target thread (tg5040 cross-build).
@@ -179,22 +189,29 @@ Rules:
 
 ### I6 — Update package manifest, signature, staging, and check
 - Owner thread: https://ampcode.com/threads/T-01a1e2bf-a7b9-75e8-9b44-92cc3fa42296
-- State: two local commits on `feature/updater-manifest` (ahead 2 of
-  `origin/integration/batch7`), not pushed: `8dc1275` manifest verification and
-  safe staging (45 host tests, fixed fixtures, vendored TweetNaCl) and `29b04da`
-  contract docs (`UPDATES.md`, module README). Self-test: 45 passed / 0 failed
-  plain and under ASan/UBSan; the thread itself cross-built `nextupd.elf` for
-  tg5040 (real toolchain unpacked under /var/tmp, no Docker; NEEDED only
-  libz/libc). Still not the full update chain: no install, no startup
-  arbitration, no rollback, no feed, no source switch.
+- State: pushed to origin. Branch `feature/updater-manifest` (based on
+  `de69781`), head `8afab34` "Build nextupd and run its host tests in CI" =
+  `8dc1275` (manifest verification and safe staging, 45 host tests, fixed
+  fixtures, vendored TweetNaCl) + `29b04da` (contract docs: `UPDATES.md`, module
+  README) + the CI/merge owner's integration commit wiring nextupd into the
+  desktop/device builds and `tests/makefile`, with the 45 tests in the unified
+  entry. The CI/merge owner received and verified the source bundle (sha256
+  63e30747...) before pushing. No PR open yet and no CI runs yet: the branch
+  predates the Feature checks workflow, and the old workflows only run on
+  `pull_request`.
 - Depends on: baseline.
-- Delivery/verification: verified — `check` without a signature exits non-zero,
-  `--integrity-only` warns that SHA-256 is not a signature, and staging is
-  crash-safe (`.part`, marker last, fsync, space pre-check). Remaining for U1:
-  install consumes `staged.json` and re-runs `check`, then backup/swap/arbitration/rollback.
-- Next: hands the manifest/check format family to U1. Staging and check
-  completion is not update-chain completion: install, startup arbitration, and
-  rollback remain separate tasks below.
+- Delivery/verification: self-test 45 passed / 0 failed plain and under
+  ASan/UBSan; the thread itself cross-built `nextupd.elf` for tg5040 (real
+  toolchain unpacked under /var/tmp, no Docker; NEEDED only libz/libc); `check`
+  without a signature exits non-zero and `--integrity-only` warns that SHA-256
+  is not a signature; staging is crash-safe (`.part`, marker last, fsync, space
+  pre-check). Still not the full update chain: no install, no startup
+  arbitration, no rollback, no feed, no source switch.
+- Next: open a PR for `feature/updater-manifest` (the Feature checks workflow
+  then runs host tests and a real tg5040 cross-compile on it), then hand the
+  manifest/check format family to U1. Staging and check completion is not
+  update-chain completion: install, startup arbitration, and rollback remain
+  separate tasks below.
 
 ### I7 — HOME input mapping fix (new task after `be88c20`)
 - Owner thread: https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
@@ -478,15 +495,14 @@ as they happen; nothing is reported as passing without a run.
 
 ## Delivery of this file
 
-- Branch `docs/development-plan`, based on `origin/integration/batch7` @
-  `de69781`, pushed to origin at commit
-  `ea0a337cb7b305c9a59dfbe9ca81dd7a4ebea795` and delivered as pull request #2
+- Branch `docs/development-plan`, originally based on `de69781`, now merged with
+  `origin/integration/batch7` @ `684260d` (merge commit, no history rewrite) so
+  the PR diff stays docs-only and the Feature checks workflow runs on it.
+  Pushed to origin and delivered as pull request #2
   (https://github.com/4fuu/NextUI/pull/2) into `integration/batch7`.
-- CI on PR #2 (as of 2026-11-16): the Development/Desktop run for the first
-  commit (`ea0a337`) completed with success (macOS and Linux desktop builds
-  pass, confirming the baseline builds cleanly on macOS); the CI device run is
-  still in progress (prepare and core-matrix pass, build-core jobs pending);
-  the follow-up commit (`59e7ddb`) re-triggered both workflows. A job that has
-  not finished is never recorded as passing.
-- Merge into `integration/batch7` is performed by the CI/merge owner thread
-  after real CI and review pass; no other thread merges main concurrently.
+- CI on PR #2 (as of 2026-11-16): Development/Desktop runs completed with
+  success (macOS and Linux); the device CI runs are still in progress. A job
+  that has not finished is never recorded as passing.
+- Handover: the CI/merge owner will retarget PR #2 to `main` after PR #5
+  (`integration/batch7` -> `main`) merges, and merge it after checks pass. This
+  thread performs no merges into main.
