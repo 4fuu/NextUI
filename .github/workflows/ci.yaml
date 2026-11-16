@@ -2,11 +2,12 @@
 name: CI
 
 # yamllint disable-line rule:truthy
+# Full packaging and provenance stay on main. Feature branches and pull
+# requests are validated by test.yaml without producing release artifacts.
 on:
   push:
     branches:
       - main
-  pull_request: {}
 
 permissions:
   attestations: write

@@ -180,7 +180,7 @@ static int create_pak_at(const char* root, const char* name, const char* json)
 
     pak_dir(root, name, directory, sizeof directory);
     snprintf(command, sizeof command, "rm -rf -- '%s'", directory);
-    (void)system(command);
+    if (system(command) != 0) return 0;
     if (mkdir(directory, 0755) != 0) return 0;
 
     if (!path_join(path, sizeof path, directory, "launch.sh")) return 0;
@@ -1299,8 +1299,12 @@ int main(void)
 
     {
         char command[600];
+        int status;
+
         snprintf(command, sizeof command, "rm -rf -- '%s'", temp_path);
-        (void)system(command);
+        status = system(command);
+        if (status != 0)
+            fprintf(stderr, "warning: could not remove %s (status %d)\n", temp_path, status);
     }
 
     if (failures != 0)

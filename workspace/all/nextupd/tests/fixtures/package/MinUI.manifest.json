@@ -1,0 +1,18 @@
+{
+  "schema": "nextui-update-v1",
+  "id": "nextui.system.tg5040",
+  "kind": "system",
+  "version": "v6.16.0",
+  "platform": "tg5040",
+  "min_system": "v6.0.0",
+  "archive": {
+    "name": "MinUI.zip",
+    "size": 610,
+    "sha256": "89a5808ff3b6cc396d45295af7c7c799b7a7dc5ead6b99d99e884d4c3ca3e8d3"
+  },
+  "files": [
+    {"path": ".system/tg5040/bin/nextui.elf", "size": 40, "sha256": "a86b73e0f8ce8c2abd8893a270232e992c62e324b922baac19f3aaa376e8c269"},
+    {"path": ".system/tg5040/paks/MinUI.pak/launch.sh", "size": 28, "sha256": "67ad86646e9af2a87fc723249cc72f2175ad5163c145130757fcbd6a13d50716"},
+    {"path": ".system/version.txt", "size": 8, "sha256": "afaa0c6fb7b9e27ef7aa9a3fda00070c23ec8ff53e62743e0e5fe5162401e9c0"}
+  ]
+}
