@@ -5,14 +5,25 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$(mktemp -d)"
-SETTINGS_DIR="/var/tmp/nextui/sdcard/.userdata/shared"
+SD_ROOT="/var/tmp/nextui/sdcard"
+USERDATA_DIR="$SD_ROOT/.userdata"
+SYSTEM_DIR="$SD_ROOT/.system"
+SETTINGS_DIR="$USERDATA_DIR/shared"
 SETTINGS_FILE="$SETTINGS_DIR/minuisettings.txt"
 BACKUP="$BUILD_DIR/minuisettings.txt"
-RES_DIR="/var/tmp/nextui/sdcard/.system/res"
+RES_DIR="$SYSTEM_DIR/res"
 RES_BACKUP="$BUILD_DIR/res"
+HAD_SD_ROOT=0
+HAD_USERDATA_DIR=0
+HAD_SYSTEM_DIR=0
+HAD_SETTINGS_DIR=0
 HAD_SETTINGS=0
 HAD_RES=0
 
+[[ -d "$SD_ROOT" ]] && HAD_SD_ROOT=1
+[[ -d "$USERDATA_DIR" ]] && HAD_USERDATA_DIR=1
+[[ -d "$SYSTEM_DIR" ]] && HAD_SYSTEM_DIR=1
+[[ -d "$SETTINGS_DIR" ]] && HAD_SETTINGS_DIR=1
 if [[ -f "$SETTINGS_FILE" ]]; then
     cp "$SETTINGS_FILE" "$BACKUP"
     HAD_SETTINGS=1
@@ -35,6 +46,12 @@ cleanup() {
     else
         rm -rf "$RES_DIR"
     fi
+    # Remove only directories this test created. A bare sdcard root is enough
+    # to make prepare_fake_sd_root.sh skip preparing assets for a later test.
+    if [[ "$HAD_SETTINGS_DIR" -eq 0 ]]; then rmdir "$SETTINGS_DIR" 2>/dev/null || true; fi
+    if [[ "$HAD_USERDATA_DIR" -eq 0 ]]; then rmdir "$USERDATA_DIR" 2>/dev/null || true; fi
+    if [[ "$HAD_SYSTEM_DIR" -eq 0 ]]; then rmdir "$SYSTEM_DIR" 2>/dev/null || true; fi
+    if [[ "$HAD_SD_ROOT" -eq 0 ]]; then rm -rf "$SD_ROOT"; fi
     rm -rf "$BUILD_DIR"
 }
 trap cleanup EXIT
