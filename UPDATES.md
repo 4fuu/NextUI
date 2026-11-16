@@ -388,8 +388,15 @@ input. The boot journal is separate from `txn.json` on purpose:
   schema is only written after a tool that can read it is already live. This
   release keeps `txn.json` at v1.
 - The boot journal binds to the system record by transaction id, version and
-  platform. A mismatch, an unknown boot schema, a missing file list, or a
-  boot id that does not hash the list fails closed with exit 13.
+  platform. For a non-terminal system record, a mismatch, an unknown boot
+  schema, a missing file list, or a boot id that does not hash the list fails
+  closed with exit 13.
+- A terminal `txn.json` (`committed` or `rolled_back`) may coexist with a boot
+  journal from a later attempt that died before writing its system record. A
+  non-binding journal under a terminal record is treated as an orphan:
+  `recover` rolls back the boot payload and leaves the terminal system
+  untouched. Unknown schemas and corrupt journals still fail closed. This is
+  the normal "card already has a completed update" case.
 - If the installer dies after publishing the boot payload but before writing
   `txn.json`, the boot journal is an orphan. `recover` restores the old
   payload rather than letting the boot tree advance without a recorded system

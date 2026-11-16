@@ -1482,10 +1482,41 @@ static int recover_internal(const char* root, int force_rollback,
     if (state_exists)
     {
         if (!load_txn(&paths, &record, &found, error)) return 0;
-        if (found
-            && !boot_check_binding(&paths, record.txn_id, record.version, record.platform,
-                                   error))
-            return 0;
+        if (found)
+        {
+            int terminal = strcmp(record.state, TXN_STATE_COMMITTED) == 0
+                           || strcmp(record.state, TXN_STATE_ROLLED_BACK) == 0;
+
+            if (!boot_check_binding(&paths, record.txn_id, record.version,
+                                    record.platform, error))
+            {
+                if (!terminal
+                    || strcmp(error->reason, "boot_transaction_mismatch") != 0)
+                    return 0;
+                /* A terminal record is the last completed release. A new
+                 * attempt publishes its boot payload before overwriting
+                 * txn.json, so a journal that does not bind belongs to that
+                 * attempt, not to the completed one. Roll the orphan back and
+                 * keep the terminal system untouched so the gate can boot and
+                 * the next install can run. */
+                upd_error_clear(error);
+                if (!boot_recover_orphan(&paths, result, error)) return 0;
+                cleanup_work_directories(&paths);
+                set_result(result, "nothing_to_recover", record.state,
+                           strcmp(record.state, TXN_STATE_COMMITTED) == 0
+                               ? record.version
+                               : record.previous_version,
+                           record.previous_version);
+                return 1;
+            }
+            if (terminal && strcmp(record.state, TXN_STATE_ROLLED_BACK) == 0)
+            {
+                /* A matching journal under a terminal rolled-back record is
+                 * anomalous; do not leave a boot payload that belongs to no
+                 * live system. */
+                if (!boot_rollback(&paths, result, error)) return 0;
+            }
+        }
     }
     if (!found)
     {

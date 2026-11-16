@@ -203,13 +203,19 @@ def system_entries(version):
     ]
 
 
-def boot_entries(version):
+def boot_entries(version, tool_data=None, helper_data=None):
+    tool = tool_data
+    if tool is None:
+        tool = b"\x7fELF\x02\x01\x01\x00" + version.encode() + b"\x00" * 32
+    helper = helper_data
+    if helper is None:
+        helper = f"#!/bin/sh\n# {version} recover helper\n".encode("ascii")
     return [
         {"name": ".tmp_update/updater",
          "data": f"#!/bin/sh\n# {version} updater\n".encode("ascii"),
          "mode": 0o100755},
         {"name": ".tmp_update/nextupd-recover.sh",
-         "data": f"#!/bin/sh\n# {version} recover helper\n".encode("ascii"),
+         "data": helper,
          "mode": 0o100755},
         {"name": ".tmp_update/boot_strings.sh",
          "data": f"# {version} boot strings\n".encode("ascii")},
@@ -217,7 +223,7 @@ def boot_entries(version):
          "data": f"#!/bin/sh\n# {version} platform boot\n".encode("ascii"),
          "mode": 0o100755},
         {"name": f".tmp_update/{PLATFORM}/nextupd.elf",
-         "data": b"\x7fELF\x02\x01\x01\x00" + version.encode() + b"\x00" * 32,
+         "data": tool,
          "mode": 0o100755},
         {"name": f".tmp_update/{PLATFORM}/show2.elf",
          "data": b"\x7fELF\x02\x01\x01\x00show2" + version.encode(),
@@ -227,11 +233,13 @@ def boot_entries(version):
     ]
 
 
-def build_package(directory, *, version=NEW_VERSION, boot=True, entries=None):
+def build_package(directory, *, version=NEW_VERSION, boot=True, entries=None,
+                  tool_data=None, helper_data=None):
     os.makedirs(directory, exist_ok=True)
     package = os.path.join(directory, "MinUI.zip")
     if entries is None:
-        entries = system_entries(version) + (boot_entries(version) if boot else [])
+        entries = system_entries(version) + (
+            boot_entries(version, tool_data, helper_data) if boot else [])
     write_zip(package, entries)
     manifest = os.path.join(directory, "MinUI.manifest.json")
     run([BIN, "manifest", "--package", package, "--id", f"nextui.system.{PLATFORM}",
@@ -251,10 +259,12 @@ def stage_package(directory, package, manifest, signature):
     return os.path.join(staging, f"nextui.system.{PLATFORM}-{NEW_VERSION}-{PLATFORM}")
 
 
-def build_staged(name, *, version=NEW_VERSION, boot=True, entries=None):
+def build_staged(name, *, version=NEW_VERSION, boot=True, entries=None,
+                 tool_data=None, helper_data=None):
     directory = fresh(name)
     package, manifest, signature = build_package(directory, version=version, boot=boot,
-                                                 entries=entries)
+                                                 entries=entries, tool_data=tool_data,
+                                                 helper_data=helper_data)
     staged = stage_package(directory, package, manifest, signature)
     if version != NEW_VERSION:
         staged = os.path.join(os.path.dirname(staged),
@@ -659,8 +669,9 @@ def test_install_zero_write_refusals():
         ok("install Tools root writes nothing")
 
 
-def install_with_crash(target, staged, phase):
-    proc = run(install_args(staged, target), env={"NEXTUPD_TEST_CRASH_PHASE": phase})
+def install_with_crash(target, staged, phase, system=OLD_VERSION):
+    proc = run(install_args(staged, target, system=system),
+               env={"NEXTUPD_TEST_CRASH_PHASE": phase})
     if proc.returncode != 70:
         fail(f"crash phase {phase}", "expected simulated power loss exit 70", proc)
         return False
@@ -825,6 +836,185 @@ def test_boot_gate_without_system_txn():
         ok("real boot gate recovers a boot journal without a system txn")
 
 
+def test_terminal_record_orphan_boot():
+    base = build_staged("terminal-base", version=NEW_VERSION, boot=False)
+    next_version = "v6.17.0"
+    with open(BIN, "rb") as handle:
+        tool_data = handle.read()
+    with open(os.path.join(REPO, "skeleton", "BOOT", "common",
+                           "nextupd-recover.sh"), "rb") as handle:
+        helper_data = handle.read()
+    next_staged = build_staged("terminal-next", version=next_version, boot=True,
+                               tool_data=tool_data, helper_data=helper_data)
+    phases = [
+        "boot_prepared",
+        "boot_installing",
+        "boot_tool_published",
+        "boot_scripts_published",
+        "boot_files_published",
+        "boot_stamp_published",
+        "boot_installed",
+    ]
+    for phase in phases:
+        target = make_target(f"terminal-{phase}")
+        run(install_args(base, target, system=OLD_VERSION), check=True)
+        if txn_state(target) != "committed":
+            fail(f"terminal {phase} setup", "baseline transaction is not committed")
+            continue
+        old_id = read_json(os.path.join(target, ".nextupd-txn", "txn.json"))["txn_id"]
+        # Put a real recovery tool and the shipped helper in the live payload so
+        # the actual boot gate can execute in every crash phase.
+        shutil.copy(BIN, os.path.join(target, ".tmp_update", PLATFORM, "nextupd.elf"))
+        os.chmod(os.path.join(target, ".tmp_update", PLATFORM, "nextupd.elf"), 0o755)
+        shutil.copy(os.path.join(REPO, "skeleton", "BOOT", "common",
+                                 "nextupd-recover.sh"),
+                    os.path.join(target, ".tmp_update", "nextupd-recover.sh"))
+        before_system = tree_manifest(os.path.join(target, ".system"))
+        before_boot = tree_manifest(os.path.join(target, ".tmp_update"))
+        proc = run(install_args(next_staged, target, system=NEW_VERSION),
+                   env={"NEXTUPD_TEST_CRASH_PHASE": phase})
+        if proc.returncode != 70:
+            fail(f"terminal {phase} crash", "expected simulated power loss exit 70", proc)
+            continue
+        if txn_state(target) != "committed":
+            fail(f"terminal {phase} record", f"old terminal state is {txn_state(target)}")
+            continue
+        if read_json(os.path.join(target, ".nextupd-txn", "txn.json"))["txn_id"] != old_id:
+            fail(f"terminal {phase} record", "old terminal transaction id changed")
+            continue
+        if boot_journal(target) is None:
+            fail(f"terminal {phase} journal", "new boot journal is missing")
+            continue
+        log = os.path.join(target, ".userdata", PLATFORM, "logs", "install.txt")
+        script = ('. "$1/nextupd-recover.sh"; '
+                  'nextupd_recover_boot "$2" "$1" "%s" "$3"') % PLATFORM
+        gate = run(["sh", "-c", script, "sh",
+                    os.path.join(target, ".tmp_update"), target, log])
+        if gate.returncode != 0:
+            fail(f"terminal {phase} gate", "boot gate did not recover", gate)
+            continue
+        if tree_manifest(os.path.join(target, ".system")) != before_system:
+            fail(f"terminal {phase} gate", "gate modified .system")
+            continue
+        if tree_manifest(os.path.join(target, ".tmp_update")) != before_boot:
+            fail(f"terminal {phase} gate", "gate left a different boot payload")
+            continue
+        if boot_journal(target) is not None:
+            fail(f"terminal {phase} gate", "boot journal remains after the gate")
+            continue
+        proc = run(recover_args(target))
+        value = expect_json(f"terminal {phase} recover", proc)
+        if value is None:
+            continue
+        if value.get("outcome") != "nothing_to_recover":
+            fail(f"terminal {phase} recover", f"unexpected result: {value}", proc)
+            continue
+        if tree_manifest(os.path.join(target, ".system")) != before_system:
+            fail(f"terminal {phase} recover", "recover modified .system")
+            continue
+        proc = run(install_args(next_staged, target, system=NEW_VERSION))
+        value = expect_json(f"terminal {phase} reinstall", proc)
+        if value is None:
+            continue
+        if value.get("outcome") != "installed" or system_version(target) != next_version:
+            fail(f"terminal {phase} reinstall",
+                 f"unexpected result/version: {value}, {system_version(target)}", proc)
+            continue
+        text = boot_text(target, "updater") or ""
+        if f"# {next_version} updater" not in text:
+            fail(f"terminal {phase} reinstall", "new boot payload was not installed", proc)
+        elif txn_state(target) != "committed":
+            fail(f"terminal {phase} reinstall", "new transaction is not committed", proc)
+        else:
+            ok(f"terminal record + orphan boot journal at {phase}: gate, recover, reinstall")
+
+
+def test_terminal_orphan_rollback():
+    base = build_staged("terminal-rollback-base", version=NEW_VERSION, boot=False)
+    next_version = "v6.17.0"
+    with open(BIN, "rb") as handle:
+        tool_data = handle.read()
+    with open(os.path.join(REPO, "skeleton", "BOOT", "common",
+                           "nextupd-recover.sh"), "rb") as handle:
+        helper_data = handle.read()
+    next_staged = build_staged("terminal-rollback-next", version=next_version,
+                               boot=True, tool_data=tool_data,
+                               helper_data=helper_data)
+    target = make_target("terminal-rollback")
+    run(install_args(base, target, system=OLD_VERSION), check=True)
+    shutil.copy(BIN, os.path.join(target, ".tmp_update", PLATFORM, "nextupd.elf"))
+    os.chmod(os.path.join(target, ".tmp_update", PLATFORM, "nextupd.elf"), 0o755)
+    shutil.copy(os.path.join(REPO, "skeleton", "BOOT", "common",
+                             "nextupd-recover.sh"),
+                os.path.join(target, ".tmp_update", "nextupd-recover.sh"))
+    if not install_with_crash(target, next_staged, "boot_prepared",
+                              system=NEW_VERSION):
+        return
+    proc = run(recover_args(target, rollback=True))
+    value = expect_json("terminal orphan recover --rollback", proc)
+    if value is None:
+        return
+    if boot_journal(target) is not None:
+        fail("terminal orphan recover --rollback", "boot journal remains", proc)
+    elif system_version(target) not in (NEW_VERSION, OLD_VERSION):
+        fail("terminal orphan recover --rollback",
+             f"unexpected system version: {system_version(target)}", proc)
+    else:
+        ok("terminal orphan recover --rollback resolves the journal")
+    live = system_version(target)
+    proc = run(install_args(next_staged, target, system=live))
+    value = expect_json("terminal orphan rollback reinstall", proc)
+    if value and (value.get("outcome") != "installed"
+                  or system_version(target) != next_version):
+        fail("terminal orphan rollback reinstall",
+             f"unexpected result/version: {value}, {system_version(target)}", proc)
+    else:
+        ok("reinstall after terminal orphan --rollback succeeds")
+
+
+def test_foreign_journal_fail_closed():
+    with open(BIN, "rb") as handle:
+        tool_data = handle.read()
+    with open(os.path.join(REPO, "skeleton", "BOOT", "common",
+                           "nextupd-recover.sh"), "rb") as handle:
+        helper_data = handle.read()
+    next_staged = build_staged("foreign-journal-next", version="v6.17.0", boot=True,
+                               tool_data=tool_data, helper_data=helper_data)
+
+    target = make_target("foreign-nonterminal")
+    if not install_with_crash(target, next_staged, "preparing"):
+        return
+    path = os.path.join(target, ".nextupd-txn", "boot.json")
+    value = read_json(path)
+    value["txn_id"] = "deadbeefdeadbeefdeadbeef"
+    write_json(path, value)
+    before = tree_manifest(target)
+    expect("mid-transaction foreign boot journal fails closed",
+           run(recover_args(target)), 13, "boot_transaction_mismatch")
+    if tree_manifest(target) != before:
+        fail("mid-transaction foreign journal writes nothing", "target changed")
+    else:
+        ok("mid-transaction foreign journal writes nothing")
+
+    base = build_staged("unknown-terminal-base", version=NEW_VERSION, boot=False)
+    target = make_target("unknown-terminal")
+    run(install_args(base, target, system=OLD_VERSION), check=True)
+    if not install_with_crash(target, next_staged, "boot_prepared",
+                              system=NEW_VERSION):
+        return
+    path = os.path.join(target, ".nextupd-txn", "boot.json")
+    value = read_json(path)
+    value["schema"] = "nextui-boot-txn-v2"
+    write_json(path, value)
+    before = tree_manifest(target)
+    expect("unknown schema under a terminal record fails closed",
+           run(recover_args(target)), 13, "boot_schema_unknown")
+    if tree_manifest(target) != before:
+        fail("unknown terminal schema writes nothing", "target changed")
+    else:
+        ok("unknown terminal schema writes nothing")
+
+
 def test_corruption():
     staged = build_staged("corruption-stage")
 
@@ -911,6 +1101,9 @@ def main():
     test_install_zero_write_refusals()
     test_crash_matrix()
     test_boot_gate_without_system_txn()
+    test_terminal_record_orphan_boot()
+    test_terminal_orphan_rollback()
+    test_foreign_journal_fail_closed()
     test_missing_staging_and_only_tool()
     test_corruption()
     test_legacy_record()
