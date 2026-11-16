@@ -6,8 +6,10 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `5de96d2` (merge of PR #29, the I9 settings abnormal-data fixes;
-  fetched 2026-11-16). Docs-only main heads do not move this baseline; the last
+  rule): `d25543b` (merge of PR #30, the About page Unknown zh entry; that
+  merge also carries PR #27 the transactional update package build and, below
+  it, PR #29 the I9 settings abnormal-data fixes; fetched 2026-11-16).
+  Docs-only main heads do not move this baseline; the last
   docs-only tip was `8e4f744` (merge of PR #28). Landing points on
   main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
@@ -102,16 +104,28 @@ Rules:
   About/hints i18n slice (PR #20, `6a98573`); the settings Network/Bluetooth
   i18n slice (PR #23, `5698908`); the settings Assignments i18n slice (PR #26,
   `e2ca971`); the U7 boot payload sync (PR #24, `dc4bef0`); the I9 settings
-  abnormal-data fixes (PR #29, `5de96d2`); this schedule file (PR #28,
+  abnormal-data fixes (PR #29, `5de96d2`); the transactional update package
+  build (PR #27, `0239203`); the About page Unknown zh entry (PR #30,
+  `d25543b`); this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
-- Host-done, unpushed: none. Open at the last check: PR #27 (U8 transactional
-  update package build, head `c6b5e6f`, OPEN and mergeable per gh; the
-  independent review failed the previous head `b61ff1f` on the last B1 residue
-  -- the shared resource tree was missing from the archive -- which is now
-  fixed at this head, and the head still is a normal merge of `origin/main`
-  `5de96d20` with no rebase/force; it awaits the incremental independent
-  review and is not merged) and PR #30 (I4 follow-up: the zh entry for the
+- Host-done, unpushed: none. Open at the last check: PR #32 (U9 system update
+  install UI, branch `feature/sysupdate-ui`), head
+  `c629f848a7cd007c982706229fbc2df9213aa0bd` (a normal merge of `origin/main`
+  `d25543b`, which carries PR #27 and PR #30, with no rebase/force), OPEN,
+  MERGEABLE and CLEAN per gh; CI at this head is green per gh (Feature checks
+  push and pull_request, Development/Desktop) and the source reports Host
+  tests green as well. PR #33 (branch `ci/update-package-content`, "Add the
+  tg5040 update package content check to Feature checks") is open at head
+  `c2377db077f4fbf6dacd17c1320ad6e5f54c7c79`, OPEN and MERGEABLE per gh; it is
+  the test-only package-content CI job that was only proposed before. Merged
+  since the last check: PR #27 (U8 transactional update package build, final
+  head `c6b5e6f`) merged into main as
+  `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh)
+  after the independent review failed the previous head `b61ff1f` on the last
+  B1 residue -- the shared resource tree was missing from the archive -- which
+  was fixed at `c6b5e6f`; the post-merge runs on `0239203` (Feature checks,
+  Development/Desktop, and CI) are success per gh. PR #30 (I4 follow-up: the zh entry for the
   About page's "Unknown" fallback, branch `i18n/unknown-fallback`, head
   `a51da4b` (three commits on the same branch, no force and no amend:
   `9c3bec2` the append-only `{"Unknown","未知"}` entry in
@@ -129,12 +143,11 @@ Rules:
   (also green per gh). OPEN and mergeable per gh, not merged; the independent
   review result is not yet reported, and there is no in-repo multiset test in
   this pull request because `tests/makefile` belongs to the crash-fix thread
-  until PR #27 lands. PR #32 (U9 system update install UI, branch
-  `feature/sysupdate-ui`) is open at head
-  `c6d49a3eb23f54b9cbc7627aca77aa1a462a21f1` with CI green on that head per gh
-  (Feature checks push and pull_request, Development/Desktop), but gh reports
-  it CONFLICTING/DIRTY against main at the last check, so the conflict
-  resolution is the source's and the merge owner's; it is not merged. This
+  until PR #27 lands; PR #27 has since merged. PR #30 merged into main as
+  `d25543b4b21db9e368fdc8c80fb8dece03a93b57` (2026-11-16T11:55:57Z per gh,
+  final head `a51da4b`), and the post-merge runs on `d25543b` (Feature checks,
+  Development/Desktop, and CI) are success per gh. PR #32 stays open and is
+  not merged. This
   schedule file's own
   update travels as PR #31. PR #29
   (I9 settings abnormal-data fault tolerance, final head `acf1d3f`) merged into
@@ -759,19 +772,24 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 #### U8 — Transactional system update package build (packaging side of U7)
 - Owner thread: https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa
   (transactional update package; the packaging side of U7's scope).
-- Status: the last B1 residue fixed at a new head; awaiting the incremental
-  independent review; not merged. PR #27
+- Status: merged into main; not device-verified. PR #27
   (https://github.com/4fuu/NextUI/pull/27, branch `feature/updater-update-package`),
-  head `c6b5e6f3425e135f21cd50d16674765f538cbd7b` (supersedes
+  final head `c6b5e6f3425e135f21cd50d16674765f538cbd7b` (supersedes
   `b61ff1f6c4940d5551dda7b8407363ba556117d6`,
   `8ffea67cb78548ed3562671ebee74367022b8831` and
   `3b406c6da2becb1379199944bdb9ec50520d70e2`; it is a normal merge of
   `origin/main` `5de96d20`, the PR #29 settings crash fixes — no rebase, no
-  force), OPEN and mergeable per gh. CI at this head is six of six green per the
+  force), merged into main as
+  `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh).
+  CI at the final head was six of six green per the
   source (Host tests push and PR, build-linux, build-macos, tg5040 target build
   push and PR), Host tests logging 124 passed, 0 failed, 0 skipped; gh shows
   Feature checks (push and pull_request) and
-  Development/Desktop success on that head.
+  Development/Desktop success on that head. The post-merge runs on `0239203`
+  (Feature checks, Development/Desktop, and CI) are success per gh. The
+  independent review failed the previous head `b61ff1f` on the last B1 residue
+  (the shared resource tree was missing), which was fixed at this head before
+  the merge.
 - The `5de96d20` merge conflict was only the `.PHONY` and `test:` list lines:
   both now contain `test-settings` and `test-update-package`, with the two
   target bodies separate and unchanged. No PR #29 settings/menu/version code
@@ -851,8 +869,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   merges, not mixed into a release.
 - Not delivered: production release source, feed configuration, production
   signing key, any device install or release publication.
-- Next: the incremental independent review at the new head, then the merge owner
-  decides. The
+- Next: merged; the tg5040 package-content CI job that was only proposed now
+  exists as open PR #33 (branch `ci/update-package-content`, test-only) and is
+  the merge owner's to review. The
   `UPDATES.md` cross-reference is left to the updater thread to avoid a
   conflict with its in-flight edit.
 
@@ -887,13 +906,15 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Not delivered: no device runs (this orb has no Docker), so the device
   evidence is the CI tg5040 build plus the desktop verification, which does
   not speak for real hardware. "Unknown" stays a plain literal per the merge
-  owner's call; the zh entry (`Unknown` to the Chinese string) is I4's small
-  follow-up, now open as PR #30 (branch `i18n/unknown-fallback`): at head
-  `9c3bec2` it was only a lazy entry not wired to TR, the merge owner asked for
-  safe wiring plus actual zh rendering on the same branch, the head is now
-  `015b57b` (gh-checked; the wiring fix's content and review are not yet
-  reported by the source or the reviewer), fixture 242 is retained, and it is
-  not merged.
+  owner's call; the zh entry (`Unknown` to the Chinese string) was I4's small
+  follow-up as PR #30 (branch `i18n/unknown-fallback`), final head `a51da4b`:
+  the merge owner asked for safe wiring plus actual zh rendering on the same
+  branch after `9c3bec2` turned out to be only a lazy entry not wired to TR,
+  and the source delivered the fallback-only `TR()` wiring plus the verified
+  render; fixture 242 is retained. PR #30 merged into main as
+  `d25543b4b21db9e368fdc8c80fb8dece03a93b57` (2026-11-16T11:55:57Z per gh) and
+  the post-merge runs on `d25543b` (Feature checks, Development/Desktop, and
+  CI) are success per gh.
 - Scope: fix the settings crashes and corruption cases found in abnormal
   data — the missing-version crash, the trailing-newline missing glyphs, and
   the empty-timezone abort — with host regression coverage; no translation
@@ -903,7 +924,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Delivery/verification: host tests reproduce each abnormal case before the
   fix and pass after; English output unchanged; real-machine behavior stays
   with V1.
-- Next: I4's small follow-up for the zh entry (PR #30, open, not merged); the
+- Next: the zh entry follow-up (PR #30) is merged; the
   I9 line closes with the device-side behavior staying in V1.
 
 #### U9 — System update install UI (settings surface)
@@ -912,13 +933,12 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   owner released it at 11:10 to continue from main `5de96d2`).
 - Status: delivered and pushed; not merged. PR #32
   (https://github.com/4fuu/NextUI/pull/32, branch `feature/sysupdate-ui`), head
-  `c6d49a3eb23f54b9cbc7627aca77aa1a462a21f1`, base main on the `5de96d2` line
-  (it includes PR #29), OPEN per gh. CI at this head is green per gh (Feature
-  checks push and pull_request, Development/Desktop); the source reports Host
-  tests, build-linux, build-macos, and the tg5040 target build green as well.
-  gh reports the head CONFLICTING/DIRTY against main at the last check, so the
-  conflict resolution belongs to the source and the merge owner; nothing is
-  recorded as merged.
+  `c629f848a7cd007c982706229fbc2df9213aa0bd`, a normal merge of `origin/main`
+  `d25543b` (which carries PR #27 packaging and PR #30 Unknown wiring) with no
+  rebase/force, OPEN, MERGEABLE and CLEAN per gh. CI at this head is green per
+  gh (Feature checks push and pull_request, Development/Desktop); the source
+  reports Host tests green as well. This is not "the product has it" yet: the
+  pull request is open and the merge owner has not merged it.
 - Delivered: a self-contained System Update page in the settings app wiring
   only the existing nextupd feed/fetch/signature-verified staging plus
   user-initiated install (no PR #27 artifacts); an SDL-free Controller
@@ -929,19 +949,31 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   downgrade, already-installed, and pending-recovery; a non-blocking overlay;
   no concurrent install; install re-verifies; the running-settings-versus-
   `.system` safety is documented and verified.
-- Evidence (host only, no device): `test-sysupdate` controller 36/36 plus
-  headless render ok; `test-updater` 56/56; `test-settings` and `test-i18n`
-  pass; the desktop `settings.elf` builds; PR #32 CI green on the head per gh.
-- Not delivered: device packaging of nextupd into
-  `.system/<platform>/bin` (host plus cross-build verified, device not run);
-  the real feed and the production key are owner-provisioned; the zh strings
-  are an append-only follow-up for I4; real-device boot is out of scope. No
+- Evidence (host only, no device): `test-sysupdate` controller 38/38 (real
+  nextupd against isolated roots plus a committed signed fixture, including the
+  packaged-tool-path contract) plus headless render ok; `test-update-package`
+  (PR #27) 124/124; `test-settings` and `test-i18n` pass; the desktop
+  `settings.elf` builds; PR #32 CI green on the head per gh.
+- Device reality (flagged to the merge owner by the source): the UI's only
+  tool path is `.tmp_update/<platform>/nextupd.elf`, which matches
+  `package-update.sh`'s required and 0755 path, but no build step currently
+  copies the device `nextupd.elf` into that boot payload, so on a real device
+  the install UI would show "System update tool is not available." until
+  packaging ships it. A passing host build does not mean the device package
+  has the tool.
+- Not delivered: the packaging step that copies the device `nextupd.elf` into
+  `build/BOOT/.tmp_update/<platform>/` (the merge owner's PR #27 area; the
+  decision is pending, and the copy step is a tracked follow-up); the real
+  feed and the production trusted key are owner-provisioned; the zh
+  translations for all new page strings are an append-only follow-up on a
+  fresh branch after PR #32 merges, aligning the `i18n.c` keys with PR #30 and
+  I4; real-device boot is out of scope. No
   device, real root, reboot, publish, or production key.
 - Depends on: U4 feed (in main), U1 transaction (in main), U7 boot payload sync
   (in main), and the I9 settings fixes (in main).
-- Next: the merge owner does precise-head CI, review, and sequential merge;
-  after the merge the remaining follow-ups (device packaging, production
-  feed/key, and the I4 zh strings) can be scheduled.
+- Next: the merge owner reviews and merges PR #32; after the merge the source
+  opens the zh branch, and the packaging copy step for the device `nextupd.elf`
+  stays a tracked follow-up pending the merge owner's call.
 
 ### P3 — Full UI translation remainder
 
@@ -1122,15 +1154,16 @@ as they happen; nothing is reported as passing without a run.
   a pull request into `main`; the CI/merge owner merges after checks pass. This
   thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because real tasks changed (the U9 system update install UI delivered and
-  pushed as PR #32, PR #30's fallback `TR()` wiring plus the verified zh
-  render at head `a51da4b`, PR #27's last B1 residue fixed at head `c6b5e6f`
-  after an independent review FAIL, and PR #29's post-merge CI confirmed green
-  by the merge owner), not because a docs head moved. The previous schedule
-  pull request (PR #28) is merged, so this update travels on a new branch.
+  because real tasks changed (PR #27 and PR #30 merged into main with green
+  post-merge runs, the U9 system update install UI advanced to PR #32 head
+  `c629f848` with the device-tool-path boundary recorded, and the package
+  content CI job opened as PR #33), not because a docs head moved. The previous
+  schedule pull request (PR #28) is merged, so this update travels on a new
+  branch.
 - The current update travels on the branch `docs/schedule-update-11` cut from
   `origin/main` @ `8e4f744` (earlier schedule branches merged as `3ae1ddf`,
   `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
   `8e4f744`). Its pull request is PR #31; while that pull request stays open,
   later real changes fold into it instead of opening another one, which is why
-  the PR #32 and PR #30 `a51da4b` facts ride the same branch.
+  the PR #32, PR #33, and merge facts ride the same branch. The schedule
+  baseline moved to `d25543b` with those merges.
