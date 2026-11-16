@@ -45,7 +45,12 @@ SOURCE = $(TARGET).c \
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS += -lmsettings -lsamplerate -lrt
+LDFLAGS += -lmsettings -lsamplerate
+# device_session_monotonic_ms uses CLOCK_MONOTONIC. Older glibc needs librt;
+# macOS has no librt and already provides clock_gettime in libSystem.
+ifneq ($(UNAME_S),Darwin)
+LDFLAGS += -lrt
+endif
 
 ifeq ($(PLATFORM), desktop)
 CFLAGS += -DNEXTUI_SESSION_DESKTOP=1 -DNEXTUI_SESSION_NO_MUTE=1

@@ -28,8 +28,11 @@ SOURCE = $(TARGET).c \
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -std=gnu99
-# device_session_monotonic_ms uses CLOCK_MONOTONIC; older glibc needs librt.
+# device_session_monotonic_ms uses CLOCK_MONOTONIC. Older glibc needs librt;
+# macOS has no librt and already provides clock_gettime in libSystem.
+ifneq ($(UNAME_S),Darwin)
 LDFLAGS += -lrt
+endif
 
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 
