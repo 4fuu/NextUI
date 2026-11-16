@@ -111,11 +111,16 @@ Rules:
   feed block (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #32 (U9 system update
   install UI, branch `feature/sysupdate-ui`), head
-  `c629f848a7cd007c982706229fbc2df9213aa0bd` (a normal merge of `origin/main`
-  `d25543b`, which carries PR #27 and PR #30, with no rebase/force), OPEN,
+  `7b27adf22aa48ba1f28dee448cb8428cecdbd19f` (supersedes
+  `c629f848a7cd007c982706229fbc2df9213aa0bd`; it fixes two review-blocking
+  defects -- a UI freeze from a non-dismissible overlay starving the
+  deferred-submenu dispatch, and mislabeled failure states in the error
+  mapper -- and adds a real top-level-menu freeze regression plus two
+  `mapError` controller tests), OPEN,
   MERGEABLE and CLEAN per gh; CI at this head is green per gh (Feature checks
   push and pull_request, Development/Desktop) and the source reports Host
-  tests green as well. PR #33 (branch `ci/update-package-content`, "Add the
+  tests green as well. It is still not merged: the merge owner's incremental
+  re-review on this head is awaited, so nothing is recorded as review-passed. PR #33 (branch `ci/update-package-content`, "Add the
   tg5040 update package content check to Feature checks") is open at head
   `c2377db077f4fbf6dacd17c1320ad6e5f54c7c79`, OPEN and MERGEABLE per gh; it is
   the test-only package-content CI job that was only proposed before. CI at
@@ -126,9 +131,14 @@ Rules:
   exec bit and the res assertions. PR #34 (I4 fifth slice: the System, Display
   and FN switch Off/On rows in Chinese, plus the in-repo i18n fixture value
   test, branch `i18n/on-off-labels`) is open at head
-  `2528d0e23aff90e2348cb272a8efb45a3843904a`, cut fresh from `origin/main`
-  `d25543b`, OPEN, MERGEABLE and CLEAN per gh, with CI green on that head per
-  gh (Feature checks push and pull_request, Development/Desktop); it is not
+  `a6cb5c228975fb35659d6e66b7204b736cd7e2d9` (supersedes
+  `2528d0e23aff90e2348cb272a8efb45a3843904a`; the change content is not yet
+  reported by the source), cut fresh from `origin/main`
+  `d25543b`, OPEN, MERGEABLE per gh with mergeStateStatus UNSTABLE; CI at the
+  new head is in progress at the last check (Feature checks push and
+  pull_request and Development/Desktop all in progress), so nothing is
+  recorded as passing on it. CI at `2528d0e` was green per gh (Feature checks
+  push and pull_request, Development/Desktop); the pull request is not
   merged. Merged
   since the last check: PR #27 (U8 transactional update package build, final
   head `c6b5e6f`) merged into main as
@@ -313,11 +323,15 @@ Rules:
   device result.
 - Fifth slice (Off/On labels), open and not merged: PR #34
   (https://github.com/4fuu/NextUI/pull/34, branch `i18n/on-off-labels`), head
-  `2528d0e23aff90e2348cb272a8efb45a3843904a`, cut fresh from `origin/main`
-  `d25543b` (two commits, no force and no amend: `ee17fe0` the Off/On fix,
-  `2528d0e` the multiset fixture test), OPEN, MERGEABLE and CLEAN per gh; CI
-  at this head is green per gh (Feature checks push and pull_request,
-  Development/Desktop) and the source reports all six checks pass. `i18n.c`
+  `a6cb5c228975fb35659d6e66b7204b736cd7e2d9` (supersedes
+  `2528d0e23aff90e2348cb272a8efb45a3843904a`; the head moved and the change
+  content is not yet reported by the source), cut fresh from `origin/main`
+  `d25543b` (`2528d0e` was two commits, no force and no amend: `ee17fe0` the
+  Off/On fix, `2528d0e` the multiset fixture test), OPEN and MERGEABLE per gh
+  with mergeStateStatus UNSTABLE; CI at the new head is in progress at the
+  last check, so nothing is recorded as passing on it, while CI at `2528d0e`
+  was green per gh (Feature checks push and pull_request, Development/Desktop)
+  and the source reported all six checks pass there. `i18n.c`
   already carried the `Off`/`On` entries and the Appearance page already used
   the translated copy, but every other Off/On row still passed the static
   `on_off` vector, which is a file-scope `static const` initialised before the
@@ -993,12 +1007,17 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   owner released it at 11:10 to continue from main `5de96d2`).
 - Status: delivered and pushed; not merged. PR #32
   (https://github.com/4fuu/NextUI/pull/32, branch `feature/sysupdate-ui`), head
-  `c629f848a7cd007c982706229fbc2df9213aa0bd`, a normal merge of `origin/main`
-  `d25543b` (which carries PR #27 packaging and PR #30 Unknown wiring) with no
-  rebase/force, OPEN, MERGEABLE and CLEAN per gh. CI at this head is green per
-  gh (Feature checks push and pull_request, Development/Desktop); the source
-  reports Host tests green as well. This is not "the product has it" yet: the
-  pull request is open and the merge owner has not merged it.
+  `7b27adf22aa48ba1f28dee448cb8428cecdbd19f` (supersedes
+  `c629f848a7cd007c982706229fbc2df9213aa0bd`; the branch stays a normal merge
+  of `origin/main` `d25543b`, which carries PR #27 packaging and PR #30
+  Unknown wiring, with no rebase/force), OPEN, MERGEABLE and CLEAN per gh.
+  CI at this head is green per gh (Feature checks push and pull_request,
+  Development/Desktop); the source reports Host tests green as well. This head
+  fixes two review-blocking defects found at `c629f848`: a UI freeze from a
+  non-dismissible overlay starving the deferred-submenu dispatch, and
+  mislabeled failure states in the error mapper. It is still not merged -- the
+  merge owner's incremental re-review on this head is awaited, so no
+  review-passed state is recorded. This is not "the product has it" yet.
 - Delivered: a self-contained System Update page in the settings app wiring
   only the existing nextupd feed/fetch/signature-verified staging plus
   user-initiated install (no PR #27 artifacts); an SDL-free Controller
@@ -1009,11 +1028,13 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   downgrade, already-installed, and pending-recovery; a non-blocking overlay;
   no concurrent install; install re-verifies; the running-settings-versus-
   `.system` safety is documented and verified.
-- Evidence (host only, no device): `test-sysupdate` controller 38/38 (real
+- Evidence (host only, no device): `test-sysupdate` controller 43/43 (real
   nextupd against isolated roots plus a committed signed fixture, including the
-  packaged-tool-path contract) plus headless render ok; `test-update-package`
+  packaged-tool-path contract) plus headless render ok and a stable
+  top-level-menu freeze regression; `test-update-package`
   (PR #27) 124/124; `test-settings` and `test-i18n` pass; the desktop
-  `settings.elf` builds; PR #32 CI green on the head per gh.
+  `settings.elf` builds; PR #32 CI green on the head per gh. The controller was
+  38/38 at head `c629f848`.
 - Device tool path (corrected 2026-11-16 12:11 against the source's earlier
   "no copy step" claim, which the merge owner refuted with the real CI
   artifact): the UI's only tool path is `.tmp_update/<platform>/nextupd.elf`,
@@ -1226,7 +1247,7 @@ as they happen; nothing is reported as passing without a run.
   because real tasks changed (the I4 fifth slice opened as PR #34 with the
   in-repo i18n fixture value test, PR #27 and PR #30 merged into main with
   green post-merge runs, the U9 system update install UI advanced to PR #32
-  head `c629f848` with the device-tool-path boundary recorded, and the package
+  head `7b27adf2` after two review-blocking fixes, and the package
   content CI job opened as PR #33), not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
