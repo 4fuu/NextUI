@@ -964,7 +964,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   artifact): the UI's only tool path is `.tmp_update/<platform>/nextupd.elf`,
   and the copy step does exist. The merge owner inspected the actual CI run
   43862049457 artifact at `d25543b` (`NextUI-20261116-0-base.zip`,
-  14223682314 bytes): the inner `MinUI.zip` carries
+  artifact ID 14223682314): the inner `MinUI.zip` carries
   `.tmp_update/tg5040/nextupd.elf` at 203512 bytes, `tg5050` at 201192 bytes,
   and `h700` at 203512 bytes, all mode 0755, plus `.system/res/font3.ttf` at
   1298720 bytes. The copies are
