@@ -8,6 +8,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -266,7 +267,7 @@ static int parse_session_id(const char* text, unsigned long long* out)
 static int session_identity(const char* claimed_app, const char* pak, char* app_out,
                             size_t app_size, char* pak_out, size_t pak_size)
 {
-    char resolved[DEVICE_GRANT_PATH_MAX];
+    char resolved[PATH_MAX];
     PakManifest manifest;
     const char* base;
 
