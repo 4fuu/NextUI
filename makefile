@@ -217,17 +217,25 @@ package: tidy
 	cd ./releases && zipmerge $(RELEASE_NAME)-all.zip $(RELEASE_NAME)-base.zip  && zipmerge $(RELEASE_NAME)-all.zip $(RELEASE_NAME)-extras.zip
 	
 # Transactional system update archive: exactly the roots the installer applies
-# (.system plus the signed .tmp_update boot payload), its nextui-update-v1
-# manifest, and the detached signature. This is a different artifact from the
-# bootstrap MinUI.zip built by `package`, which also carries Tools/ and stays
-# unchanged; see UPDATE-PACKAGING.md.
+# (.system/<platform> plus the signed .tmp_update boot payload), its
+# nextui-update-v1 manifest, and the detached signature. This is a different
+# artifact from the bootstrap MinUI.zip built by `package`, which also carries
+# Tools/ and stays unchanged; see UPDATE-PACKAGING.md.
 #
 #   make update-package PLATFORM=tg5040 UPDATE_VERSION=v6.16.0
 #
-# Build the platform first (`make tg5040 && make special`), or point
-# UPDATE_SYSTEM_DIR / UPDATE_BOOT_DIR at an existing tree. UPDATE_MIN_SYSTEM is
-# optional. Without UPDATE_KEY/UPDATE_KEY_ID the manifest is written unsigned
-# for the release owner to sign; never commit a production key to this repo.
+# Run `make special` first (the .tmp_update boot payload) and this before
+# `make package`, which moves build/SYSTEM away. The default is the full
+# archive: .system plus the signed .tmp_update boot payload, which installs now
+# that main carries the updater's signed boot-payload support. Set UPDATE_BOOT=0
+# for a system-only archive, which updates .system and leaves the live
+# .tmp_update payload untouched.
+#
+# UPDATE_MIN_SYSTEM, UPDATE_SYSTEM_DIR, UPDATE_BOOT_DIR and UPDATE_OUT_DIR are
+# optional. UPDATE_KEY/UPDATE_KEY_ID sign here, otherwise the manifest is left
+# unsigned for the release owner to sign the exact bytes later; never commit a
+# production key to this repo.
+UPDATE_BOOT ?= 1
 .PHONY: update-package
 update-package:
 	@if [ -z "$(UPDATE_VERSION)" ]; then \
@@ -238,14 +246,18 @@ update-package:
 		echo "update-package: UPDATE_KEY also needs UPDATE_KEY_ID" >&2; \
 		exit 1; \
 	fi
+	@if [ -z "$(UPDATE_KEY)" ] && [ -n "$(UPDATE_KEY_ID)" ]; then \
+		echo "update-package: UPDATE_KEY_ID also needs UPDATE_KEY" >&2; \
+		exit 1; \
+	fi
 	make -C workspace/all/nextupd PLATFORM=desktop
 	./scripts/package-update.sh \
 		--platform $(PLATFORM) \
 		--version $(UPDATE_VERSION) \
 		$(if $(UPDATE_MIN_SYSTEM),--min-system $(UPDATE_MIN_SYSTEM),) \
 		$(if $(UPDATE_SYSTEM_DIR),--system-dir $(UPDATE_SYSTEM_DIR),) \
-		$(if $(UPDATE_BOOT_DIR),--boot-dir $(UPDATE_BOOT_DIR),) \
-		--out-dir ./releases \
+		$(if $(filter 1,$(UPDATE_BOOT)),--boot-dir $(if $(UPDATE_BOOT_DIR),$(UPDATE_BOOT_DIR),build/BOOT/.tmp_update) --require-boot,--no-boot) \
+		--out-dir $(if $(UPDATE_OUT_DIR),$(UPDATE_OUT_DIR),./releases) \
 		--name nextui-system-$(PLATFORM).zip \
 		$(if $(UPDATE_KEY),--key $(UPDATE_KEY) --key-id $(UPDATE_KEY_ID),)
 

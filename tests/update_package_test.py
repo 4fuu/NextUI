@@ -10,8 +10,11 @@ key: signing uses the committed test-only Ed25519 seed under
 `workspace/all/nextupd/tests/fixtures`.
 
 Coverage:
-  - the archive contains exactly the applied roots (.system and the optional
-    .tmp_update) and no Tools/, Roms/, Saves/ or other extra root path
+  - the archive contains exactly the applied roots (.system/<platform> and the
+    optional .tmp_update) and no Tools/, Roms/, Saves/ or other extra root path
+  - the installed tree keeps the device layout (.system/<platform>/bin/nextui.elf
+    and paks/MinUI.pak/launch.sh exist after install), which is what the boot
+    scripts launch
   - .system/version.txt, the manifest version, the archive hash and the file
     hashes agree, and a tampered or renamed archive is rejected
   - the boot payload carries the signed contract files with executable modes,
@@ -19,14 +22,16 @@ Coverage:
   - a system-only package installs end to end and leaves .tmp_update untouched
   - the old bootstrap shape (with Tools/) fails `install` with unexpected_path
     and writes nothing to the applied trees
-  - a package carrying .tmp_update installs and recovers end to end when the
-    built nextupd understands the boot payload contract; until that support is
-    in this branch the boot install case is reported as skipped
+  - the make target's default output (.system plus the .tmp_update boot
+    payload) installs end to end; UPDATE_BOOT=0 produces the system-only
+    archive, which leaves the live .tmp_update untouched
+  - rebuilds into the same directory replace their outputs (no stale archive
+    entries, no stale signature), and paths with spaces work
+  - a package carrying .tmp_update installs and recovers end to end, for both
+    tg5040 and an h700 tree whose libSDL2 symlinks are dereferenced
 
-The boot-payload install support lives in the updater thread's branch
-(feature/boot-payload-sync). The probe below detects it from the `check`
-output, so this suite passes on main today and exercises the full boot
-lifecycle as soon as that branch is merged.
+main carries the updater's signed boot-payload support, so the boot install
+lifecycle always runs; there is no skip path in this suite.
 """
 
 import base64
@@ -214,9 +219,6 @@ def build_source_tree(name="build"):
     # directory behind. It cannot be listed in a manifest, so packaging must
     # drop it rather than ship an archive the verifier rejects.
     os.makedirs(os.path.join(system, "empty"), exist_ok=True)
-    # A stale two-line version.txt like `make package` writes; packaging must
-    # replace it with the signed version, not copy it.
-    write_file(os.path.join(system, "version.txt"), b"NextUI-20261116-0\nabc123\n")
 
     boot = os.path.join(root, "BOOT", ".tmp_update")
     write_file(os.path.join(boot, "updater"), b"#!/bin/sh\n# updater\n", 0o755)
@@ -393,11 +395,20 @@ def assert_archive_shape(name, archive, expect_boot, platform=PLATFORM):
     with zipfile.ZipFile(archive) as handle:
         content = {info.filename: handle.read(info.filename)
                    for info in entries if not info.is_dir()}
-    for library in (".system/lib/libsamplerate.so.0.2.2", ".system/lib/libz.so.1"):
+    for library in (".system/%s/lib/libsamplerate.so.0.2.2" % platform,
+                    ".system/%s/lib/libz.so.1" % platform):
         if library not in content:
             fail(name, "shared library %s did not survive packaging" % library)
             return None
     ok("%s: shared libsamplerate and libz survive packaging" % name)
+
+    # Device shape: the boot scripts look for the launcher under
+    # .system/<platform>/paks/MinUI.pak/launch.sh.
+    for relative in ("bin/nextui.elf", "paks/MinUI.pak/launch.sh"):
+        if ".system/%s/%s" % (platform, relative) not in content:
+            fail(name, ".system/%s/%s missing from the archive" % (platform, relative))
+            return None
+    ok("%s: .system/%s keeps the device layout" % (name, platform))
 
     if expect_boot:
         for required in boot_required(platform):
@@ -585,6 +596,23 @@ def test_system_only_end_to_end(archive, manifest, signature):
         else:
             ok("install system-only: .system.bak is %s" % PREVIOUS_VERSION)
 
+    # Device shape: the boot scripts launch .system/<platform>/paks/MinUI.pak/
+    # launch.sh, so an archive that flattens the platform directory installs a
+    # system the device cannot start.
+    for relative in ("bin/nextui.elf", "paks/MinUI.pak/launch.sh"):
+        path = os.path.join(target, ".system", PLATFORM, relative)
+        if not os.path.isfile(path):
+            fail("install system-only", ".system/%s/%s missing after install"
+                 % (PLATFORM, relative))
+            return
+    ok("install system-only: .system/%s keeps the device layout" % PLATFORM)
+    backup_tool = os.path.join(target, ".system.bak", PLATFORM, "bin", "nextui.elf")
+    if not os.path.isfile(backup_tool) \
+            or open(backup_tool, "rb").read() != b"old nextui\n":
+        fail("install system-only", ".system.bak does not hold the previous tree")
+    else:
+        ok("install system-only: .system.bak holds the previous tree")
+
     # A system-only package must leave the live boot payload byte-untouched.
     if tree_state(os.path.join(target, ".tmp_update")) != before_boot:
         fail("system-only leaves boot payload untouched", ".tmp_update changed")
@@ -737,16 +765,10 @@ def test_boot_end_to_end(archive, manifest, signature, platform=PLATFORM,
                          label="boot"):
     """Full install lifecycle for a package that carries .tmp_update/.
 
-    Requires the nextupd build to understand the boot payload contract; the
-    probe skips this section on a build that does not (see module docstring).
+    main carries the updater's signed boot-payload support, so this always
+    runs: the archive must install, publish the payload, recover, and roll
+    back. There is no skip path; a build without that support fails here.
     """
-    probe = run(check_args(archive, manifest, signature, PUBLIC_KEY,
-                           platform=platform, json_output=True))
-    if probe.returncode != 0 or "boot_payload" not in probe.stdout:
-        skip("%s end-to-end" % label,
-             "this nextupd build predates the signed .tmp_update payload contract")
-        return
-
     target = make_target("e2e-%s-target" % label, platform=platform)
     staging = fresh("e2e-%s-staging" % label)
     if run(stage_args(archive, manifest, signature, staging, platform=platform)).returncode != 0:
@@ -775,6 +797,14 @@ def test_boot_end_to_end(archive, manifest, signature, platform=PLATFORM,
     if version != VERSION:
         fail("install %s package" % label, ".system is %s" % version)
         return
+
+    for relative in ("bin/nextui.elf", "paks/MinUI.pak/launch.sh"):
+        path = os.path.join(target, ".system", platform, relative)
+        if not os.path.isfile(path):
+            fail("install %s package" % label, ".system/%s/%s missing after install"
+                 % (platform, relative))
+            return
+    ok("install %s package: .system/%s keeps the device layout" % (label, platform))
 
     with zipfile.ZipFile(archive) as handle:
         expected = {info.filename: handle.read(info.filename)
@@ -850,7 +880,9 @@ def test_h700_symlink_tree(key_pem, public_key):
                b"fake libsamplerate\n", 0o644)
     write_file(os.path.join(system, "lib", "libz.so.1"), b"fake libz\n", 0o644)
     write_file(os.path.join(system, "bin", "nextui.elf"), b"\x7fELF fake nextui\n", 0o755)
-    write_file(os.path.join(system, "version.txt"), b"stale\n")
+    write_file(
+        os.path.join(system, "paks", "MinUI.pak", "launch.sh"),
+        b"#!/bin/sh\nexec ./nextui.elf\n", 0o755)
 
     boot = os.path.join(root, "BOOT", ".tmp_update")
     write_file(os.path.join(boot, "updater"), b"#!/bin/sh\n# updater\n", 0o755)
@@ -883,7 +915,7 @@ def test_h700_symlink_tree(key_pem, public_key):
 
     # Every SDL2 link must be a regular file carrying the real library bytes.
     real = open(os.path.join(system, "lib", "libSDL2-2.0.so.0.18.1"), "rb").read()
-    for relative in (".system/lib/libSDL2-2.0.so.0", ".system/lib/libSDL2.so"):
+    for relative in (".system/h700/lib/libSDL2-2.0.so.0", ".system/h700/lib/libSDL2.so"):
         if content.get(relative) != real:
             fail("h700 archive", "%s was not dereferenced into the real library"
                  % relative)
@@ -930,6 +962,13 @@ def test_script_refusals():
     def add_broken_symlink(source, boot_dir):
         os.symlink("nowhere.elf", os.path.join(boot_dir, PLATFORM, "nextupd-link"))
 
+    def add_absolute_link(source, boot_dir):
+        os.symlink("/etc/hostname", os.path.join(boot_dir, PLATFORM, "abs-link"))
+
+    def add_escaping_link(source, boot_dir):
+        os.symlink("../../../../etc/hostname",
+                   os.path.join(boot_dir, PLATFORM, "escape-link"))
+
     def add_fifo(source, boot_dir):
         os.mkfifo(os.path.join(boot_dir, PLATFORM, "pipe"))
 
@@ -941,6 +980,8 @@ def test_script_refusals():
         ("reserved-staging", add_staging, None),
         ("reserved-stamp", add_stamp, None),
         ("broken-symlink", add_broken_symlink, None),
+        ("absolute-link", add_absolute_link, None),
+        ("escaping-link", add_escaping_link, None),
         ("fifo", add_fifo, None),
         ("empty-system", empty_system, None),
     ):
@@ -956,6 +997,8 @@ def test_script_refusals():
         ("bad-version", ("--version", "6.16.0"), 64, "vX.Y.Z"),
         ("unknown-platform", (), 64, "unknown platform"),
         ("bad-name", ("--name", "nextui-system-%s.tar" % PLATFORM), 64, ".zip"),
+        ("name-escape", ("--name", "../escape.zip"), 64, "plain file name"),
+        ("name-subdir", ("--name", "sub/nextui.zip"), 64, "plain file name"),
     ):
         if name == "unknown-platform":
             argv = package_args(system, out_dir, boot=boot)
@@ -965,9 +1008,152 @@ def test_script_refusals():
         proc = run(argv)
         expect("refuse %s" % name, proc, code, reason)
 
+    proc = run(package_args(system, out_dir, boot=boot, min_system="v9.9.9"))
+    expect("refuse min-system above version", proc, 64, "newer than")
+
     half_key = package_args(system, out_dir, boot=boot) + [
         "--key", os.path.join(WORK, "key", "key.pem")]
     expect("refuse half-key", run(half_key), 64, "together")
+
+
+def test_make_target(key_pem, public_key):
+    """The make target's output installs, boot payload included.
+
+    main carries the updater's signed boot-payload support, so the default
+    archive (.system plus .tmp_update) installs end to end. UPDATE_BOOT=0
+    produces the system-only archive, which leaves the live .tmp_update
+    payload untouched.
+    """
+    system, boot = build_source_tree(name="build-make")
+    releases = os.path.join(fresh("make-target"), "releases")
+    base = ["make", "-C", REPO, "update-package",
+            "PLATFORM=" + PLATFORM,
+            "UPDATE_VERSION=" + VERSION,
+            "UPDATE_MIN_SYSTEM=" + MIN_SYSTEM,
+            "UPDATE_SYSTEM_DIR=" + system,
+            "UPDATE_BOOT_DIR=" + boot,
+            "UPDATE_OUT_DIR=" + releases,
+            "UPDATE_KEY=" + key_pem,
+            "UPDATE_KEY_ID=" + KEY_ID]
+    archive = os.path.join(releases, "nextui-system-%s.zip" % PLATFORM)
+    manifest = os.path.join(releases, "nextui-system-%s.manifest.json" % PLATFORM)
+    signature = os.path.join(releases, "nextui-system-%s.manifest.sig" % PLATFORM)
+
+    # Default: .system plus the .tmp_update boot payload, signed, installable.
+    proc = run(base, env={"MAKEFLAGS": ""})
+    if not expect("make target default", proc, 0):
+        return
+    names = [info.filename for info in zip_entries(archive)]
+    roots = sorted({name.split("/")[0] for name in names})
+    if roots != [".system", ".tmp_update"]:
+        fail("make target default", "default roots are %s" % roots)
+        return
+    ok("make target default: .system and .tmp_update")
+    if not os.path.isfile(signature):
+        fail("make target default", "signed run wrote no signature")
+        return
+    test_boot_end_to_end(archive, manifest, signature, label="make default")
+
+    # UPDATE_BOOT=0: system-only, and the live payload stays untouched.
+    proc = run(base + ["UPDATE_BOOT=0"], env={"MAKEFLAGS": ""})
+    if not expect("make target system-only", proc, 0):
+        return
+    names = [info.filename for info in zip_entries(archive)]
+    roots = sorted({name.split("/")[0] for name in names})
+    if roots != [".system"]:
+        fail("make target system-only", "roots are %s, expected ['.system']" % roots)
+        return
+    ok("make target system-only: .system only")
+
+    target = make_target("make-target-system-target")
+    staging = fresh("make-target-system-staging")
+    before_boot = tree_state(os.path.join(target, ".tmp_update"))
+    if run(stage_args(archive, manifest, signature, staging)).returncode != 0:
+        fail("make target system-only", "staging failed")
+        return
+    staged = staged_dir(staging)
+    proc = run(install_args(staged, target))
+    if not expect("make target system-only installs", proc, 0, "committed"):
+        return
+    for relative in ("bin/nextui.elf", "paks/MinUI.pak/launch.sh"):
+        if not os.path.isfile(os.path.join(target, ".system", PLATFORM, relative)):
+            fail("make target system-only installs", ".system/%s/%s missing"
+                 % (PLATFORM, relative))
+            return
+    ok("make target system-only installs: .system/%s keeps the device layout"
+       % PLATFORM)
+    if tree_state(os.path.join(target, ".tmp_update")) != before_boot:
+        fail("make target system-only installs", ".tmp_update changed")
+    else:
+        ok("make target system-only installs: .tmp_update untouched")
+
+    # A missing boot payload with UPDATE_BOOT=1 must fail loudly, not fall
+    # back to a system-only archive.
+    missing = os.path.join(fresh("make-target-missing"), "no-tmp-update")
+    proc = run(base + ["UPDATE_BOOT_DIR=" + missing], env={"MAKEFLAGS": ""})
+    expect("make target requires the boot payload", proc, 69, "make special")
+
+
+def test_rebuild_residue(key_pem, public_key):
+    """A rebuild into the same directory replaces its outputs completely."""
+    out_dir = fresh("out-rebuild")
+    archive = os.path.join(out_dir, "nextui-system-%s.zip" % PLATFORM)
+    manifest = os.path.join(out_dir, "nextui-system-%s.manifest.json" % PLATFORM)
+    signature = os.path.join(out_dir, "nextui-system-%s.manifest.sig" % PLATFORM)
+    stale = ".system/%s/removed-later.txt" % PLATFORM
+
+    system_a, boot_a = build_source_tree(name="build-rebuild-a")
+    write_file(os.path.join(system_a, "removed-later.txt"), b"stale entry\n")
+    proc = run(package_args(system_a, out_dir, boot=boot_a, key=key_pem))
+    if not expect("rebuild first run", proc, 0):
+        return
+    if stale not in {info.filename for info in zip_entries(archive)}:
+        fail("rebuild first run", "the dropped file is missing from the first archive")
+        return
+    if not os.path.isfile(signature):
+        fail("rebuild first run", "the signed run wrote no signature")
+        return
+    ok("rebuild first run: signed archive with the file the rebuild drops")
+
+    # Same output names, unsigned, newer version, one file fewer.
+    system_b, boot_b = build_source_tree(name="build-rebuild-b")
+    proc = run(package_args(system_b, out_dir, boot=boot_b, version="v6.17.0"))
+    if not expect("rebuild second run", proc, 0):
+        return
+    if os.path.exists(signature):
+        fail("rebuild residue", "a stale signature survived the unsigned run")
+        return
+    ok("rebuild residue: no stale signature after an unsigned run")
+    if "(key " in proc.stdout:
+        fail("rebuild residue", "the unsigned run printed a signature line", proc)
+        return
+    ok("rebuild residue: unsigned run prints no signature line")
+    if stale in {info.filename for info in zip_entries(archive)}:
+        fail("rebuild residue", "the archive kept an entry the new build dropped")
+        return
+    ok("rebuild residue: archive holds exactly the new build's entries")
+    if read_json(manifest).get("version") != "v6.17.0":
+        fail("rebuild residue", "the manifest is not the new one")
+        return
+    ok("rebuild residue: manifest belongs to the new build")
+    expect("rebuild integrity check",
+           run([BIN, "check", "--package", archive, "--manifest", manifest,
+                "--platform", PLATFORM, "--integrity-only"]), 0)
+
+
+def test_spaced_paths(key_pem, public_key):
+    """Output paths with spaces work end to end."""
+    out_dir = os.path.join(WORK, "out dir with spaces")
+    os.makedirs(out_dir, exist_ok=True)
+    system, boot = build_source_tree(name="build-spaces")
+    proc = run(package_args(system, out_dir, boot=boot, key=key_pem))
+    if not expect("package into a path with spaces", proc, 0):
+        return
+    archive = os.path.join(out_dir, "nextui-system-%s.zip" % PLATFORM)
+    manifest = os.path.join(out_dir, "nextui-system-%s.manifest.json" % PLATFORM)
+    signature = os.path.join(out_dir, "nextui-system-%s.manifest.sig" % PLATFORM)
+    expect("check from a path with spaces",
+           run(check_args(archive, manifest, signature, public_key)), 0)
 
 
 def main():
@@ -1000,6 +1186,9 @@ def main():
     h700 = test_h700_symlink_tree(key_pem, PUBLIC_KEY)
     if h700 is not None:
         test_boot_end_to_end(h700[0], h700[1], h700[2], platform="h700", label="h700 boot")
+    test_make_target(key_pem, PUBLIC_KEY)
+    test_rebuild_residue(key_pem, PUBLIC_KEY)
+    test_spaced_paths(key_pem, PUBLIC_KEY)
     test_script_refusals()
 
     print("%d passed, %d failed, %d skipped" % (PASS, FAIL, SKIPPED))

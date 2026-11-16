@@ -3,17 +3,20 @@
 #
 # The archive carries exactly the two roots the installer applies:
 #
-#   .system/        the system tree; .system/version.txt is (re)written from
-#                   --version so the package always matches its manifest
-#   .tmp_update/    the optional boot payload: recovery tool, boot scripts and
-#                   their support files, refreshed by a verified install
+#   .system/<platform>/   the platform's system tree, staged exactly as the
+#                         device unpacks it ($SDCARD/.system/<platform>/)
+#   .system/version.txt   (re)written from --version so the package always
+#                         matches its manifest
+#   .tmp_update/          the optional boot payload: recovery tool, boot
+#                         scripts and their support files, refreshed by a
+#                         verified install
 #
 # Nothing else is packaged: no Tools/, no Roms/Saves, no extra root paths. The
 # bootstrap MinUI.zip built by `make package` also carries Tools/ and is a
 # different artifact; this script never reads or rewrites it, and `nextupd
 # install` refuses an archive with an unhandled root before writing anything.
 #
-# Outputs, all inside --out-dir:
+# Outputs, all inside --out-dir, replaced on every run:
 #
 #   <name>                  the archive, a .zip of .system [.tmp_update]
 #   <base>.manifest.json    nextui-update-v1 manifest (nextupd manifest)
@@ -43,19 +46,23 @@ sign_script=workspace/all/nextupd/scripts/sign-manifest.sh
 key_file=
 key_id=
 no_boot=0
+require_boot=0
 
 usage() {
     cat <<'EOF'
 usage: package-update.sh --platform <tg5040|tg5050|h700|desktop> --version vX.Y.Z
                          [--min-system vX.Y.Z] [--system-dir DIR] [--boot-dir DIR]
-                         [--no-boot] [--out-dir DIR] [--name NAME.zip]
+                         [--no-boot] [--require-boot] [--out-dir DIR] [--name NAME.zip]
                          [--nextupd PATH] [--sign-script PATH]
                          [--key KEY.pem] [--key-id ID]
 
---system-dir is the .system content itself (default build/SYSTEM/<platform>);
---boot-dir is the .tmp_update content itself (default build/BOOT/.tmp_update,
-created by `make special`). A missing or empty --boot-dir produces a
-system-only archive; --no-boot forces one.
+--system-dir is the platform's system content itself (default
+build/SYSTEM/<platform>); it is staged at .system/<platform>/ exactly as the
+device unpacks it ($SDCARD/.system/<platform>/), and .system/version.txt is
+written from --version. --boot-dir is the .tmp_update content itself (default
+build/BOOT/.tmp_update, created by `make special`). A missing or empty
+--boot-dir produces a system-only archive unless --require-boot is set;
+--no-boot forces a system-only archive.
 EOF
 }
 
@@ -72,6 +79,7 @@ while [ "$#" -gt 0 ]; do
         --system-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; system_dir=$2; shift 2 ;;
         --boot-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; boot_dir=$2; shift 2 ;;
         --no-boot) no_boot=1; shift ;;
+        --require-boot) require_boot=1; shift ;;
         --out-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; out_dir=$2; shift 2 ;;
         --name) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; name=$2; shift 2 ;;
         --nextupd) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; nextupd_bin=$2; shift 2 ;;
@@ -83,7 +91,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-for tool in zip find mktemp; do
+for tool in zip find mktemp awk readlink; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing $tool" 69
 done
 
@@ -101,17 +109,33 @@ if [ -n "$min_system" ]; then
     printf '%s' "$min_system" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
         || fail "--min-system must be vX.Y.Z, got '$min_system'" 64
     [ "${#min_system}" -le 32 ] || fail "--min-system is too long" 64
+    # nextupd rejects a manifest whose own version is below its min_system as
+    # contradictory; catch it here before any bytes are written.
+    relation=$(awk -v a="$min_system" -v b="$version" 'BEGIN {
+        sub(/^v/, "", a); sub(/^v/, "", b);
+        split(a, x, "."); split(b, y, ".");
+        for (i = 1; i <= 3; i++) {
+            if (x[i] + 0 < y[i] + 0) { print "older"; exit }
+            if (x[i] + 0 > y[i] + 0) { print "newer"; exit }
+        }
+        print "equal"
+    }')
+    [ "$relation" = "older" ] || [ "$relation" = "equal" ] \
+        || fail "--min-system $min_system is newer than --version $version" 64
 fi
 [ -f "$nextupd_bin" ] \
     || fail "nextupd not found at $nextupd_bin; build it with 'make -C workspace/all/nextupd PLATFORM=desktop'" 69
 
 [ -n "$system_dir" ] || system_dir="build/SYSTEM/$platform"
-[ -d "$system_dir" ] || fail "system directory $system_dir does not exist; build it first" 69
+[ -d "$system_dir" ] || fail "system directory $system_dir does not exist; build it first (and run this before 'make package', which moves build/SYSTEM away)" 69
 [ -n "$boot_dir" ] || boot_dir="build/BOOT/.tmp_update"
 [ -n "$name" ] || name="nextui-system-$platform.zip"
 case "$name" in
     *.zip) ;;
     *) fail "--name must end in .zip" 64 ;;
+esac
+case "$name" in
+    */*) fail "--name must be a plain file name inside --out-dir, not a path" 64 ;;
 esac
 if { [ -n "$key_file" ] && [ -z "$key_id" ]; } || { [ -z "$key_file" ] && [ -n "$key_id" ]; }; then
     fail "--key and --key-id must be supplied together" 64
@@ -129,11 +153,30 @@ if [ "$no_boot" = 0 ] && [ -d "$boot_dir" ]; then
         include_boot=1
     fi
 fi
+if [ "$require_boot" = 1 ] && [ "$include_boot" = 0 ]; then
+    fail "boot payload required, but $boot_dir is missing or empty; run 'make special' first" 69
+fi
 
 staging=$(mktemp -d "${TMPDIR:-/tmp}/nextui-update.XXXXXX")
 key_pub="$staging.pub"
 trap 'rm -rf "$staging" "$key_pub"' EXIT INT TERM
-mkdir -p "$staging/payload"
+mkdir -p "$staging/payload" "$out_dir"
+
+# Each run replaces its outputs. `zip` updates an existing archive in place and
+# would keep entries a previous build removed, and a stale signature beside a
+# new manifest would verify nothing.
+rm -f "$out_dir/$name" "$manifest_out" "$signature_out"
+
+# Refuse links that leave the build tree: cp -RL would copy whatever they point
+# at, including files that are not part of the package.
+links_leaving_tree() {
+    find "$1" -type l 2>/dev/null | while read -r link; do
+        target=$(readlink "$link" 2>/dev/null || printf '')
+        case "$target" in
+            ''|/*|../*|*/../*|*/..) printf '%s -> %s\n' "$link" "$target" ;;
+        esac
+    done
+}
 
 # Stage with symlinks dereferenced. The archive stores regular files only, and
 # real build trees do contain links: the h700 system tree ships libSDL2*.so*
@@ -143,17 +186,20 @@ mkdir -p "$staging/payload"
 stage_tree() {
     stage_source=$1
     stage_destination=$2
+    escaping=$(links_leaving_tree "$stage_source")
+    [ -z "$escaping" ] || fail "symlinks leaving the build tree: $escaping" 65
     links=$(find "$stage_source" -type l -print 2>/dev/null || true)
     if [ -n "$links" ]; then
         echo "$PROGRAM: dereferenced symlinks into regular files:"
         printf '%s\n' "$links" | sed 's/^/  /'
     fi
+    mkdir -p "$(dirname "$stage_destination")"
     if ! cp -RL "$stage_source" "$stage_destination"; then
         fail "staging $stage_source failed; a broken symlink or unreadable file is the usual cause" 65
     fi
 }
 
-stage_tree "$system_dir" "$staging/payload/.system"
+stage_tree "$system_dir" "$staging/payload/.system/$platform"
 
 # version.txt is package identity, not build metadata: the manifest version,
 # the archive's .system/version.txt and the installed version must agree.
@@ -211,25 +257,26 @@ fi
 [ -n "$(find "$staging/payload/.system" -mindepth 1 -print -quit 2>/dev/null)" ] \
     || fail "system directory $system_dir is empty" 69
 
-mkdir -p "$out_dir"
 case "$out_dir" in
     /*) absolute_out=$out_dir ;;
     *) absolute_out="$PWD/$out_dir" ;;
 esac
 roots=".system"
 [ "$include_boot" = 1 ] && roots="$roots .tmp_update"
-# -X keeps per-builder UID/GID and timestamp extras out of the archive so the
-# same tree and modes always produce the same bytes; modes are preserved.
+# -X drops per-builder UID/GID and extended-timestamp extras; modes are
+# preserved. Entry mtimes still come from the files, so identical content does
+# not guarantee identical bytes across hosts.
 (cd "$staging/payload" && zip -q -r -X "$absolute_out/$name" $roots)
 archive="$out_dir/$name"
 
-manifest_args="--package $archive --id nextui.system.$platform --kind system --version $version --platform $platform --out $manifest_out"
-[ -n "$min_system" ] && manifest_args="$manifest_args --min-system $min_system"
-# shellcheck disable=SC2086
-"$nextupd_bin" manifest $manifest_args >/dev/null \
+# Quoted throughout so paths with spaces work.
+set -- "--package" "$archive" "--id" "nextui.system.$platform" "--kind" "system" \
+    "--version" "$version" "--platform" "$platform" "--out" "$manifest_out"
+[ -n "$min_system" ] && set -- "$@" "--min-system" "$min_system"
+"$nextupd_bin" manifest "$@" >/dev/null \
     || fail "nextupd manifest failed for $archive" 70
 
-check_args="--package $archive --manifest $manifest_out --platform $platform"
+signed=0
 if [ -n "$key_file" ] && [ -n "$key_id" ]; then
     [ -f "$key_file" ] || fail "signing key $key_file not found" 69
     [ -f "$sign_script" ] || fail "sign script $sign_script not found" 69
@@ -244,23 +291,27 @@ if [ -n "$key_file" ] && [ -n "$key_id" ]; then
         openssl pkey -in "$key_file" -pubout -outform DER 2>/dev/null | tail -c 32 | base64 | tr -d '\n'
         printf '\n'
     } > "$key_pub"
-    check_args="$check_args --signature $signature_out --trusted-key $key_pub"
-else
-    check_args="$check_args --integrity-only"
+    signed=1
 fi
-# shellcheck disable=SC2086
-if ! check_output=$("$nextupd_bin" check $check_args 2>&1); then
+
+set -- "--package" "$archive" "--manifest" "$manifest_out" "--platform" "$platform"
+if [ "$signed" = 1 ]; then
+    set -- "$@" "--signature" "$signature_out" "--trusted-key" "$key_pub"
+else
+    set -- "$@" "--integrity-only"
+fi
+if ! check_output=$("$nextupd_bin" check "$@" 2>&1); then
     printf '%s: generated package failed its own check:\n%s\n' "$PROGRAM" "$check_output" >&2
     exit 70
 fi
-if [ -n "$key_file" ] && [ -n "$key_id" ]; then
+if [ "$signed" = 1 ]; then
     printf '%s\n' "$check_output" | grep -q 'signature: verified' \
         || fail "signature was not verified by nextupd check" 70
 fi
 
 printf 'wrote %s\n' "$archive"
 printf 'wrote %s\n' "$manifest_out"
-if [ -f "$signature_out" ]; then
+if [ "$signed" = 1 ]; then
     printf 'wrote %s (key %s)\n' "$signature_out" "$key_id"
 else
     printf 'unsigned: sign %s with the release key before publishing\n' "$manifest_out"

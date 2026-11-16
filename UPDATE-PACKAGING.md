@@ -31,9 +31,13 @@ make tg5040 && make special          # build the platform and the boot payload
 make update-package PLATFORM=tg5040 UPDATE_VERSION=v6.16.0 UPDATE_MIN_SYSTEM=v6.0.0
 ```
 
+Run `update-package` **before** `make package`: `make package` moves
+`build/SYSTEM` into the bootstrap payload, so the system tree this target
+packages no longer exists afterwards.
+
 The target builds the host `nextupd` binary and runs
 [`scripts/package-update.sh`](scripts/package-update.sh), which writes into
-`releases/`:
+`releases/` (override with `UPDATE_OUT_DIR`), replacing any previous outputs:
 
 - `nextui-system-<platform>.zip` — the archive
 - `nextui-system-<platform>.manifest.json` — the `nextui-update-v1` manifest
@@ -46,24 +50,32 @@ Inputs, all overridable through the matching `UPDATE_*` variables:
 | --- | --- | --- |
 | `PLATFORM` | — | `tg5040`, `tg5050`, `h700` or `desktop` |
 | `UPDATE_VERSION` | — | `vX.Y.Z`; becomes the manifest `version` and `.system/version.txt` |
-| `UPDATE_MIN_SYSTEM` | — | optional `vX.Y.Z`; the oldest system that may install it |
-| `UPDATE_SYSTEM_DIR` | `build/SYSTEM/<platform>` | the `.system` content itself |
-| `UPDATE_BOOT_DIR` | `build/BOOT/.tmp_update` | the `.tmp_update` content itself |
+| `UPDATE_MIN_SYSTEM` | — | optional `vX.Y.Z`; must not be newer than the version |
+| `UPDATE_SYSTEM_DIR` | `build/SYSTEM/<platform>` | the platform's system content, staged at `.system/<platform>/` |
+| `UPDATE_BOOT` | `1` | `1` packages the boot payload too; `0` means system-only |
+| `UPDATE_BOOT_DIR` | `build/BOOT/.tmp_update` | the `.tmp_update` content, used unless `UPDATE_BOOT=0` |
 | `UPDATE_KEY`, `UPDATE_KEY_ID` | — | sign here; otherwise the manifest is left unsigned for the owner |
 
-A missing or empty `UPDATE_BOOT_DIR`, or `--no-boot`, produces a system-only
-archive. `nextupd install` then updates `.system` and leaves the live
-`.tmp_update` payload untouched.
+The default is the **full archive**: `.system/<platform>/` plus the signed
+`.tmp_update` boot payload, which installs now that main carries the updater's
+signed boot-payload support. `UPDATE_BOOT=0` produces a system-only archive,
+which updates `.system` and leaves the live `.tmp_update` payload untouched;
+a missing boot payload with `UPDATE_BOOT=1` fails instead of falling back.
 
 ### Archive contract
 
 The script enforces the verifier's rules at packaging time instead of shipping
 an archive that cannot install:
 
-- exactly the `.system` and optional `.tmp_update` roots; no `Tools/`, no
-  `Roms/`, `Saves/`, or any other extra root path, and no user data
-- `.system/version.txt` is rewritten from `UPDATE_VERSION` so the package, the
-  manifest, and the installed version always agree
+- exactly the `.system/<platform>/` tree plus the optional `.tmp_update/`
+  root; no `Tools/`, no `Roms/`, `Saves/`, or any other extra root path, and
+  no user data. The platform directory is nested exactly as the device
+  unpacks it (`$SDCARD/.system/<platform>/`), because the boot scripts launch
+  `.system/<platform>/paks/MinUI.pak/launch.sh`
+- `.system/version.txt` is written from `UPDATE_VERSION`, so the package, the
+  manifest, and the installed version always agree. The bootstrap `MinUI.zip`
+  keeps its own `NextUI-<date>-<n>` display format; only the transactional
+  archive carries the `vX.Y.Z` nextupd requires
 - `.tmp_update` must carry the complete boot contract —
   `.tmp_update/updater`, `.tmp_update/nextupd-recover.sh`,
   `.tmp_update/<platform>.sh`, `.tmp_update/<platform>/nextupd.elf` — and the
@@ -74,19 +86,21 @@ an archive that cannot install:
   accepts regular files only, and real build trees do contain links: the h700
   system tree ships `libSDL2*.so*` through `cp -a`
   (`workspace/h700/platform/makefile.copy`), so the link becomes its target
-  file instead of an archive that cannot install. A broken symlink fails the
+  file instead of an archive that cannot install. Links that leave the build
+  tree (absolute, or through `..`) are refused, a broken symlink fails the
   copy, and a FIFO, socket, or device is refused
 - empty directories are dropped: every directory entry must be a prefix of a
   listed file, and the installer creates parents while extracting
 - the manifest is generated from the final archive bytes, so its
   `archive.name`, `size`, and `sha256` always match; renaming the archive
-  afterwards requires regenerating and re-signing the manifest
+  afterwards requires regenerating and re-signing the manifest, and `--name`
+  must be a plain file name inside the output directory
 - the script runs `nextupd check` on its own output and fails if the artifact
   does not verify
 
 The `.system` tree is copied as built, so the shared libraries (for example
 `libsamplerate`) and everything the recovery tool needs survive packaging
-untouched.
+untouched. Output paths with spaces are supported.
 
 ## Verifying without a device
 
@@ -100,20 +114,24 @@ NEXTUPD_BIN=/path/to/nextupd tests/run_update_package_test.sh
 
 It covers the archive shape (roots, forbidden roots, modes, `version.txt`,
 manifest and file hashes, tamper and rename rejection), the shared libraries,
-the script's refusals (incomplete or reserved boot payload, broken symlink,
-special file, empty system tree, bad identity), a system-only
+the script's refusals (incomplete or reserved boot payload, broken, absolute or
+escaping symlink, special file, empty system tree, bad identity, half key,
+name escape, `min_system` above the version), a system-only
 `check`/`stage`/`install`/`recover` cycle including downgrade refusal, an
-h700 tree whose `libSDL2` symlinks are dereferenced into regular files, and
-the old bootstrap shape: `check` accepts it, `install` refuses it with
-`unexpected_path`, and the applied trees do not change.
+h700 tree whose `libSDL2` symlinks are dereferenced into regular files, the
+make target's default output installing end to end (boot payload included),
+rebuilds into the same directory replacing their outputs, output paths with
+spaces, and the old bootstrap shape: `check` accepts it, `install` refuses it
+with `unexpected_path`, and the applied trees do not change.
 
-The `.tmp_update` install lifecycle needs a `nextupd` build that understands
-the signed boot payload contract. The test detects that from `check` output and
-reports the boot end-to-end case as skipped on a build without it, so the suite
-passes on `main` today and exercises the full lifecycle as soon as the updater
-branch carrying that support is merged. Signing uses the committed test-only
-Ed25519 seed under `workspace/all/nextupd/tests/fixtures`; no production key is
-read, written, or required.
+Every install assertion checks the device layout: after an install,
+`.system/<platform>/bin/nextui.elf` and
+`.system/<platform>/paks/MinUI.pak/launch.sh` exist, because that is what the
+boot scripts launch.
+
+Signing uses the committed test-only Ed25519 seed under
+`workspace/all/nextupd/tests/fixtures`; no production key is read, written, or
+required.
 
 ## Not included
 
