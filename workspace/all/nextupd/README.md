@@ -52,7 +52,8 @@ against isolated roots with every device path rewritten into that root.
 
 - `manifest`: build the canonical signed-manifest payload from a package.
 - `check`: verify identity, platform, archive/file hashes, ZIP safety, and a
-  detached Ed25519 signature. Writes nothing.
+  detached Ed25519 signature. Writes nothing. `--expected-kind <app|system>`
+  additionally requires the verified manifest to declare that kind.
 - `feed`: load an explicitly configured `nextui-feed-v1` feed, select the newest
   compatible entry, download its manifest/signature, and verify them. Writes
   nothing. No feed address is built in.
@@ -60,7 +61,8 @@ against isolated roots with every device path rewritten into that root.
   directory under an explicit staging root, verify it again, and stage it through
   the existing staging path. Reuses a valid staged package; never installs.
 - `stage`: verify, check free space, copy into a per-package staging directory,
-  and write `staged.json` last.
+  and write `staged.json` last. `--expected-kind` is checked against the manifest
+  that same invocation verified, before anything is written.
 - `install`: re-verify a staged package, then apply it to an explicit
   `--target-root` through a recorded transaction. A `kind: system` package
   applies its `.system/` tree and, when present, its signed `.tmp_update/` tree;
@@ -69,7 +71,9 @@ against isolated roots with every device path rewritten into that root.
   `Tools/<platform>/<id>.pak/` through an independent app transaction with its
   own backup and recovery; it never touches `.system` or `.tmp_update`. App
   install is a local, store-free path: it consumes an already-staged package and
-  selects no source.
+  selects no source. `--expected-kind` is checked before the system or app
+  transaction is chosen, so a caller that installs applications only cannot be
+  handed a system package by anything it did not verify itself.
 - `recover`: offline arbitration entry point with an explicit selector. A plain
   `recover` resolves a pending system transaction and then a pending app
   transaction; a terminal system record resolves to `nothing_to_recover` and

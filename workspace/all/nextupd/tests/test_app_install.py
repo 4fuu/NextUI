@@ -128,6 +128,13 @@ def read_json(path):
         return json.load(handle)
 
 
+def read_text(path):
+    if not os.path.isfile(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        return handle.read().strip()
+
+
 def write_json(path, value):
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(value, indent=2) + "\n")
@@ -642,6 +649,31 @@ def install_fixture_system(root, system="v6.15.0", crash=None):
                 FIXTURE_PUB, "--platform", "tg5040", "--system-version", system, "--json"], env)
 
 
+def plant_boot_payload(root):
+    """A live boot payload already on the card, which a system package that
+    carries no .tmp_update/ subtree must leave untouched."""
+    boot = os.path.join(root, ".tmp_update", "tg5040")
+    os.makedirs(boot, exist_ok=True)
+    tool = os.path.join(boot, "nextupd.elf")
+    with open(tool, "wb") as handle:
+        handle.write(b"\x7fELFboot")
+    os.chmod(tool, 0o755)
+
+
+def stage_fixture_system(name):
+    """Stage the committed signed system package exactly the way a caller that
+    does not name a kind does, and return its staging directory."""
+    staging = os.path.join(fresh(name), "staging")
+    proc = run(["stage", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
+                "--signature", FIXTURE_SIG, "--trusted-key", FIXTURE_PUB,
+                "--platform", "tg5040", "--system-version", "v6.15.0",
+                "--staging-root", staging, "--replace", "--json"])
+    if proc.returncode != 0:
+        fail("stage the signed system package", proc.stderr.strip(), proc)
+        return None
+    return os.path.join(staging, "nextui.system.tg5040-v6.16.0-tg5040")
+
+
 def test_recover_coexists_with_system_txn(key_der):
     """A leftover terminal system record must not block app recovery, and a
     genuinely pending system transaction is resolved first (app follows on the
@@ -804,6 +836,141 @@ def test_removed_app_recover_is_safe(key_der):
         fail("explicit app rollback still restores v1.0.0 after removal", str(pak_version(root)))
 
 
+def test_expected_kind_boundary(key_der):
+    """The expected-kind boundary on the tool itself.
+
+    A caller that installs applications only says so with --expected-kind app,
+    and the tool checks that against the manifest its own signature check just
+    verified -- never against a second read of the same file. This is what makes
+    the local app entry app-only: a validly signed system package swapped into
+    the package folder after the page scanned it is refused by stage, and a
+    staged system package is refused by install before it chooses a transaction.
+    Omitting the flag leaves the previous routing behaviour untouched.
+    """
+    # 1. stage: a validly signed system package is refused before anything is
+    #    written, so the staging root the caller named stays empty.
+    app_stage = fresh("kind-app-entry-staging")
+    expect("app entry refuses a signed system package at stage",
+           run(["stage", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
+                "--signature", FIXTURE_SIG, "--trusted-key", FIXTURE_PUB,
+                "--platform", "tg5040", "--system-version", "v6.16.0",
+                "--staging-root", app_stage, "--replace", "--expected-kind", "app",
+                "--json"]),
+           3, "kind_mismatch")
+    leftovers = os.listdir(app_stage)
+    if not leftovers:
+        ok("refused stage writes nothing into the staging root")
+    else:
+        fail("refused stage writes nothing into the staging root", str(leftovers))
+
+    # 2. install: the same package, staged without the flag, is refused at the
+    #    dispatch boundary with the live system tree, the live boot payload and
+    #    the system transaction bytes untouched.
+    target = make_system_target("kind-system-target")
+    plant_boot_payload(target)
+    staged_system = stage_fixture_system("kind-system-stage")
+    if staged_system is None:
+        fail("stage the signed system package", "staging failed")
+        return
+    before = tree_manifest(target)
+    expect("app entry refuses a signed system package at install",
+           run(install_args(staged_system, target) + ["--expected-kind", "app"]),
+           3, "kind_mismatch")
+    expect_unchanged("refused system install leaves the target tree unchanged",
+                     target, before)
+    if not os.path.exists(os.path.join(target, ".nextupd-txn")):
+        ok("refused system install creates no system transaction")
+    else:
+        fail("refused system install creates no system transaction", "txn dir created")
+    if not os.path.exists(os.path.join(target, ".tmp_update.bak")):
+        ok("refused system install leaves the live boot payload alone")
+    else:
+        fail("refused system install leaves the live boot payload alone",
+             "boot backup created")
+
+    # 3. The control that keeps 1 and 2 honest: without the flag the same signed
+    #    system package stages and installs for real. That is the behaviour the
+    #    app entry must not reach, and it is unchanged for the system callers.
+    control = make_system_target("kind-system-control")
+    plant_boot_payload(control)
+    value = expect_json("the same system package still installs without the flag",
+                        run(install_args(staged_system, control)), 0)
+    if value and value.get("outcome") == "installed":
+        ok("system install without the flag is unchanged")
+    else:
+        fail("system install without the flag is unchanged", str(value))
+    if read_text(os.path.join(control, ".system", "version.txt")) == "v6.16.0":
+        ok("the control install really applied the system package")
+    else:
+        fail("the control install really applied the system package",
+             read_text(os.path.join(control, ".system", "version.txt")))
+
+    # 4. The boundary is symmetric: an entry that expects a system package
+    #    refuses an app package at stage and at install.
+    _p, _m, _s, r, proc = build_stage("kind-app-package", "v1.0.0", key_der=key_der)
+    if proc.returncode != 0:
+        fail("stage an app package for the expected-kind test", "staging failed", proc)
+        return
+    system_stage = fresh("kind-system-entry-staging")
+    expect("a system entry refuses an app package at stage",
+           run(["stage", "--package", _p, "--manifest", _m, "--signature", _s,
+                "--trusted-key", FIXTURE_PUB, "--platform", "tg5040",
+                "--system-version", "v6.15.0", "--staging-root", system_stage,
+                "--replace", "--expected-kind", "system", "--json"]),
+           3, "kind_mismatch")
+    staged_app = os.path.join(r, "com.example.demo-v1.0.0-universal")
+    app_target = fresh("kind-app-target")
+    before = tree_manifest(app_target)
+    expect("a system entry refuses an app package at install",
+           run(install_args(staged_app, app_target) + ["--expected-kind", "system"]),
+           3, "kind_mismatch")
+    expect_unchanged("app package refused at install writes nothing", app_target, before)
+    if not os.path.exists(os.path.join(app_target, ".nextupd-app-txn")):
+        ok("app package refused at install creates no transaction")
+    else:
+        fail("app package refused at install creates no transaction", "txn dir created")
+
+    # 5. The constraint does not disturb the happy path or the other checks.
+    ok_target = fresh("kind-app-ok")
+    value = expect_json("expected-kind app still installs an app package",
+                        run(install_args(staged_app, ok_target) +
+                            ["--expected-kind", "app"]), 0)
+    if value and value.get("outcome") == "installed" and pak_version(ok_target) == "v1.0.0":
+        ok("expected-kind app leaves a normal app install working")
+    else:
+        fail("expected-kind app leaves a normal app install working", str(value))
+    expect("check honours the expected kind",
+           run(["check", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
+                "--signature", FIXTURE_SIG, "--trusted-key", FIXTURE_PUB,
+                "--platform", "tg5040", "--expected-kind", "app", "--json"]),
+           3, "kind_mismatch")
+    # A signature that no longer verifies is still refused, and for the signature
+    # reason rather than the kind one.
+    bad_sig = os.path.join(fresh("kind-badsig"), "MinUI.manifest.sig")
+    shutil.copyfile(FIXTURE_SIG, bad_sig)
+    lines = open(bad_sig, encoding="ascii").read().splitlines()
+    payload = bytearray(lines[2].encode("ascii"))
+    payload[0] = ord("A") if payload[0] != ord("A") else ord("B")
+    with open(bad_sig, "w", encoding="ascii") as handle:
+        handle.write("\n".join(lines[:2] + [payload.decode("ascii")]) + "\n")
+    expect("an invalid signature is still a signature failure",
+           run(["check", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
+                "--signature", bad_sig, "--trusted-key", FIXTURE_PUB,
+                "--platform", "tg5040", "--expected-kind", "app", "--json"]),
+           8, "signature")
+    # Usage: the value is constrained, and the flag belongs to check/stage/install.
+    expect("--expected-kind rejects an unknown kind",
+           run(["check", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
+                "--platform", "tg5040", "--expected-kind", "library"]), 64)
+    expect("--expected-kind is not valid for recover",
+           run(["recover", "--target-root", fresh("kind-recover"),
+                "--expected-kind", "app"]), 64)
+    expect("--expected-kind is not valid for manifest",
+           run(["manifest", "--package", FIXTURE_ZIP, "--id", "com.example.demo",
+                "--kind", "app", "--version", "v1.0.0", "--platform", "tg5040",
+                "--expected-kind", "app"]), 64)
+
+
 def test_launcher_discovery(key_der):
     """Run the launcher's discovery predicate against a real install and prove
     it lists the installed app and nothing that is not a launchable .pak."""
@@ -866,6 +1033,7 @@ def main():
     test_app_rollback_selector_with_system(key_der)
     test_install_rejects_universal_target(key_der)
     test_removed_app_recover_is_safe(key_der)
+    test_expected_kind_boundary(key_der)
     test_launcher_discovery(key_der)
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)

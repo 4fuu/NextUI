@@ -146,11 +146,12 @@ std::vector<Package> Controller::listPackages() const
             continue;
         }
         // This page installs application packages only. A manifest declaring any
-        // other kind is not installable from here. Residual, stated rather than
-        // hidden: the sidecars are ordinary files, so a writer that swaps a
-        // validly signed system manifest in after this scan and before stage
-        // opens it could still reach install, which routes by the verified kind.
-        // The complete fix is an expected-kind flag on the tool itself.
+        // other kind is not installable from here. That is a listing decision, not
+        // a guarantee: the sidecars are ordinary files, so a writer can still swap
+        // one in after this scan. The tool's --expected-kind app on stage and
+        // install below is what makes the entry app-only on its own, checked
+        // against the manifest the tool verified, so this scan is never the
+        // guarantee.
         std::map<std::string, std::string>::const_iterator kind = fields.find("kind");
         if (kind == fields.end() || kind->second != "app")
         {
@@ -248,6 +249,10 @@ Result Controller::runInstall(const Package& package)
     // copies the package into the private staging root. --replace keeps a
     // superseded or interrupted attempt from blocking a new one with
     // already_staged; the install step re-verifies everything anyway.
+    // --expected-kind app is the boundary that makes this entry app-only: the tool
+    // refuses a package whose *verified* manifest kind is anything else, so a
+    // package swapped into this folder after the scan above can never reach a
+    // system transaction through here. The scan is a listing, not a guarantee.
     std::vector<std::string> stage_argv = {tool,
                                            "stage",
                                            "--package",
@@ -265,6 +270,8 @@ Result Controller::runInstall(const Package& package)
                                            "--staging-root",
                                            config_.staging_root,
                                            "--replace",
+                                           "--expected-kind",
+                                           "app",
                                            "--json"};
     std::string stage_out;
     int stage_code = runTool(stage_argv, stage_out);
@@ -308,6 +315,9 @@ Result Controller::runInstall(const Package& package)
 
     // install re-runs the full manifest/signature/hash check against the staged
     // bytes before it writes anything, so this is the pre-install re-verification.
+    // --expected-kind app repeats the boundary on the staged manifest too: the
+    // staged bytes are re-verified here, and a kind that is not app is refused
+    // before the tool chooses a system or an app transaction.
     std::vector<std::string> install_argv = {tool,
                                              "install",
                                              "--staged-dir",
@@ -320,6 +330,8 @@ Result Controller::runInstall(const Package& package)
                                              config_.platform,
                                              "--system-version",
                                              config_.system_version,
+                                             "--expected-kind",
+                                             "app",
                                              "--json"};
     std::string install_out;
     int install_code = runTool(install_argv, install_out);
@@ -362,11 +374,14 @@ State Controller::mapError(const std::string& reason, int code)
         return State::VerificationFailed;
     // A wrong-device package, a missing running version or a package that is not
     // an app must read as a concrete failure, not as "system too old" or
-    // "unconfigured".
+    // "unconfigured". kind_mismatch is the tool's expected-kind boundary
+    // refusing a package whose verified kind is not app: the signature can be
+    // perfectly valid, so this is not a verification failure.
     if (reason == "platform_mismatch" || reason == "platform_missing" ||
         reason == "invalid_platform" || reason == "system_version_missing" ||
         reason == "invalid_system_version" || reason == "invalid_id" ||
-        reason == "invalid_archive" || reason == "unsupported_kind")
+        reason == "invalid_archive" || reason == "unsupported_kind" ||
+        reason == "kind_mismatch")
         return State::Failed;
 
     switch (code)

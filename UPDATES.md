@@ -395,6 +395,37 @@ descriptor cross-check), then routes `kind: app` to an independent transaction.
 The system `nextui-install-txn-v1` contract, `.system`, `.system.bak`, and the
 `.tmp_update` boot payload are never read or written by an app install.
 
+Routing by the verified kind means a caller that installs applications only has
+to say so, and `check`, `stage` and `install` all take `--expected-kind
+<app|system>` for exactly that:
+
+```sh
+nextupd stage --package Demo.pakz --manifest Demo.manifest.json \
+  --signature Demo.manifest.sig --trusted-key nextui-release.pub \
+  --platform tg5040 --staging-root "$STAGE" --expected-kind app
+```
+
+The flag is checked against the manifest that same invocation verified, right
+after the detached signature covers it and before `stage` creates a staging
+directory or `install` chooses a transaction. A mismatch exits 3 with
+`kind_mismatch` and writes nothing. Because the comparison uses the manifest
+bytes the signature covered rather than a second read of the same file, a
+package swapped in after a caller's own scan is refused: the caller's scan is a
+listing, and the kind boundary is the tool's. Every other check is unchanged and
+in the same order, and omitting the flag leaves the routing behaviour exactly as
+it was, so the System Update path and any script that never named a kind keep
+working.
+
+The naming rules are not a substitute for this boundary. A system manifest must
+name a `.zip` archive and an app manifest a `.pakz` or `.zip` one, which is what
+kept the "Install from file" page — a `.pakz`-only listing — from handing the
+tool a system package at the `stage` step. That is a convention about file names,
+not a check of the kind the signature authorized, and it does not cover the
+staged directory the page passes to `install` between its two calls: that
+directory is ordinary card storage, and a validly signed system package placed
+there was re-verified and applied as a system update. `--expected-kind app` is
+what closes that, and the host regression covers exactly that swap.
+
 ### The "Install from file" settings page
 
 Settings carries a user entry for this path. It is a presentation layer over the
@@ -416,14 +447,13 @@ menu frame behind an overlay, and a second tap cannot start a second install
   app is configured with (`NEXTUI_UPDATE_TRUSTED_KEY`), with no key built in.
   Without one the page reports that no trusted key is configured and installs
   nothing. Production key custody stays with the owner.
-- The page installs application packages only. A manifest sidecar declaring any
-  other `kind` is refused before the tool runs, so the system transaction is not
-  reachable through a package the user picked in this page. Residual, stated
-  rather than hidden: the sidecars are ordinary files, so a writer that swaps a
-  validly signed system manifest in after the page's scan and before `stage` opens
-  it could still reach `install`, which routes by the verified kind. The complete
-  fix is an expected-kind flag on the tool itself. There is no uninstall, no
-  permission product and no online catalog.
+- The page installs application packages only, and both of its tool calls say so:
+  `stage` and `install` carry `--expected-kind app`, so the tool refuses a
+  package whose *verified* manifest kind is anything else, with `kind_mismatch`
+  and nothing written, before it stages or chooses a transaction. The page's own
+  scan is only a listing, and the boundary is the tool's, on the manifest bytes
+  its signature check covered. There is no uninstall, no permission product and
+  no online catalog.
 - After a committed install the app is an ordinary `Tools/<platform>` pak: the
   launcher discovers and launches it like any other app, and the user returns to
   the desktop to start it. The page shows each package's signed id and version in
@@ -683,10 +713,20 @@ folder scan, a full stage+install, same-version and downgrade refusals, a
 signature that no longer verifies, a manifest changed after signing, a
 wrong-device package, a `min_system` refusal, a missing tool, the production tool
 path with and without the packaged `.tmp_update/<platform>/nextupd.elf`, an
-unconfigured key, and the single-flight guard. The menu test renders the real page
-and proves a finished operation is consumed and input unlocks instead of freezing,
-that a rescan keeps the row order and the layout, and that every status the page
-shows fits the smallest h700 row in both languages. The launcher test installs a
+unconfigured key, and the single-flight guard. It also runs the staged-package
+swap: a stand-in tool replaces the staged directory the page just produced with a
+validly signed system package before `install` opens it, which the page's scan
+cannot see and the tool's re-verification accepts, and requires the entry to
+refuse it with `kind_mismatch` while leaving `.system`, `.system.bak`,
+`.tmp_update` and the transaction records untouched. The same staged system
+package installed without `--expected-kind` applies a system update, so that
+regression proves the boundary is load-bearing rather than untested. The
+`nextupd` app suite covers the flag itself: a signed system package refused at
+`stage` and at `install`, the reverse direction, a normal app install unaffected,
+and the usage errors. The menu test renders the real page and proves a finished
+operation is consumed and input unlocks instead of freezing, that a rescan keeps
+the row order and the layout, and that every status the page shows fits the
+smallest h700 row in both languages. The launcher test installs a
 signed package with the real tool through the production tool path
 (`.tmp_update/<platform>/nextupd.elf`) and the production package folder, then
 compiles the real launcher against that root and requires it to discover the

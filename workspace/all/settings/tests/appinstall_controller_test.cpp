@@ -8,7 +8,9 @@
 //
 // The build directory holds the prepared package folders (packages, packages-v2,
 // packages-unsigned, packages-tampered, packages-other-platform,
-// packages-min-system, packages-system-kind).
+// packages-min-system, packages-system-kind, packages-system-swap), the staged
+// system package under system-staging/, and the swap-staged-tool.sh stand-in for
+// a writer that swaps that staged system package in before install opens it.
 #include "appinstall.hpp"
 
 #include "toolrunner.hpp"
@@ -418,6 +420,84 @@ static void testToolPathMatchesPackage()
     CHECK(!exists(target2 + "/Tools"), "pkgpath: nothing installed without the tool");
 }
 
+// The staged-package swap. The page hands install the staged directory its own
+// stage step just produced. A writer that replaces that directory with a validly
+// signed system package before install opens it is invisible to the page's scan,
+// and the tool's own re-verification accepts that package's signature, platform
+// and min_system, so the page's scan is not what keeps the system transaction out
+// of this entry: the expected-kind boundary the page passes to install is.
+static void testStagedSwapIsRefused()
+{
+    std::string base = freshBase();
+    std::string target = makeTarget(base, "v6.0.0");
+    std::string packages = base + "/packages";
+    mkdirs(packages);
+    writeFile(packages + "/Demo.pakz", readFile(g_build + "/packages/Demo.pakz"));
+    writeFile(packages + "/Demo.manifest.json",
+              readFile(g_build + "/packages/Demo.manifest.json"));
+    writeFile(packages + "/Demo.manifest.sig",
+              readFile(g_build + "/packages/Demo.manifest.sig"));
+
+    Config cfg = baseConfig(base, packages, target, "v6.0.0");
+    cfg.tool_path = g_build + "/swap-staged-tool.sh";
+    Controller controller(cfg);
+
+    // The scan sees the application package the user picked, as it always does.
+    std::vector<Package> listed = controller.listPackages();
+    CHECK(listed.size() == 1 && listed[0].usable, "swap: scan lists the app package");
+    if (listed.size() == 1)
+    {
+        CHECK(listed[0].app_id == "com.example.demo", "swap: scan id %s",
+              listed[0].app_id.c_str());
+        CHECK(listed[0].version == "v1.0.0", "swap: scan version %s",
+              listed[0].version.c_str());
+    }
+
+    Result r = controller.install(packages + "/Demo.pakz");
+    CHECK(r.state == State::Failed, "swap: state %d reason %s", (int)r.state,
+          r.reason.c_str());
+    CHECK(r.reason == "kind_mismatch", "swap: reason %s", r.reason.c_str());
+    CHECK(r.exit_code == 3, "swap: exit %d", r.exit_code);
+    CHECK(!exists(target + "/Tools"), "swap: no app installed");
+    CHECK(!exists(target + "/.nextupd-txn"), "swap: no system transaction record");
+    CHECK(!exists(target + "/.system.bak"), "swap: no system backup");
+    CHECK(!exists(target + "/.tmp_update.bak"), "swap: no boot backup");
+    CHECK(readSystemVersion(target + "/.system/version.txt") == "v6.0.0",
+          "swap: running system version untouched");
+    // The swap really happened: the staged bytes are the system package's, so the
+    // refusal above is the kind boundary and not a broken fixture.
+    std::string staged_manifest =
+        readFile(cfg.staging_root + "/com.example.demo-v1.0.0-universal/manifest.json");
+    CHECK(staged_manifest.find("\"kind\": \"system\"") != std::string::npos,
+          "swap: the staged package really was the system package");
+
+    // The same staged system package, installed without the expected-kind
+    // constraint, applies a system update. That is the behaviour this entry must
+    // not reach, and it is what the swap would have done before the boundary.
+    std::string control = makeTarget(base + "-control", "v6.0.0");
+    std::string out;
+    std::string staged_dir = cfg.staging_root + "/com.example.demo-v1.0.0-universal";
+    int code = controller.runTool({g_tool,
+                                   "install",
+                                   "--staged-dir",
+                                   staged_dir,
+                                   "--target-root",
+                                   control,
+                                   "--trusted-key",
+                                   g_key,
+                                   "--platform",
+                                   "tg5040",
+                                   "--system-version",
+                                   "v6.0.0",
+                                   "--json"},
+                                  out);
+    CHECK(code == 0, "swap control: system install exit %d (%s)", code, out.c_str());
+    CHECK(readSystemVersion(control + "/.system/version.txt") == "v6.16.0",
+          "swap control: the system package really installs without the boundary");
+    CHECK(exists(control + "/.nextupd-txn/txn.json"),
+          "swap control: it writes a system transaction record");
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 4)
@@ -440,6 +520,7 @@ int main(int argc, char **argv)
     testNoConcurrentInstall();
     testUnknownPackagePath();
     testToolPathMatchesPackage();
+    testStagedSwapIsRefused();
 
     printf("appinstall controller: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
