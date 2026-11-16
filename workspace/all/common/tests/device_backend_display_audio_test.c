@@ -12,10 +12,10 @@
 #include <unistd.h>
 
 /*
- * Host-only tests for the display adapter, gate dispatch and the C3
+ * Host-only tests for the display/audio adapter, gate dispatch and the C3
  * dirty/restore seam. The fake ops below are NOT device acceptance: they prove
  * argument validation, dispatch and state handling, not that a Brick Pro panel
- * changed.
+ * or mixer changed.
  */
 
 static int failures = 0;
@@ -56,8 +56,8 @@ typedef struct
     int write_count;
     int session_write_count;
     int base_call_count;
-    char write_log[256];
-    char session_write_log[256];
+    char write_log[512];
+    char session_write_log[512];
 } Fake;
 
 static Fake fake;
@@ -101,7 +101,7 @@ static int create_pak(const char* name, const char* capabilities_json)
     snprintf(path, sizeof path, "%s/launch.sh", directory);
     if (!write_text(path, "#!/bin/sh\nexit 0\n")) return 0;
     snprintf(json, sizeof json,
-             "{\"id\":\"test.display\",\"version\":\"v1.0.0\","
+             "{\"id\":\"test.displayaudio\",\"version\":\"v1.0.0\","
              "\"device\":{\"capabilities\":%s}}",
              capabilities_json);
     snprintf(path, sizeof path, "%s/pak.json", directory);
@@ -157,67 +157,84 @@ static int fake_write(void* context, DisplayAudioField field, int value, char* d
 }
 
 static const DisplayAudioOps OPS = {
-    "fake-display",
+    "fake-display-audio",
     NULL,
     fake_available,
     fake_read,
     fake_write,
 };
 
-static int session_map(DeviceSessionField field, DisplayAudioField* mapped)
-{
-    switch (field)
-    {
-    case DEVICE_SESSION_BRIGHTNESS: *mapped = DISPLAY_AUDIO_BRIGHTNESS; return 1;
-    case DEVICE_SESSION_COLORTEMP: *mapped = DISPLAY_AUDIO_COLORTEMP; return 1;
-    default: return 0;
-    }
-}
-
 static int session_available(void* context, DeviceSessionField field, char* detail,
                              size_t detail_size)
 {
+    Fake* state = &fake;
     DisplayAudioField mapped;
 
     (void)context;
-    if (!session_map(field, &mapped))
+
+    switch (field)
     {
-        if (detail != NULL && detail_size > 0)
-            snprintf(detail, detail_size, "not part of the display backend");
+    case DEVICE_SESSION_BRIGHTNESS: mapped = DISPLAY_AUDIO_BRIGHTNESS; break;
+    case DEVICE_SESSION_COLORTEMP: mapped = DISPLAY_AUDIO_COLORTEMP; break;
+    case DEVICE_SESSION_VOLUME: mapped = DISPLAY_AUDIO_VOLUME; break;
+    case DEVICE_SESSION_MUTE: mapped = DISPLAY_AUDIO_MUTE; break;
+    case DEVICE_SESSION_AUDIO_SINK: mapped = DISPLAY_AUDIO_SINK; break;
+    default:
+        if (detail != NULL && detail_size > 0) snprintf(detail, detail_size, "not a fake field");
         return 0;
     }
-    return fake_available(&fake, mapped, detail, detail_size);
+    return fake_available(state, mapped, detail, detail_size);
 }
 
 static int session_read(void* context, DeviceSessionField field, int* value, char* detail,
                         size_t detail_size)
 {
+    Fake* state = &fake;
     DisplayAudioField mapped;
 
     (void)context;
-    if (!session_map(field, &mapped)) return 0;
-    return fake_read(&fake, mapped, value, detail, detail_size);
+
+    switch (field)
+    {
+    case DEVICE_SESSION_BRIGHTNESS: mapped = DISPLAY_AUDIO_BRIGHTNESS; break;
+    case DEVICE_SESSION_COLORTEMP: mapped = DISPLAY_AUDIO_COLORTEMP; break;
+    case DEVICE_SESSION_VOLUME: mapped = DISPLAY_AUDIO_VOLUME; break;
+    case DEVICE_SESSION_MUTE: mapped = DISPLAY_AUDIO_MUTE; break;
+    case DEVICE_SESSION_AUDIO_SINK: mapped = DISPLAY_AUDIO_SINK; break;
+    default: return 0;
+    }
+    return fake_read(state, mapped, value, detail, detail_size);
 }
 
 static int session_write(void* context, DeviceSessionField field, int value, char* detail,
                          size_t detail_size)
 {
+    Fake* state = &fake;
     DisplayAudioField mapped;
     char entry[32];
 
     (void)context;
-    if (!session_map(field, &mapped)) return 0;
-    if (fake.session_fail_write[mapped])
+
+    switch (field)
+    {
+    case DEVICE_SESSION_BRIGHTNESS: mapped = DISPLAY_AUDIO_BRIGHTNESS; break;
+    case DEVICE_SESSION_COLORTEMP: mapped = DISPLAY_AUDIO_COLORTEMP; break;
+    case DEVICE_SESSION_VOLUME: mapped = DISPLAY_AUDIO_VOLUME; break;
+    case DEVICE_SESSION_MUTE: mapped = DISPLAY_AUDIO_MUTE; break;
+    case DEVICE_SESSION_AUDIO_SINK: mapped = DISPLAY_AUDIO_SINK; break;
+    default: return 0;
+    }
+    if (state->session_fail_write[mapped])
     {
         if (detail != NULL && detail_size > 0)
             snprintf(detail, detail_size, "fake session write refused");
         return 0;
     }
-    fake.session_write_count++;
+    state->session_write_count++;
     snprintf(entry, sizeof entry, "%d=%d;", (int)mapped, value);
-    strncat(fake.session_write_log, entry,
-            sizeof fake.session_write_log - strlen(fake.session_write_log) - 1);
-    fake.value[mapped] = value;
+    strncat(state->session_write_log, entry,
+            sizeof state->session_write_log - strlen(state->session_write_log) - 1);
+    state->value[mapped] = value;
     return 1;
 }
 
@@ -282,8 +299,15 @@ static void reset_fake(void)
     memset(&fake, 0, sizeof fake);
     fake.available[DISPLAY_AUDIO_BRIGHTNESS] = 1;
     fake.available[DISPLAY_AUDIO_COLORTEMP] = 1;
+    fake.available[DISPLAY_AUDIO_VOLUME] = 1;
+    fake.available[DISPLAY_AUDIO_MUTE] = 1;
+    fake.available[DISPLAY_AUDIO_SINK] = 1;
     fake.value[DISPLAY_AUDIO_BRIGHTNESS] = 2;
     fake.value[DISPLAY_AUDIO_COLORTEMP] = 20;
+    fake.value[DISPLAY_AUDIO_VOLUME] = 8;
+    fake.value[DISPLAY_AUDIO_MUTE] = 0;
+    fake.value[DISPLAY_AUDIO_SINK] = DISPLAY_AUDIO_SINK_DEFAULT;
+    fake.base_call_count = 0;
     backend = device_backend_display_audio_with_ops(&OPS, &fake);
 }
 
@@ -292,7 +316,7 @@ static DeviceGateError call_cap(const char* capability, const char* action, cons
 {
     DeviceCallRequest request;
     device_call_request_init(&request);
-    copy_text(request.app, sizeof request.app, "test.display");
+    copy_text(request.app, sizeof request.app, "test.displayaudio");
     copy_text(request.pak, sizeof request.pak, pak_path);
     copy_text(request.capability, sizeof request.capability, capability);
     if (action != NULL) copy_text(request.action, sizeof request.action, action);
@@ -305,7 +329,7 @@ static DeviceGateError grant_cap(const char* capability)
     DeviceCallRequest request;
     char detail[DEVICE_GATE_DETAIL_MAX];
     device_call_request_init(&request);
-    copy_text(request.app, sizeof request.app, "test.display");
+    copy_text(request.app, sizeof request.app, "test.displayaudio");
     copy_text(request.pak, sizeof request.pak, pak_path);
     copy_text(request.capability, sizeof request.capability, capability);
     return device_gate_grant(&request, grants_path, detail, sizeof detail);
@@ -325,9 +349,9 @@ static void grant_all(void)
 {
     CHECK_INT(grant_cap("display.brightness"), DEVICE_GATE_OK);
     CHECK_INT(grant_cap("display.colortemp"), DEVICE_GATE_OK);
+    CHECK_INT(grant_cap("audio.volume"), DEVICE_GATE_OK);
+    CHECK_INT(grant_cap("audio.sink"), DEVICE_GATE_OK);
 }
-
-static const char* PAK_CAPS = "[\"display.get\",\"display.brightness\",\"display.colortemp\"]";
 
 static void test_status(void)
 {
@@ -335,8 +359,10 @@ static void test_status(void)
     DeviceCapabilityStatus* entry;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
-    CHECK_INT(device_gate_status("test.display", pak_path, grants_path, backend, &status),
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
+    CHECK_INT(device_gate_status("test.displayaudio", pak_path, grants_path, backend, &status),
               DEVICE_GATE_OK);
     CHECK(strcmp(status.backend_name, "nextui-display-audio") == 0);
 
@@ -349,12 +375,19 @@ static void test_status(void)
     entry = find_status(&status, "display.colortemp");
     CHECK(entry != NULL);
     if (entry != NULL) CHECK_INT(entry->available, 1);
+    entry = find_status(&status, "audio.volume");
+    CHECK(entry != NULL);
+    if (entry != NULL) CHECK_INT(entry->available, 1);
+    entry = find_status(&status, "audio.sink");
+    CHECK(entry != NULL);
+    if (entry != NULL) CHECK_INT(entry->available, 1);
     entry = find_status(&status, "led.control");
     CHECK(entry != NULL);
     if (entry != NULL) CHECK_INT(entry->available, 0);
 
     fake.available[DISPLAY_AUDIO_BRIGHTNESS] = 0;
-    CHECK_INT(device_gate_status("test.display", pak_path, grants_path, backend, &status),
+    fake.available[DISPLAY_AUDIO_COLORTEMP] = 0;
+    CHECK_INT(device_gate_status("test.displayaudio", pak_path, grants_path, backend, &status),
               DEVICE_GATE_OK);
     entry = find_status(&status, "display.get");
     CHECK(entry != NULL);
@@ -369,7 +402,9 @@ static void test_default_reads(void)
     DeviceCallResult result;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
 
     CHECK_INT(call_cap("display.get", "get", NULL, &result), DEVICE_GATE_OK);
@@ -387,6 +422,16 @@ static void test_default_reads(void)
     CHECK(strstr(result.value, "\"level\":20") != NULL);
     CHECK(strstr(result.value, "\"max\":40") != NULL);
 
+    CHECK_INT(call_cap("audio.volume", "get", NULL, &result), DEVICE_GATE_OK);
+    CHECK(strstr(result.value, "\"level\":8") != NULL);
+    CHECK(strstr(result.value, "\"mute_supported\":true") != NULL);
+    CHECK(strstr(result.value, "\"mute\":0") != NULL);
+    CHECK(strstr(result.value, "\"sink\":\"default\"") != NULL);
+
+    CHECK_INT(call_cap("audio.sink", "get", NULL, &result), DEVICE_GATE_OK);
+    CHECK(strstr(result.value, "\"sink\":\"default\"") != NULL);
+    CHECK(strstr(result.value, "\"index\":0") != NULL);
+
     CHECK_INT(fake.write_count, 0);
 }
 
@@ -401,7 +446,9 @@ static void expect_rejected(const char* capability, const char* action, const ch
 static void test_invalid_args_never_write(void)
 {
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
 
     expect_rejected("display.brightness", "set", NULL);
@@ -412,22 +459,33 @@ static void test_invalid_args_never_write(void)
     expect_rejected("display.brightness", "set", "{\"value\":5,\"extra\":1}");
     expect_rejected("display.brightness", "set", "{\"level\":5}");
     expect_rejected("display.brightness", "set", "{\"value\":\"5\"}");
-    expect_rejected("display.brightness", "set", "null");
-    expect_rejected("display.brightness", "frobnicate", "{\"value\":5}");
-    expect_rejected("display.colortemp", "set", "{\"value\":41}");
-    expect_rejected("display.colortemp", "set", "{\"value\":-1}");
-    expect_rejected("display.get", "set", "{\"value\":5}");
-
     {
         DeviceCallResult result;
         CHECK_INT(call_cap("display.brightness", "set", "{\"value\":5", &result),
                   DEVICE_GATE_BAD_REQUEST);
         CHECK(result.detail[0] != '\0');
     }
+    expect_rejected("display.brightness", "set", "null");
+    expect_rejected("display.brightness", "frobnicate", "{\"value\":5}");
+    expect_rejected("display.colortemp", "set", "{\"value\":41}");
+    expect_rejected("display.colortemp", "set", "{\"value\":-1}");
+    expect_rejected("audio.volume", "set", "{\"value\":21}");
+    expect_rejected("audio.volume", "set", "{\"value\":-1}");
+    expect_rejected("audio.volume", "setmute", "{\"value\":2}");
+    expect_rejected("audio.volume", "setmute", "{\"value\":-1}");
+    expect_rejected("audio.volume", "setmute", "{}");
+    expect_rejected("audio.sink", "set", "{\"value\":3}");
+    expect_rejected("audio.sink", "set", "{\"value\":-1}");
+    expect_rejected("audio.sink", "set", "{\"sink\":\"hdmi\"}");
+    expect_rejected("audio.sink", "set", "{\"sink\":\"default\",\"value\":0}");
+    expect_rejected("display.get", "set", "{\"value\":5}");
 
     CHECK_INT(fake.write_count, 0);
     CHECK_INT(fake.value[DISPLAY_AUDIO_BRIGHTNESS], 2);
     CHECK_INT(fake.value[DISPLAY_AUDIO_COLORTEMP], 20);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_VOLUME], 8);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_MUTE], 0);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_SINK], 0);
 }
 
 static void test_sets_in_default_mode(void)
@@ -435,7 +493,9 @@ static void test_sets_in_default_mode(void)
     DeviceCallResult result;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
 
     CHECK_INT(call_cap("display.brightness", "set", "{\"value\":9}", &result), DEVICE_GATE_OK);
@@ -448,12 +508,32 @@ static void test_sets_in_default_mode(void)
 
     CHECK_INT(call_cap("display.colortemp", "set", "{\"value\":35}", &result), DEVICE_GATE_OK);
     CHECK_INT(fake.value[DISPLAY_AUDIO_COLORTEMP], 35);
-    CHECK(strstr(result.value, "\"min\":0") != NULL);
-    CHECK(strstr(result.value, "\"max\":40") != NULL);
+
+    CHECK_INT(call_cap("audio.volume", "set", "{\"value\":15}", &result), DEVICE_GATE_OK);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_VOLUME], 15);
+    CHECK(strstr(result.value, "\"max\":20") != NULL);
+
+    CHECK_INT(call_cap("audio.sink", "set", "{\"sink\":\"bluetooth\"}", &result), DEVICE_GATE_OK);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_SINK], DISPLAY_AUDIO_SINK_BLUETOOTH);
+    CHECK(strstr(result.value, "\"sink\":\"bluetooth\"") != NULL);
+    CHECK(strstr(result.value, "\"previous\":\"default\"") != NULL);
+
+    CHECK_INT(call_cap("audio.sink", "set", "{\"value\":2}", &result), DEVICE_GATE_OK);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_SINK], DISPLAY_AUDIO_SINK_USBDAC);
+
+    CHECK_INT(call_cap("audio.volume", "setmute", "{\"value\":1}", &result), DEVICE_GATE_OK);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_MUTE], 1);
+    CHECK(strstr(result.value, "\"mute\":1") != NULL);
+    CHECK(strstr(result.value, "\"previous\":0") != NULL);
 
     CHECK_INT(call_cap("display.get", "get", NULL, &result), DEVICE_GATE_OK);
     CHECK(strstr(result.value, "\"brightness\":9") != NULL);
     CHECK(strstr(result.value, "\"colortemp\":35") != NULL);
+
+    CHECK_INT(call_cap("audio.volume", "get", NULL, &result), DEVICE_GATE_OK);
+    CHECK(strstr(result.value, "\"level\":15") != NULL);
+    CHECK(strstr(result.value, "\"mute\":1") != NULL);
+    CHECK(strstr(result.value, "\"sink\":\"usbdac\"") != NULL);
 }
 
 static void test_readback_mismatch(void)
@@ -461,7 +541,9 @@ static void test_readback_mismatch(void)
     DeviceCallResult result;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
 
     fake.ignore_write[DISPLAY_AUDIO_BRIGHTNESS] = 1;
@@ -481,18 +563,20 @@ static void test_backend_write_failure(void)
     DeviceCallResult result;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
 
-    fake.fail_write[DISPLAY_AUDIO_COLORTEMP] = 1;
-    CHECK_INT(call_cap("display.colortemp", "set", "{\"value\":12}", &result),
+    fake.fail_write[DISPLAY_AUDIO_VOLUME] = 1;
+    CHECK_INT(call_cap("audio.volume", "set", "{\"value\":12}", &result),
               DEVICE_GATE_BACKEND_ERROR);
     CHECK(strstr(result.detail, "fake write refused") != NULL);
-    CHECK_INT(fake.value[DISPLAY_AUDIO_COLORTEMP], 20);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_VOLUME], 8);
 
-    fake.fail_write[DISPLAY_AUDIO_COLORTEMP] = 0;
-    CHECK_INT(call_cap("display.colortemp", "set", "{\"value\":12}", &result), DEVICE_GATE_OK);
-    CHECK_INT(fake.value[DISPLAY_AUDIO_COLORTEMP], 12);
+    fake.fail_write[DISPLAY_AUDIO_VOLUME] = 0;
+    CHECK_INT(call_cap("audio.volume", "set", "{\"value\":12}", &result), DEVICE_GATE_OK);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_VOLUME], 12);
 }
 
 static void test_unsupported_platform(void)
@@ -502,7 +586,9 @@ static void test_unsupported_platform(void)
     DeviceCapabilityStatus* entry;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
 
     memset(fake.available, 0, sizeof fake.available);
@@ -511,9 +597,10 @@ static void test_unsupported_platform(void)
     CHECK_INT(result.authorized, 1);
     CHECK_INT(call_cap("display.brightness", "set", "{\"value\":5}", &result),
               DEVICE_GATE_UNAVAILABLE);
+    CHECK_INT(call_cap("audio.volume", "set", "{\"value\":5}", &result), DEVICE_GATE_UNAVAILABLE);
     CHECK_INT(fake.write_count, 0);
 
-    CHECK_INT(device_gate_status("test.display", pak_path, grants_path, backend, &status),
+    CHECK_INT(device_gate_status("test.displayaudio", pak_path, grants_path, backend, &status),
               DEVICE_GATE_OK);
     entry = find_status(&status, "display.brightness");
     CHECK(entry != NULL);
@@ -522,6 +609,22 @@ static void test_unsupported_platform(void)
         CHECK_INT(entry->available, 0);
         CHECK_INT(entry->authorized, 1);
     }
+
+    /* h700 shape: volume works, the mute switch does not. */
+    reset_fake();
+    fake.available[DISPLAY_AUDIO_MUTE] = 0;
+    CHECK_INT(call_cap("audio.volume", "get", NULL, &result), DEVICE_GATE_OK);
+    CHECK(strstr(result.value, "\"mute_supported\":false") != NULL);
+    CHECK(strstr(result.value, "\"mute\":") == NULL);
+    CHECK_INT(call_cap("audio.volume", "setmute", "{\"value\":1}", &result),
+              DEVICE_GATE_BACKEND_ERROR);
+    CHECK(strstr(result.detail, "no mute") != NULL || strstr(result.detail, "fake") != NULL);
+    CHECK_INT(fake.write_count, 0);
+
+    /* A sink-less audio platform stays unavailable for audio.sink only. */
+    fake.available[DISPLAY_AUDIO_SINK] = 0;
+    CHECK_INT(call_cap("audio.sink", "get", NULL, &result), DEVICE_GATE_UNAVAILABLE);
+    CHECK_INT(call_cap("audio.volume", "get", NULL, &result), DEVICE_GATE_OK);
 }
 
 static void test_dirty_and_normal_exit_restore(void)
@@ -532,35 +635,52 @@ static void test_dirty_and_normal_exit_restore(void)
     int restored = 0;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
     device_session_init(&session);
-    CHECK_INT(device_session_begin(&session, &SESSION_OPS, "test.display", pak_path),
+    CHECK_INT(device_session_begin(&session, &SESSION_OPS, "test.displayaudio", pak_path),
               DEVICE_SESSION_OK);
 
     CHECK_INT(call_cap("display.brightness", "set", "{\"value\":9}", &result), DEVICE_GATE_OK);
     device_session_note_capability(&session, "display.brightness", "set");
-    CHECK_INT(call_cap("display.colortemp", "set", "{\"value\":35}", &result), DEVICE_GATE_OK);
-    device_session_note_capability(&session, "display.colortemp", "set");
+    CHECK_INT(call_cap("audio.volume", "set", "{\"value\":15}", &result), DEVICE_GATE_OK);
+    device_session_note_capability(&session, "audio.volume", "set");
+    CHECK_INT(call_cap("audio.volume", "setmute", "{\"value\":1}", &result), DEVICE_GATE_OK);
+    device_session_note_capability(&session, "audio.volume", "setmute");
+    CHECK_INT(call_cap("audio.sink", "set", "{\"sink\":\"bluetooth\"}", &result), DEVICE_GATE_OK);
+    device_session_note_capability(&session, "audio.sink", "set");
 
     CHECK_INT(session.fields[DEVICE_SESSION_BRIGHTNESS].changed, 1);
-    CHECK_INT(session.fields[DEVICE_SESSION_COLORTEMP].changed, 1);
+    CHECK_INT(session.fields[DEVICE_SESSION_COLORTEMP].changed, 0);
+    CHECK_INT(session.fields[DEVICE_SESSION_VOLUME].changed, 1);
+    CHECK_INT(session.fields[DEVICE_SESSION_MUTE].changed, 1);
+    CHECK_INT(session.fields[DEVICE_SESSION_AUDIO_SINK].changed, 1);
+
     CHECK_INT(fake.value[DISPLAY_AUDIO_BRIGHTNESS], 9);
-    CHECK_INT(fake.value[DISPLAY_AUDIO_COLORTEMP], 35);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_VOLUME], 15);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_MUTE], 1);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_SINK], DISPLAY_AUDIO_SINK_BLUETOOTH);
 
     CHECK_INT(device_session_end(&session, &SESSION_OPS, 0), DEVICE_SESSION_OK);
     for (i = 0; i < DEVICE_SESSION_FIELD_COUNT; i++)
     {
         if (session.fields[i].restored) restored++;
     }
-    CHECK_INT(restored, 2);
+    CHECK_INT(restored, 4);
     CHECK_INT(session.failed_count, 0);
     CHECK_INT(fake.value[DISPLAY_AUDIO_BRIGHTNESS], 2);
     CHECK_INT(fake.value[DISPLAY_AUDIO_COLORTEMP], 20);
-    CHECK_INT(fake.session_write_count, 2);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_VOLUME], 8);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_MUTE], 0);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_SINK], 0);
+    CHECK_INT(fake.session_write_count, 4);
+    CHECK(strstr(fake.session_write_log, "1=20;") == NULL);
 
+    /* Idempotent stop: no second restore pass. */
     CHECK_INT(device_session_end(&session, &SESSION_OPS, 0), DEVICE_SESSION_NOT_ACTIVE);
-    CHECK_INT(fake.session_write_count, 2);
+    CHECK_INT(fake.session_write_count, 4);
 }
 
 static void test_partial_restore(void)
@@ -569,35 +689,38 @@ static void test_partial_restore(void)
     DeviceSession session;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
     device_session_init(&session);
-    CHECK_INT(device_session_begin(&session, &SESSION_OPS, "test.display", pak_path),
+    CHECK_INT(device_session_begin(&session, &SESSION_OPS, "test.displayaudio", pak_path),
               DEVICE_SESSION_OK);
 
     CHECK_INT(call_cap("display.brightness", "set", "{\"value\":9}", &result), DEVICE_GATE_OK);
     device_session_note_capability(&session, "display.brightness", "set");
-    CHECK_INT(call_cap("display.colortemp", "set", "{\"value\":35}", &result), DEVICE_GATE_OK);
-    device_session_note_capability(&session, "display.colortemp", "set");
+    CHECK_INT(call_cap("audio.volume", "set", "{\"value\":15}", &result), DEVICE_GATE_OK);
+    device_session_note_capability(&session, "audio.volume", "set");
 
     fake.session_fail_write[DISPLAY_AUDIO_BRIGHTNESS] = 1;
     CHECK_INT(device_session_end(&session, &SESSION_OPS, 0), DEVICE_SESSION_PARTIAL);
     CHECK_INT(session.failed_count, 1);
-    CHECK_INT(session.fields[DEVICE_SESSION_COLORTEMP].restored, 1);
-    CHECK_INT(fake.value[DISPLAY_AUDIO_COLORTEMP], 20);
+    CHECK_INT(session.fields[DEVICE_SESSION_VOLUME].restored, 1);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_VOLUME], 8);
     CHECK_INT(fake.value[DISPLAY_AUDIO_BRIGHTNESS], 9);
 
+    /* A failed backend write is not recorded as a dirty mutation. */
     reset_fake();
     device_session_init(&session);
-    CHECK_INT(device_session_begin(&session, &SESSION_OPS, "test.display", pak_path),
+    CHECK_INT(device_session_begin(&session, &SESSION_OPS, "test.displayaudio", pak_path),
               DEVICE_SESSION_OK);
-    fake.fail_write[DISPLAY_AUDIO_BRIGHTNESS] = 1;
-    CHECK_INT(call_cap("display.brightness", "set", "{\"value\":9}", &result),
+    fake.fail_write[DISPLAY_AUDIO_COLORTEMP] = 1;
+    CHECK_INT(call_cap("display.colortemp", "set", "{\"value\":30}", &result),
               DEVICE_GATE_BACKEND_ERROR);
-    CHECK_INT(session.fields[DEVICE_SESSION_BRIGHTNESS].changed, 0);
+    CHECK_INT(session.fields[DEVICE_SESSION_COLORTEMP].changed, 0);
     CHECK_INT(device_session_end(&session, &SESSION_OPS, 0), DEVICE_SESSION_OK);
     CHECK_INT(fake.session_write_count, 0);
-    CHECK_INT(fake.value[DISPLAY_AUDIO_BRIGHTNESS], 2);
+    CHECK_INT(fake.value[DISPLAY_AUDIO_COLORTEMP], 20);
 }
 
 static void test_composition(void)
@@ -606,7 +729,9 @@ static void test_composition(void)
     DeviceCallResult result;
 
     reset_fake();
-    CHECK(create_pak("Display.pak", PAK_CAPS));
+    CHECK(create_pak("DisplayAudio.pak",
+                     "[\"display.get\",\"display.brightness\",\"display.colortemp\","
+                     "\"audio.volume\",\"audio.sink\"]"));
     grant_all();
     composed = device_backend_display_audio_compose(&BASE_BACKEND);
     CHECK(strcmp(composed->name, "nextui-display-audio+fake-leds") == 0);
@@ -641,11 +766,12 @@ static void test_host_constructor_does_not_pretend(void)
     CHECK(host_backend != NULL);
     CHECK(strcmp(host_backend->name, "none") == 0);
     CHECK_INT(host_backend->available(NULL, "display.brightness", NULL, 0), 0);
+    CHECK_INT(host_backend->available(NULL, "audio.volume", NULL, 0), 0);
 }
 
 int main(void)
 {
-    snprintf(temp_path, sizeof temp_path, "/tmp/nextui-display-backend-XXXXXX");
+    snprintf(temp_path, sizeof temp_path, "/tmp/nextui-display-audio-XXXXXX");
     if (mkdtemp(temp_path) == NULL)
     {
         fprintf(stderr, "could not create temp dir\n");
@@ -673,10 +799,10 @@ int main(void)
 
     if (failures != 0)
     {
-        fprintf(stderr, "display backend tests failed: %d failure(s), %d checks\n", failures,
+        fprintf(stderr, "display/audio backend tests failed: %d failure(s), %d checks\n", failures,
                 checks);
         return 1;
     }
-    printf("display backend tests passed (%d checks)\n", checks);
+    printf("display/audio backend tests passed (%d checks)\n", checks);
     return 0;
 }

@@ -8,13 +8,13 @@ extern "C" {
 #endif
 
 /*
- * Display backend (R1).
+ * Display and audio backend (R1/R2).
  *
  * The adapter is split from the msettings calls on purpose: the generic code
  * owns argument validation, capability dispatch, JSON responses and readback
- * checks, while the platform implementation calls the existing msettings path.
- * Tests use fake ops, which is host verification only and never evidence that
- * a panel changed.
+ * checks, while the platform implementation calls the existing msettings /
+ * PWR path. Tests use fake ops, which is host verification only and never
+ * evidence that a panel, mixer or speaker changed.
  *
  * Ranges are the existing msettings ranges. They are validated here before any
  * platform write because SetBrightness()/SetColortemp() feed a switch without a
@@ -26,11 +26,24 @@ extern "C" {
 #define DISPLAY_AUDIO_BRIGHTNESS_MAX 10
 #define DISPLAY_AUDIO_COLORTEMP_MIN 0
 #define DISPLAY_AUDIO_COLORTEMP_MAX 40
+#define DISPLAY_AUDIO_VOLUME_MIN 0
+#define DISPLAY_AUDIO_VOLUME_MAX 20
+#define DISPLAY_AUDIO_MUTE_MIN 0
+#define DISPLAY_AUDIO_MUTE_MAX 1
+
+#define DISPLAY_AUDIO_SINK_DEFAULT 0
+#define DISPLAY_AUDIO_SINK_BLUETOOTH 1
+#define DISPLAY_AUDIO_SINK_USBDAC 2
+#define DISPLAY_AUDIO_SINK_MIN 0
+#define DISPLAY_AUDIO_SINK_MAX 2
 
 typedef enum
 {
     DISPLAY_AUDIO_BRIGHTNESS = 0,
     DISPLAY_AUDIO_COLORTEMP,
+    DISPLAY_AUDIO_VOLUME,
+    DISPLAY_AUDIO_MUTE,
+    DISPLAY_AUDIO_SINK,
     DISPLAY_AUDIO_FIELD_COUNT
 } DisplayAudioField;
 
@@ -56,8 +69,8 @@ typedef struct DisplayAudioOps
 const DeviceBackend* device_backend_display_audio_with_ops(const DisplayAudioOps* ops,
                                                            void* context);
 
-/* Production constructor: the msettings display path, no second sysfs
- * controller. Every unsupported field (desktop) reports unavailable. */
+/* Production constructor: the msettings display/audio path, no second sysfs
+ * controller. Every unsupported field (desktop, h700 mute) reports unavailable. */
 const DeviceBackend* device_backend_display_audio(void);
 
 /*

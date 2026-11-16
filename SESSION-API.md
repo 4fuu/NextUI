@@ -91,9 +91,9 @@ therefore bounded by the next launch as well as by the generation id below.
 | --- | --- | --- | --- | --- | --- |
 | `brightness` | `msettings` `Get/SetBrightness` | capability backend wired, device-untested | capability backend wired, device-untested | capability backend wired, device-untested | unavailable |
 | `colortemp` | `msettings` `Get/SetColortemp` | capability backend wired, device-untested | capability backend wired, device-untested | capability backend wired, device-untested | unavailable |
-| `volume` | `msettings` `Get/SetVolume` | wired, device-untested | wiring only | wiring only | unavailable |
-| `mute` | `msettings` `Get/SetMute` | wired, device-untested | wiring only | unavailable (no mute switch) | unavailable |
-| `audio_sink` | `msettings` `Get/SetAudioSink` | wired, device-untested | wiring only | wiring only | unavailable |
+| `volume` | `msettings` `Get/SetVolume` | capability backend wired, device-untested | capability backend wired, device-untested | capability backend wired, device-untested | unavailable |
+| `mute` | `msettings` `Get/SetMute` | capability backend wired, device-untested | capability backend wired, device-untested | unavailable (no mute switch) | unavailable |
+| `audio_sink` | `msettings` `Get/SetAudioSink` | capability backend wired, device-untested | capability backend wired, device-untested | capability backend wired, device-untested | unavailable |
 | `haptics` | none in the service | unavailable | unavailable | unavailable | unavailable |
 | LED lease | C2 `device_backend_leds_session_end()` | delegated, device-untested | C2 wiring only | C2 wiring only | delegated; reports released but no hardware exists |
 
@@ -120,9 +120,10 @@ Rules:
   success, not that the hardware write was observed.
 
 Production `devserv` composes `device_backend_display_audio()` with the C2 LED
-backend, so `display.brightness` and `display.colortemp` are
-production-reachable on tg5040/tg5050/h700 when the platform path is present.
-They remain device-untested, and desktop still reports them `unavailable`. The session snapshot/restore adapter uses the same msettings
+backend, so `display.brightness`, `display.colortemp`, `audio.volume` and
+`audio.sink` are production-reachable on tg5040/tg5050/h700 when the platform
+path is present. They remain device-untested, and desktop still reports them
+`unavailable`. The session snapshot/restore adapter uses the same msettings
 getters and setters as the capability backend; the writable fake backend in
 the adversarial E2E remains test-only.
 
@@ -136,6 +137,7 @@ mutates it:
 | `display.brightness` action `set`/`reset` | `brightness` |
 | `display.colortemp` action `set`/`reset` | `colortemp` |
 | `audio.volume` action `set`/`reset` | `volume` |
+| `audio.volume` action `setmute` | `mute` |
 | `audio.sink` action `set`/`reset` | `audio_sink` |
 | `led.control` action `acquire`/`set`/`release`/`restore` | LED lease teardown |
 
@@ -247,9 +249,9 @@ app launch.
 - Session state is runtime-only. No session file is written; grants remain the
   only C3-adjacent persistent file and are C1-owned.
 - C2 owns the LED app profile. C3 owns the session association and teardown
-  call. R1 adds the display capability backend on the same msettings seam; no
-  second brightness ioctl or sysfs controller is added. There is still no
-  audio or rumble backend.
+  call. R1/R2 add the display/audio capability backend on the same msettings
+  seam; no second brightness ioctl, mixer or sysfs controller is added. There
+  is still no rumble backend.
 - Other platforms keep compile/interface wiring only. Brick Pro remains the
   only intended delivery target; no device build was run in this orb.
 - Stock boot/start chains and `/tmp/nextui_exec` power-off semantics are

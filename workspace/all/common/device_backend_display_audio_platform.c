@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 /*
- * Production ops for the display backend.
+ * Production ops for the display and audio backend.
  *
  * This file is the only place that touches msettings. It does not open a
  * second controller: every write goes through the setters the desktop, keymon
@@ -16,6 +16,13 @@
  * fopen/ioctl, so this adapter can prove "the platform accepted the value and
  * its shared state reads it back", never "the panel/mixer physically changed".
  */
+
+#if defined(NEXTUI_DISPLAY_AUDIO_NO_MUTE)
+/* The desktop preview libmsettings has no SetMute at all. */
+#define DISPLAY_AUDIO_HAS_MUTE 0
+#else
+#define DISPLAY_AUDIO_HAS_MUTE 1
+#endif
 
 static void set_text(char* detail, size_t detail_size, const char* text)
 {
@@ -49,6 +56,25 @@ static const char* colortemp_node(void)
     return NULL;
 }
 
+static int audio_platform(void)
+{
+    return platform_is("tg5040") || platform_is("tg5050") || platform_is("h700");
+}
+
+static int mute_platform(void)
+{
+#if DISPLAY_AUDIO_HAS_MUTE == 0
+    return 0;
+#else
+    /*
+     * h700 exposes GetMute()/SetMute() as inline no-ops (no mute switch), so
+     * reporting mute as available there would fake a write. tg5040/tg5050 have
+     * the real switch and msettings path.
+     */
+    return platform_is("tg5040") || platform_is("tg5050");
+#endif
+}
+
 /*
  * Attach lazily. devserv starts before nextui.elf; initializing msettings at
  * boot would create the shared segment and reapply the mute profile before the
@@ -58,9 +84,9 @@ static int ensure_settings(char* detail, size_t detail_size)
 {
     const char* userdata;
 
-    if (platform_is("desktop") || brightness_node() == NULL || colortemp_node() == NULL)
+    if (platform_is("desktop") || (brightness_node() == NULL && !audio_platform()))
     {
-        set_text(detail, detail_size, "no msettings display path on this platform");
+        set_text(detail, detail_size, "no msettings display/audio path on this platform");
         return 0;
     }
     if (InitializedSettings()) return 1;
@@ -129,6 +155,36 @@ static int platform_available(void* context, DisplayAudioField field, char* deta
         set_text(detail, detail_size, text);
         return 1;
 
+    case DISPLAY_AUDIO_VOLUME:
+    case DISPLAY_AUDIO_SINK:
+        if (!audio_platform())
+        {
+            set_text(detail, detail_size, "no msettings audio path on this platform");
+            return 0;
+        }
+        if (access("/dev/snd", R_OK | W_OK) != 0)
+        {
+            set_text(detail, detail_size, "audio mixer is not present (/dev/snd)");
+            return 0;
+        }
+        set_text(detail, detail_size,
+                 "msettings/tinyalsa mixer; writes are void and cannot be acknowledged");
+        return 1;
+
+    case DISPLAY_AUDIO_MUTE:
+        if (!mute_platform())
+        {
+            set_text(detail, detail_size, "no mute switch on this platform");
+            return 0;
+        }
+        if (access("/dev/snd", R_OK | W_OK) != 0)
+        {
+            set_text(detail, detail_size, "audio mixer is not present (/dev/snd)");
+            return 0;
+        }
+        set_text(detail, detail_size, "msettings mute switch path; write has no acknowledgement");
+        return 1;
+
     default:
         set_text(detail, detail_size, "unknown display/audio field");
         return 0;
@@ -155,6 +211,20 @@ static int platform_read(void* context, DisplayAudioField field, int* value, cha
     case DISPLAY_AUDIO_COLORTEMP:
         *value = GetColortemp();
         return 1;
+    case DISPLAY_AUDIO_VOLUME:
+        *value = GetVolume();
+        return 1;
+    case DISPLAY_AUDIO_MUTE:
+        if (!mute_platform())
+        {
+            set_text(detail, detail_size, "no mute switch on this platform");
+            return 0;
+        }
+        *value = GetMute();
+        return 1;
+    case DISPLAY_AUDIO_SINK:
+        *value = GetAudioSink();
+        return 1;
     default:
         set_text(detail, detail_size, "unknown display/audio field");
         return 0;
@@ -171,6 +241,7 @@ static int mute_override_blocks(DisplayAudioField field, char* detail, size_t de
     {
     case DISPLAY_AUDIO_BRIGHTNESS: muted = GetMutedBrightness(); break;
     case DISPLAY_AUDIO_COLORTEMP: muted = GetMutedColortemp(); break;
+    case DISPLAY_AUDIO_VOLUME: muted = GetMutedVolume(); break;
     default: return 0;
     }
     if (muted == SETTINGS_DEFAULT_MUTE_NO_CHANGE) return 0;
@@ -179,7 +250,9 @@ static int mute_override_blocks(DisplayAudioField field, char* detail, size_t de
         char text[160];
         snprintf(text, sizeof text,
                  "mute profile overrides %s; msettings would redirect this write",
-                 field == DISPLAY_AUDIO_BRIGHTNESS ? "brightness" : "colortemp");
+                 field == DISPLAY_AUDIO_BRIGHTNESS ? "brightness"
+                 : field == DISPLAY_AUDIO_COLORTEMP ? "colortemp"
+                                                    : "volume");
         set_text(detail, detail_size, text);
     }
     return 1;
@@ -201,6 +274,26 @@ static int platform_write(void* context, DisplayAudioField field, int value, cha
     case DISPLAY_AUDIO_COLORTEMP:
         if (mute_override_blocks(field, detail, detail_size)) return 0;
         SetColortemp(value);
+        break;
+    case DISPLAY_AUDIO_VOLUME:
+        if (mute_override_blocks(field, detail, detail_size)) return 0;
+        SetVolume(value);
+        break;
+    case DISPLAY_AUDIO_MUTE:
+        if (!mute_platform())
+        {
+            set_text(detail, detail_size, "no mute switch on this platform");
+            return 0;
+        }
+#if DISPLAY_AUDIO_HAS_MUTE
+        SetMute(value ? 1 : 0);
+        break;
+#else
+        set_text(detail, detail_size, "no mute switch on this platform");
+        return 0;
+#endif
+    case DISPLAY_AUDIO_SINK:
+        SetAudioSink(value);
         break;
     default:
         set_text(detail, detail_size, "unknown display/audio field");

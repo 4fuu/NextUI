@@ -363,6 +363,8 @@ void device_session_note_capability(DeviceSession* session, const char* capabili
     {
         if (strcmp(verb, "set") == 0 || strcmp(verb, "reset") == 0)
             session->fields[DEVICE_SESSION_VOLUME].changed = 1;
+        else if (strcmp(verb, "setmute") == 0)
+            session->fields[DEVICE_SESSION_MUTE].changed = 1;
     }
     else if (strcmp(capability, "audio.sink") == 0)
     {
