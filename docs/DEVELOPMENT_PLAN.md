@@ -5,14 +5,16 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `3ecefd5` (merge of PR #9, this schedule file's
-  update; fetched 2026-11-16). Landing points on main, oldest first: PR #5
+- Baseline: `origin/main` @ `1a3f2a7` (merge of PR #11, the boot-time recovery
+  wiring; fetched 2026-11-16). Landing points on main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
   (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
   (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
-  PR #8 (updater offline install transaction, `212a695`), and PR #9 (this
-  file, `3ecefd5`); `de69781` is an ancestor of all of them. Later updates
-  branch from `origin/main`.
+  PR #8 (updater offline install transaction, `212a695`), PR #9 (schedule
+  update, `3ecefd5`), PR #10 (schedule update, `b28b126`), PR #15 (updater
+  transaction hardening, `e2eba90`), PR #14 (settings i18n first slice,
+  `ec05440`), and PR #11 (boot-time recovery wiring, `1a3f2a7`); `de69781` is
+  an ancestor of all of them. Later updates branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -74,12 +76,18 @@ Rules:
   manifest/signature/staging module (PR #7, `bdab39e`); the LED and boot
   localization (PR #4, `dea1f2d`); the display/audio backend module (PR #6,
   `b506dbd`); the runtime line (PR #1, `3a50fe8`); the updater offline install
-  transaction and recovery core (PR #8, `212a695`); and this schedule file
-  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`).
-- Host-done, unpushed: the settings i18n branch (I4, `i18n/settings-pages`)
-  only. The runtime line (I1) merged into main as `3a50fe8`; the updater
+  transaction and recovery core (PR #8, `212a695`), hardened by PR #15
+  (`e2eba90`); the settings Appearance i18n slice (PR #14, `ec05440`); the
+  boot-time recovery wiring (PR #11, `1a3f2a7`); and this schedule file
+  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, and PR #10, `b28b126`).
+- Host-done, unpushed: none. The open pull requests are I8 (emulator removal,
+  PR #13, head `e1275e4`) and this schedule file's own update (PR #12, head
+  `8efb537`). The runtime line (I1) merged into main as `3a50fe8`; the updater
   staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
-  and the display/audio backend module (PR #6, `b506dbd`) are on main as well.
+  the display/audio backend module (PR #6, `b506dbd`), the transaction
+  hardening (PR #15, `e2eba90`), the settings i18n first slice (PR #14,
+  `ec05440`), and the boot-time recovery wiring (PR #11, `1a3f2a7`) are on
+  main as well.
 - CI infrastructure: the Feature checks workflow
   (`.github/workflows/test.yaml`) runs the host test suite and a real tg5040
   cross-compile on every branch push and pull request; packaging and
@@ -91,15 +99,23 @@ Rules:
   Development/Desktop: success per the source; it predates `b506dbd`). PR #8
   head `e7f30868` checks green (Host tests, build-linux, build-macos, two tg5040
   target builds). Main landings: `201526c` full-platform packaging success,
-  `bdab39e` success, and `212a695` Feature checks success; `3ecefd5` has
-  Feature checks and Development/Desktop success with the CI device run still
-  in progress at the last check — a run that has not finished is never recorded
-  as passing.
+  `bdab39e` success, and `212a695` Feature checks success; `b28b126` has all
+  three workflows (Feature checks, Development/Desktop, CI) success. PR #11
+  (boot recovery wiring, head `329a7e1`) passed all six checks (Host tests
+  push/PR, tg5040 target build push/PR, build-linux, build-macos); the merged
+  head `9970e49` was six of six green with Host tests logging 177 updater +
+  56 boot-recovery checks, and PR #11 merged into main as `1a3f2a7` — a run
+  that has not finished is never recorded as passing. PR #13 (built-in
+  emulator removal, head `e1275e4`) CI is green (Feature checks push/PR,
+  Development/Desktop). PR #14 (settings Appearance page i18n, head
+  `6937959`) and PR #15 (updater transaction hardening, head `c6dc914`) CI runs
+  are green. Main landings `e2eba90` and `ec05440` had runs in progress at the
+  last check; `1a3f2a7` had runs in progress at the last check as well.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
-  verification, not cloud CI); the settings i18n branch is pending; tg5050/h700
-  have no batch7 build evidence.
+  verification, not cloud CI); the settings i18n first slice is on main
+  (PR #14); tg5050/h700 have no batch7 build evidence.
 - Real-machine acceptance: none for batch7 work. The only device evidence on
   record is the early branch `batch2-1` (`ee0eee7`), where tests T1-T9 passed
   and T10 is partial (HOME unmapped, a source-side gap now tracked as I7); it
@@ -167,19 +183,30 @@ Rules:
 
 ### I4 — Settings pages i18n (remaining user-visible settings)
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-e50d-7610-be41-7417d83ab622
-- State: branch `i18n/settings-pages` on `de69781`; survey complete, zero
-  commits.
+- State: first slice merged into main. PR #14 (branch
+  `i18n/settings-pages-main`), head
+  `69379591f256c8cde1713814b34d15f48bc4b540` "Translate the settings Appearance
+  page into Simplified Chinese", merged as `ec05440`. CI on that head was green
+  (Feature checks push/PR, Development/Desktop).
+- First slice covers: the whole Appearance page (font/style rows, color
+  definitions, battery percentage, menu animations and transitions, artwork
+  radius/width, recents/tools/quickswitcher/curtain rows, input prompt style,
+  page title and Reset), the Color Palette submenu, the per-color RGBA picker
+  hints, and the shared static label vectors; plus `test-i18n-width` in
+  `tests/makefile`, `i18n_width_test.c`, and the charset fixture
+  `a4-settings-zh-2026-11-16.txt`.
+- Evidence: `test-i18n` and `test-i18n-width` pass (197 checks, 1014px cap,
+  widest 958px; the FONT_SMALL row-name path is declared report-only because
+  the constraint is name+value+padding); font coverage 357/357 with zero
+  missing; English output unchanged (25-frame Appearance comparison, AE = 0).
 - Owns: `workspace/all/settings/*` and `workspace/all/common/i18n.c` plus
-  charset fixtures. Coordinates shared i18n keys with I5; must not edit
+  charset fixtures/tests; coordinates shared i18n keys with I5; must not edit
   devserv/keymon/launch/updater or revive the stopped permission UI.
 - Depends on: baseline; I5 coordination.
-- Delivery/verification: per-page commits with a full page coverage list
-  (Appearance, Assignments, Network/WiFi, Bluetooth, About, Notifications,
-  RetroAchievements, In-Game, sub-dialogs); dynamic content (SSID, device
-  names, pak names, palette names, paths) listed as untranslatable; i18n test,
-  text-layout/font tests, desktop build, and zh/en screenshots with no
-  truncation; English behavior unchanged.
-- Next: page-by-page commits, then hand off remaining shared keys to I5.
+- Next: the remaining settings pages in follow-up slices (the second block
+  About / In-Game / Notifications / RetroAchievements is in progress and
+  uncommitted; the In-Game page disappears with PR #13, so that slice drops
+  it).
 
 ### I5 — LedControl and boot text i18n
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-ed1c-779c-965c-e559b98248b0
@@ -251,21 +278,58 @@ Rules:
 
 ### I8 — Remove the built-in emulator and its entry
 - Owner thread: https://ampcode.com/threads/T-01a1e307-1d43-738e-b40a-56417f8ba038
-- State: dispatched to its own orb thread (workspace preparing), no commit yet.
-- Scope (owner decision, 2026-11-16): the product no longer ships the built-in
-  emulator or its entry; remove the emulator-specific implementation, default
-  packaging/build, and menu entry references. Boundaries: user SD-card ROMs and
-  saves are untouched, no device operations, the general desktop and the code
-  shared by applications, state saving, the overlay, fonts, or device control
-  stay; no blind deletion by `game`/`emu` keywords.
+- State: delivered for review as PR #13
+  (https://github.com/4fuu/NextUI/pull/13, branch
+  `remove-builtin-emulator`), head
+  `e1275e4fa1a941b5b44ec9859ab3055115aee172`, based on `origin/main` @
+  `b28b126` (docs-only delta, clean rebase); OPEN and mergeable, not merged.
+  The head moved from `ba2296a` to `e1275e4` ("Drop emulator core jobs from CI
+  and release"). CI on `e1275e4` is green (Feature checks push/PR,
+  Development/Desktop).
+- Merge precondition (not a post-merge cleanup): the core-matrix/build-core
+  cleanup must land together with the removal and be verified complete before
+  the merge, so `main` never references make targets that no longer exist. The
+  `e1275e4` commit covers the CI and release side; the merge owner confirms the
+  full cleanup as part of the review.
+- Deleted (built-in emulator specific): `workspace/all/minarch` and the
+  rcheevos/libchdr/libretro-common/libsrm builds it vendored;
+  `workspace/{all,desktop,tg5040,tg5050,h700}/cores` (core builds, per-platform
+  core lists, core patches); `skeleton/SYSTEM/*/paks/Emus` (FC, GB, GBA, GBC,
+  MD, PS, SFC per platform) and `skeleton/EXTRAS/Emus`;
+  `skeleton/SYSTEM/*/{cores,shaders}`, `skeleton/BASE/Shaders`, and the
+  `minarch_*` system.cfg files; in `nextui.c` the Emus pak scans, the
+  entryFromPakName Emus lookups, and the rom-to-emulator launch path (openRom,
+  getRoms/getDiscs, cue/m3u handling, console-folder collation, rom save-slot
+  resume, autoResume, ENTRY_ROM); in `settings.cpp` the "In-Game" menu
+  ("In-game settings for MinArch") with its Notifications and
+  RetroAchievements submenus plus the libretro save-format rows; the build
+  targets cores/cores-json/build-cores/build-core, the minarch build and copy
+  steps, the Emus entry in the extras zip, and the minarch/cores .vscode debug
+  configs.
+- Shared-library packaging (open dependency, do not call emulator-only without
+  evidence): PR #13 also removes the packaging steps that copied the
+  minarch-built libraries (libsamplerate, libzip, bz2, lzma, zstd, chdr,
+  crypto, lz4) into the device image. `libsamplerate` is not emulator-only:
+  `workspace/desktop/apostropheoverlaydemo/makefile` explicitly links
+  `-lsamplerate` (api.c calls libsamplerate) with an rpath, so removing the
+  packaging breaks that dependency unless the library is provided another way.
+  The deletion source and the merge owner are checking restoration; the
+  resolution is not recorded until there is evidence.
+- Kept (generic capabilities): pak install and launch (Tools/<platform> scan,
+  pak.json, B3 app-state slots, B4 `saves` resume), Recents, Collections, quick
+  menu and quick actions, game switcher, folder backgrounds and artwork, the
+  shared overlay module and the /Overlays asset root, fonts and the i18n
+  table, device control, LED leases, sessions, hooks, and every non-emulator
+  pak. User data folders on the SD card (Bios, Cheats, Roms, Saves, Overlays,
+  Palettes) are untouched.
 - Depends on: `origin/main`.
 - Delivery/verification: the desktop menu no longer shows an emulator entry,
   packages no longer carry the built-in emulator, host regression tests and the
-  tg5040 build still pass, with the exact SHA/PR and evidence reported.
-- Next: PR after completion; emulator-specific CI/core build cleanup waits for
-  the removal thread's handoff and is coordinated with the CI/merge owner, who
-  merges after checks pass. This schedule no longer treats minarch or cores as
-  development goals or acceptance prerequisites.
+  tg5040 build still pass; PR #13's CI is green on head `e1275e4`.
+- Next: the CI/merge owner reviews and merges once the merge preconditions
+  (core cleanup completeness and the libsamplerate dependency) are resolved.
+  This schedule no longer treats minarch or cores as development goals or
+  acceptance prerequisites.
 
 ## Backlog, in priority order
 
@@ -354,30 +418,61 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Not delivered by PR #8: boot/launch activation wiring (see U2), the
   feed/updater source switch, application installs, the production key (test
   key only), and device install. PR #8 is not the whole update chain.
+- Follow-up merged: PR #15
+  (https://github.com/4fuu/NextUI/pull/15, branch
+  `fix/updater-transaction-lock`, head
+  `c6dc91487060e27b4b1f69aef626dfc61694129a`) merged into main as `e2eba90`. It
+  hardens the transaction from the PR #8 independent review: `install` and
+  `recover` take an exclusive `flock` on the target root (a concurrent command
+  exits `busy` (12) without writing; the lock releases on exit or crash), and a
+  candidate `version.txt` mismatch goes through `rollback_precommit`, ending
+  the record in `rolled_back` with `.system` unchanged.
+- Independent review of PR #15 at exact `c6dc914`: PASS. Evidence: the 177-check
+  ASan/UBSan source suite, 242 independent checks, and 39 concurrency checks
+  all pass; 15 rounds of dual-install serialization and 10 rounds of SIGKILL
+  lock release; the F3 stuck-backup hazard is re-verified eliminated; F1
+  refuses installs leaving only a `rolled_back` record; F2 keeps a documented
+  asymmetric boundary.
+- Long-term constraint (before any `.tmp_update` refresh ships): the
+  transaction record schema must stay compatible with the existing recovery
+  tools, or ship a fallback; otherwise old devices refuse to continue booting
+  until the payload is manually refreshed.
 - Depends on: I6 format family (in main).
 - Next: U2's startup recovery wiring, then the feed/source switch (U4).
 
 #### U2 — Startup arbitration
 - Owner thread: https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
-  (startup recovery wiring; dispatched 2026-11-16, orb workspace preparing, no
-  commit yet).
-- Status: the transaction states and the offline `recover` entry are in main
-  (PR #8); the boot/launch wiring is dispatched and not started.
-- Scope: wire the existing `recover` into the real SD boot/launch path before
-  the application starts, so an interrupted update restores a consistent
-  system without depending on a possibly incomplete new `.system` tool during
-  install; the failure path must not boot a half system or form a reboot loop;
-  existing boot behavior with no transaction is preserved.
-- Boundaries: no feed/source switch/production key; no expansion into
-  automatic online updates or changes to the device's internal system; all
-  interruption/corruption/re-entry fixtures run in test root directories only
-  (no ADB, real install, sleep/POWER, or device reboot). Boot wiring may touch
-  build references, so it coordinates with the emulator-removal thread (I8) and
-  the runtime thread (I1, which changed launch before).
-- Delivery/verification: host regression plus a real tg5040 compile/CI; proven
-  behaviors: no transaction, each interruption stage, missing tool/corrupt
-  log/backup, and repeated recovery; own branch and PR, with the CI/merge
-  owner merging after checks.
+  (startup recovery wiring).
+- State: merged into main. PR #11
+  (https://github.com/4fuu/NextUI/pull/11, branch
+  `feature/updater-boot-recovery`), head
+  `9970e4964e32fd6d37c283d4ff194ad086f4b1fa` (the reviewed `329a7e1` plus the
+  main merge), merged as `1a3f2a7` by 4fu at 2026-11-16T07:54:56Z.
+- Delivered: `nextupd recover` wired into the tg5040/tg5050/h700 install boot
+  scripts before any `.system` write and before launch; `nextupd.elf` ships in
+  `.tmp_update/<platform>/`; fail-closed behavior (power off, no launch, no
+  reboot) on missing/corrupt tool or helper, corrupt record, missing/corrupt
+  backup, or ambiguous live tree; with no transaction the existing boot path is
+  kept.
+- Evidence: `make -C tests test` green (169 updater + 56 boot-recovery checks),
+  the same under ASan/UBSan; desktop build green; real tg5040 cross-build with
+  NEEDED only libz/libc. PR #11 CI at head `329a7e1`: all six checks passed
+  (Host tests push/PR, tg5040 target build push/PR, build-linux, build-macos).
+- Merge status (gh-verified): PR #11 is MERGED into main as `1a3f2a7` (merge
+  commit `1a3f2a72e2add7d8b10e9a2be0ae63901f2dfb08`, merged by 4fu at
+  2026-11-16T07:54:56Z); final head `9970e4964e32fd6d37c283d4ff194ad086f4b1fa`,
+  merged tree identical to head. CI on the merged head was six of six green,
+  with Host tests logging 177 updater + 56 boot-recovery checks. The earlier
+  CONFLICTING state was resolved by merging the moved main into the branch.
+- Independent review at exact `329a7e1`: startup contract PASS (recorded when
+  the review landed; the merged head `9970e49` is that review target plus the
+  main merge).
+- Residual risks (not real power-cut acceptance): no real-device evidence for
+  `flock` on FAT; the h700 load path and the no-execution timeout are residual;
+  no real-device boot or power-cut test has run.
+- Open boundaries (not delivered): no real-device boot or power-cut test; no
+  feed/source switch, production key, install UI, or online update;
+  `.tmp_update` is still refreshed only by the legacy MinUI.zip/bootstrap path.
 - Next: U3.
 
 #### U3 — Rollback
@@ -385,21 +480,38 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   (same wiring slice) for the boot-time restore; the updater thread owns the
   tool-side rollback already in main.
 - Status: tool-side rollback delivered in PR #8 (`--rollback`,
-  rolling_back/rolled_back states, one retained `.system.bak`); automatic
-  restore through boot arbitration awaits the U2 wiring.
+  rolling_back/rolled_back states, one retained `.system.bak`); the boot-time
+  automatic restore is on main (PR #11, merged as `1a3f2a7`); the feed entry
+  for user-initiated downgrade awaits U4.
 - Delivery/verification: automatic restore from `.system.bak` via arbitration
   plus a feed entry for the previous compatible version for user-initiated
   downgrade through the same flow.
 - Next: U4.
 
 #### U4 — Update feed
-- Owner: updater follow-up thread or new.
-- Status: not started; `latest.txt` still writes an undefined variable.
-- Depends on: I6 format family; X1 feed contract.
-- Delivery/verification: `latest.txt` becomes this repo's JSON feed (per
-  platform latest version, asset URL, minimum upgradable version, compatibility
-  matrix) or is removed; consumed by the own updater.
-- Next: U5.
+- Owner thread: https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
+  (system update check; dispatched 2026-11-16 after PR #11 merged, orb
+  workspace preparing, no commit yet).
+- Status: dispatched, not started. Works from the actual `origin/main` on an
+  independent branch.
+- Scope: this repo's own feed, update check, and download into the existing
+  signature-verified staging, compatible with the nextupd contract; verified
+  with a local HTTP fixture, test root directories, and a test feed plus test
+  signing keys (never production); host regression plus a real tg5040
+  compile/CI, then a pull request to the sole CI/merge owner.
+- Boundaries (undelivered): the real release source address and the production
+  signing keys are undecided, so the chain cannot be used in production and
+  must honestly show unavailable while unconfigured; no fabricated online
+  releases, no production key creation, no treating an unsigned SHA-256 as a
+  signature, no automatic install to a real root, no publish/deploy/ADB/device
+  install; the application store source is the user's choice and is not chosen
+  here; interrupted downloads must not leave a usable staged package;
+  language/version/platform/`min_system` and error feedback stay consistent.
+  The `.tmp_update` refresh and the install UI remain undelivered.
+- Depends on: I6 manifest/signature/staging (in main), U1 transaction (in
+  main), and the X1 feed contract.
+- Next: U5 (signature policy and key custody) once the owner decides key
+  custody; the feed entry for user-initiated downgrade feeds back into U3.
 
 #### U5 — Signature policy and key custody
 - Owner: owner decision plus updater thread implementation.
@@ -424,13 +536,16 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 ### P3 — Full UI translation remainder
 
-#### T1 — minarch fixed text (cancelled by the owner)
+#### T1 — minarch fixed text (cancelled by the owner; moot after PR #13)
 - Owner thread: https://ampcode.com/threads/T-01a1e303-9b65-765c-b8d1-da4565666cd7
   (stopped and archived, 2026-11-16).
 - Status: cancelled, not completed. 4fu decided the built-in emulator is not
-  needed, so its content and entry are removed instead (see I8). A removed
-  requirement is a scope change, never development completion; the roughly 700
-  hardcoded in-game strings leave the denominator together with the emulator.
+  needed, and PR #13 removes minarch entirely, so there is no minarch left to
+  translate. The two i18n keys "In-Game" and "In-game settings for MinArch" are
+  gone from `workspace/all/common/i18n.c` and from
+  `scripts/fonts/charsets/a3-zh-2026-11-15.txt`; PAKS.md has been rewritten for
+  tool paks only; I4/I5 key coordination is unaffected beyond those two keys.
+  A removed requirement is a scope change, never development completion.
 
 #### T2 — External pak internals
 - Owner: none in this repo.
@@ -557,6 +672,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e2db-f2aa-72c4-9880-d4b519023346
 - Startup recovery wiring thread:
   https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
+- System update check (feed/check/download staging) thread:
+  https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
 
 ## Maintenance
 
@@ -568,13 +685,8 @@ as they happen; nothing is reported as passing without a run.
 ## Delivery of this file
 
 - This file is on `main`: PR #2 merged as `59a63e6`, updated by PR #9
-  (https://github.com/4fuu/NextUI/pull/9) merged as `3ecefd5`. Later schedule
-  updates branch from `origin/main` and open a pull request into `main`; the
-  CI/merge owner merges after checks pass. This thread performs no merges
-  itself.
-- The current update travels on branch `docs/schedule-update-2` (based on
-  `origin/main` @ `3ecefd5`) and is delivered as pull request #10
-  (https://github.com/4fuu/NextUI/pull/10), head
-  `46beb296bec86f13a020b5a91f4df186b1e748ba`, state OPEN and mergeable. Its
-  Feature checks and Development/Desktop runs were in progress at the last
-  check; a job that has not finished is never recorded as passing.
+  (`3ecefd5`) and PR #10 (`b28b126`). Later schedule updates branch from
+  `origin/main` and open a pull request into `main`; the CI/merge owner merges
+  after checks pass. This thread performs no merges itself.
+- The current update travels on branch `docs/schedule-update-3` (based on
+  `origin/main` @ `b28b126`).
