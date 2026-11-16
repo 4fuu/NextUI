@@ -3,6 +3,7 @@
 extern "C" {
 #include "config.h"
 #include "utils.h"
+#include "i18n.h"
 }
 
 #include <algorithm>
@@ -145,7 +146,9 @@ MenuList* buildFnButtonMenu()
             std::string(FN_ACTION_HOME),
             std::string(FN_ACTION_OVERLAY),
         };
-        std::vector<std::string> labels = {"None", "Exit to desktop", "System overlay"};
+        // The button name itself is hardware ("L3", "HOME", ...) and stays as it
+        // is; only the generic word is translated.
+        std::vector<std::string> labels = {TR("None"), TR("Exit to desktop"), TR("System overlay")};
 
         std::string current = effectiveFnAction(i);
         bool found = current == FN_ACTION_NONE || current == FN_ACTION_HOME ||
@@ -161,7 +164,7 @@ MenuList* buildFnButtonMenu()
         // (card swapped, pak renamed, ...).
         if (!found) {
             values.push_back(current);
-            labels.push_back(current.substr(current.find(':') + 1) + " (missing)");
+            labels.push_back(current.substr(current.find(':') + 1) + TR(" (missing)"));
         }
 
         // Submenu: a plain list; selecting a row applies it and closes.
@@ -174,10 +177,10 @@ MenuList* buildFnButtonMenu()
                     return Exit;
                 }});
         }
-        auto *submenu = new MenuList(MenuItemType::Fixed, button + " button", std::move(subItems));
+        auto *submenu = new MenuList(MenuItemType::Fixed, button + TR(" button"), std::move(subItems));
 
-        items.push_back(new FnMenuItem{ListItemType::Generic, button + " button",
-            "Action for this button; pak actions open from the menu.",
+        items.push_back(new FnMenuItem{ListItemType::Generic, button + TR(" button"),
+            TR("Action for this button; pak actions open from the menu."),
             values, labels,
             [i]() -> std::any { return effectiveFnAction(i); },
             [i](const std::any &value) { CFG_setFnAction(i, std::any_cast<std::string>(value).c_str()); },
@@ -188,7 +191,7 @@ MenuList* buildFnButtonMenu()
     if (items.empty())
         return nullptr; // no assignable buttons on this device
 
-    items.push_back(new MenuItem{ListItemType::Button, "Reset to defaults",
-        "Resets all options in this menu to their default values.", ResetCurrentMenu});
-    return new MenuList(MenuItemType::Fixed, "Assignments", std::move(items));
+    items.push_back(new MenuItem{ListItemType::Button, TR("Reset to defaults"),
+        TR("Resets all options in this menu to their default values."), ResetCurrentMenu});
+    return new MenuList(MenuItemType::Fixed, TR("Assignments"), std::move(items));
 }

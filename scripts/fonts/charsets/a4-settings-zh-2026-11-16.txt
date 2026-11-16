@@ -1,7 +1,7 @@
 # Simplified Chinese values of the settings-app i18n table, verbatim, one per
-# line. Snapshot of workspace/all/common/i18n.c at the Network (WiFi) and
-# Bluetooth page chunk (A4 follow-up, 2026-11-16). The A3 fixture
-# a3-zh-2026-11-15.txt stays for audit; point the verifier at this file:
+# line. Snapshot of workspace/all/common/i18n.c at the Assignments (FN button)
+# page chunk (A4 follow-up, 2026-11-16). The A3 fixture a3-zh-2026-11-15.txt
+# stays for audit; point the verifier at this file:
 #
 #   scripts/fonts/verify-noto-sans-sc-subset.py --a3-values \
 #     scripts/fonts/charsets/a4-settings-zh-2026-11-16.txt --a3-i18n \
@@ -11,7 +11,7 @@
 # here, so no rebuild is needed; regenerate this file only after a wording
 # change and report any new character before shipping.
 
-# ---- values (235) ----
+# ---- values (240) ----
 最近游玩
 最近
 收藏
@@ -135,7 +135,12 @@ WiFi 诊断
 44100 Hz：兼容性更好；48000 Hz：音质更好
 正在启用蓝牙...
 正在禁用蓝牙...
-配对
+无
+退出到桌面
+系统浮层
+ 按键
+此按键的功能；选择 pak 后可从菜单中打开。
+（缺失）
 配对此设备。
 正在配对...
 忘记此设备。

@@ -170,7 +170,16 @@ static const I18nEntry zhTable[] = {
     {"44100 Hz: better compatibility\n48000 Hz: better quality", "44100 Hz：兼容性更好；48000 Hz：音质更好"},
     {"Enabling Bluetooth...", "正在启用蓝牙..."},
     {"Disabling Bluetooth...", "正在禁用蓝牙..."},
-    {"Pair", "配对"},
+    // Settings: Assignments (FN button) page labels, hints and values. The
+    // button name itself is hardware ("L3", "HOME", ...) and stays as it is;
+    // only the generic word is translated, so the key keeps its leading space.
+    {"None", "无"},
+    {"Exit to desktop", "退出到桌面"},
+    {"System overlay", "系统浮层"},
+    {" button", " 按键"},
+    {"Action for this button; pak actions open from the menu.", "此按键的功能；选择 pak 后可从菜单中打开。"},
+    {" (missing)", "（缺失）"},
+
     {"Pair this device.", "配对此设备。"},
     {"Pairing...", "正在配对..."},
     {"Forget this device.", "忘记此设备。"},
