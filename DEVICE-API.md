@@ -15,11 +15,12 @@ boundary.
 C1 ships the service, client, manifest requests, grant storage, and dispatch
 gate. Grants bind the app id, canonical pak path, manifest version, capability,
 and the pak's current content fingerprint, so a same-path/same-version package
-replacement cannot silently inherit an old authorization. It deliberately does
-not ship the settings authorization UI, the LED app lease (C2), device session
-snapshots/restore (C3), app exit (C4), or hardware backends. The production
-backend is `none`, so every hardware capability reports `unavailable` until a
-later task plugs in the existing NextUI device paths.
+replacement cannot silently inherit an old authorization. C3 adds launch-scoped
+device session snapshots/restore; C4 adds a session-scoped app-exit request fed
+by keymon and enforced by the launch parent. The settings authorization UI and
+hardware backends remain separate tasks. The production backend is `none`, so
+every hardware capability reports `unavailable` until a later task plugs in the
+existing NextUI device paths.
 
 ## Session lifecycle
 
@@ -28,6 +29,35 @@ dirty-only snapshot/restore and stale-stop protection. Its contract, backend
 matrix, C2 LED session-end hook and partial-restore rules are defined in
 [SESSION-API.md](SESSION-API.md). Sessions do not change C1 grants: a session
 stop neither authorizes nor revokes a capability.
+
+## C4 application exit
+
+C4 has two processes on purpose:
+
+- **keymon observes and forwards.** It reads the same SDL joystick events the
+  app's `PAD_poll` reads (`JOY_L4`/`JOY_R4`/`JOY_MENU_ALT` on Brick Pro), applies
+  the stored `fn[123]action` value, and sends an `app-action` request. It never
+  signals a process and never puts a PID in a request.
+- **devserv records the request for one session.** A request carries the
+  monotonic press time and may carry the generation id. A request from a previous
+  session, or one whose press predates the active session, returns
+  `session_stale` and leaves the new session untouched. The first request wins;
+  repeats are idempotent.
+- **the launch parent enforces it.** `nextui_session_run` starts the app in a
+  new process group with `setsid`, polls `session-status`, sends `SIGTERM` to
+  that group, waits the bounded grace (default 1500 ms), then sends `SIGKILL`.
+  Only the parent owns the child, so no client-supplied PID can be used to kill
+  an arbitrary process. It reports the outcome with `app-exit-result`.
+
+An adapted application declares `"overlay"` in `pak.json`. devserv reads that
+declaration at `session-start` and answers `handled_by_app` for HOME/`overlay`;
+the app's own FnBridge toggles the shared overlay. For an unadapted app HOME is
+the plan's return-to-desktop fallback and becomes an exit request. The service
+never draws into, or injects an overlay into, another process.
+
+The path never removes `/tmp/nextui_exec`; removing it is power-off semantics.
+A forced exit stops only the app's process group, then the normal
+`nextui_session_stop` path restores the C3 snapshot.
 
 ## Manifest: request capabilities in pak.json
 
@@ -282,16 +312,24 @@ reports the backend's availability, so clients can tell "not granted" from
 ## Client: nextdev
 
 ```text
-nextdev [--socket PATH] [--pak DIR] [--app ID] <ping|status|call> [args...]
+nextdev [--socket PATH] [--pak DIR] [--app ID] [--session-id ID]
+        <ping|status|call|session-start|session-stop|session-status|
+         app-action|app-exit-result> [args...]
 ```
 
 - `nextdev ping`
 - `nextdev --pak DIR status`
 - `nextdev --pak DIR call <capability> [action] [args-json]`
+- `nextdev --pak DIR session-start`
+- `nextdev --session-id ID session-stop`
+- `nextdev [--at-ms N] [--session-id ID] app-action home|overlay`
+- `nextdev [--forced] [--session-id ID] app-exit-result`
 
 `--pak` falls back to `$NEXTUI_PAK_PATH`; `--app` falls back to
 `$NEXTUI_APP_ID` (useful once launch.sh exports per-app identity in C3). The
-client prints the raw JSON response.
+client prints the raw JSON response. `app-action` never takes a PID; keymon is
+the production sender and the launch helper is the only producer of
+`app-exit-result`.
 
 Exit codes: `0` allowed/served, `1` denied or unavailable, `2` usage error,
 `3` communication error.
@@ -397,11 +435,12 @@ Availability and verification:
 ## Not in C1
 
 - Settings authorization UI and translations.
-- Session start/stop, device snapshots, launch.sh hooks — C3.
-- Foreign-app exit/force-quit — C4.
+- Device session internals, snapshots and launch hooks — C3 (see
+  [SESSION-API.md](SESSION-API.md)); C4 app exit is implemented on top of C3.
 - Real hardware backends for display/audio/network/rumble/power/time.
-- Service supervision/autostart; launch.sh will start `devserv` in C3. Until
-  then it can be started manually or by a package.
+- Service supervision/autostart is launch.sh's job; it starts `devserv` in C3.
+  Until then it can be started manually or by a package.
 
-C2 adds the LED app lease and the `nextui-leds` backend. Automatic release on
-app crash remains C3; see the limitation above.
+C2 adds the LED app lease and the `nextui-leds` backend. C3 adds session-end
+release; C4 adds the bounded app-exit path described above. Device behavior of
+both remains unverified until the physical-key/device batch.
