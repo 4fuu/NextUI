@@ -189,10 +189,13 @@ Policy:
   `<target>/.system/version.txt`. An equal version returns `already_installed`
   without writing. An older version exits 14 with `downgrade_refused`.
 - `platform` must match the target exactly, and `min_system` is checked against
-  `--system-version`, the version running the installer.
+  `--system-version`, the version running the installer. A manifest whose own
+  `version` is below its `min_system` is rejected as contradictory.
 - One previous system is retained as `<target>/.system.bak`. An older backup is
   evicted only after the new candidate is complete and verified; it is restored
-  if the transaction rolls back before commit.
+  if the transaction rolls back before commit. An existing `.system.bak` is
+  checked for a valid `version.txt` before any write, so a malformed backup
+  refuses the install instead of being discovered after the live tree moved.
 
 Transaction layout:
 
