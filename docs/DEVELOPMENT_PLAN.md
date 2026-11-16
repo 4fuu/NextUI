@@ -1303,30 +1303,15 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   scheduled separately): harden `NEXTUI_SHA256` so a forced-but-missing backend
   fails instead of writing an empty-hash marker.
 
-#### I10 — Local application install UI (settings surface)
-- Owner thread: https://ampcode.com/threads/T-01a1e517-15fd-710c-bb01-300ef858376b
-  (running, Step Medium; dispatched 2026-11-16 after the local app install
-  transaction merged as PR #37).
-- Status: implemented on branch `feature/local-app-install-ui`, cut from
-  `origin/main` @ `1b73667`; no pull request is merged yet, so nothing is
-  recorded as delivered.
-- Scope: the user entry for the app install transaction that is already in main.
-  A settings page lists the signed packages in one app-controlled folder
-  (`<target>/.tmp_update/packages`) and runs the existing `stage` + `install`
-  path for the picked one, showing progress and every real failure. No store,
-  no online catalog, no uninstall, no permission product, no new system update
-  mechanism, and no production source or key: the trusted key follows the System
-  Update contract and stays unconfigured until the owner provisions one.
-- Depends on: the app install transaction (in main), the System Update UI's
-  controller pattern (in main), and the I9 settings fixes (in main).
-- Delivery/verification: host tests with the committed test-only key and
-  isolated roots - the SDL-free controller (folder scan, stage+install,
-  same-version, downgrade, bad signature, tampered manifest, wrong device,
-  min_system, missing tool, unconfigured key, single-flight), the page (render,
-  freeze, unusable package), and the real launcher discovering and starting an
-  installed app; a pull request to the sole CI/merge owner; a run without a pull
-  request is not a delivery. Real-device behavior stays with V1.
-- Next: hands the page to the merge owner after the pull request lands.
+#### I10 — Local application install UI (settings surface) — see F6b
+- Alias record: this entry came from PR #41's own copy of the file and landed
+  on main with the merge `cb622fa`. It is the same task as F6b (same owner
+  thread T-01a1e517, same scope, same slice), not a second task; F6b is the
+  single record of it, including the PR #41 merge, the independent re-review
+  PASS on the exact head `8ae6047`, the FAIL history at `7418cf5`, and the
+  F6c swap-race follow-up. The status line this entry carried ("no pull
+  request is merged yet") described the source's file state at its cut and is
+  outdated because PR #41 has merged.
 
 ### P3 — Full UI translation remainder
 
