@@ -6,8 +6,8 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `dc4bef0` (merge of PR #24, the U7 boot payload sync; fetched
-  2026-11-16). Docs-only main heads do not move this baseline; the last
+  rule): `5de96d2` (merge of PR #29, the I9 settings abnormal-data fixes;
+  fetched 2026-11-16). Docs-only main heads do not move this baseline; the last
   docs-only tip was `07bdf4c` (merge of PR #25). Landing points on
   main, oldest first: PR #5
   (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
@@ -22,8 +22,9 @@ history; its top section mirrors the current schedule in this file.
   (schedule file, `3380fe4`), PR #20 (settings About/hints i18n, `6a98573`),
   PR #17 (U4 update feed, `4699226`), PR #21 (schedule file, `c9230cf`), PR #22
   (schedule file, `6594dce`), PR #23 (settings Network/Bluetooth i18n,
-  `5698908`), PR #26 (settings Assignments i18n, `e2ca971`), and PR #24 (U7
-  boot payload sync, `dc4bef0`); `de69781` is an ancestor of all of them.
+  `5698908`), PR #26 (settings Assignments i18n, `e2ca971`), PR #24 (U7
+  boot payload sync, `dc4bef0`), and PR #29 (I9 settings abnormal-data
+  fixes, `5de96d2`); `de69781` is an ancestor of all of them.
   Later updates branch from `origin/main`.
 - Maintenance rule (2026-11-16, owner 4fuu): this schedule's baseline is the
   real functional code version; the file is committed only when a feature, fix,
@@ -100,16 +101,19 @@ Rules:
   the built-in emulator removal (PR #13, `1d9aea2`); the settings
   About/hints i18n slice (PR #20, `6a98573`); the settings Network/Bluetooth
   i18n slice (PR #23, `5698908`); the settings Assignments i18n slice (PR #26,
-  `e2ca971`); the U7 boot payload sync (PR #24, `dc4bef0`); and the U4 update
+  `e2ca971`); the U7 boot payload sync (PR #24, `dc4bef0`); the I9 settings
+  abnormal-data fixes (PR #29, `5de96d2`); and the U4 update
   feed block (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #27 (U8 transactional
   update package build, head `8ffea67`, CI green on that head per gh with the
   source reporting six of six, B1-B3 fixes and follow-ups pushed, awaiting
-  independent review, open), PR #29 (I9
-  settings abnormal-data fault tolerance, head `acf1d3f`, CI green on that head
-  per gh with the source reporting six checks, awaiting independent review and
-  merge, open), and this schedule file's own update (PR #28). PR #24 (U7 boot
-  payload sync, final head `95b601a`) merged into main as
+  independent review, open) and this schedule file's own update (PR #28). PR #29
+  (I9 settings abnormal-data fault tolerance, final head `acf1d3f`) merged into
+  main as `5de96d208ae122b421e5110592b8d670e74bcd5b` with the merge owner
+  confirming an independent review PASS; on that merge commit Feature checks and
+  Development/Desktop are success per gh while the full CI run was in progress
+  at the last check (not recorded as passing). PR #24 (U7 boot payload sync,
+  final head `95b601a`) merged into main as
   `dc4bef086f651b3369618b80218da004a8b9e71f` after review PASS (114 ok / 0
   failed). PR #23 (I4 settings Network/Bluetooth translation, head
   `bd2a40c`) merged into main as
@@ -150,12 +154,14 @@ Rules:
   are green. Main landings `e2eba90` and `ec05440` had runs in progress at
   earlier checks; `1d9aea2` has full-platform CI success (run 43829493761, no
   core matrix), and the current code state on main, `4699226`, has full-platform
-  CI success (Feature checks, Development/Desktop, CI). Main landings `e2ca971`
-  and the current tip `dc4bef0` (merge of PR #24) both have full-platform CI
-  success per gh: on `dc4bef0`, Feature checks, Development/Desktop, and the
-  full CI run 43852956464 (prepare success; build success including the
-  workflow's build/package/upload steps) all completed success, the last at
-  2026-11-16T11:01:09Z. The docs-only landings
+  CI success (Feature checks, Development/Desktop, CI). Main landings `e2ca971`,
+  `dc4bef0`, and the current tip `5de96d2` (merge of PR #29) show: `e2ca971` and
+  `dc4bef0` have full-platform CI success per gh (`dc4bef0`'s full CI run
+  43852956464 completed success at 2026-11-16T11:01:09Z, including the
+  workflow's build/package/upload steps); on `5de96d2`, Feature checks and
+  Development/Desktop are success per gh while the full CI run was still in
+  progress at the last check — pending, not failed, and not recorded as passing.
+  The docs-only landings
   `c9230cf` and `6594dce` do not move the schedule baseline and their CI state
   is not tracked here.
   PR #13 (built-in emulator removal, head `e1275e4`) merged into main as
@@ -789,14 +795,16 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
   (dispatched 2026-11-16; works in isolation from the translation pull
   requests and hands results to the sole CI/merge owner).
-- Status: delivered and pushed; awaiting independent review and merge. PR #29
+- Status: merged into main; not device-verified. PR #29
   (https://github.com/4fuu/NextUI/pull/29, branch
-  `fix/settings-missing-data-crashes`), head
+  `fix/settings-missing-data-crashes`), final head
   `acf1d3f9918dbc670a5179414120a30af7fc3c8b` (commits `7cdf81ca` + `acf1d3f9`),
-  base `e2ca971`; OPEN and mergeable per gh. CI on that head: gh shows Feature
-  checks (push and pull_request) and Development/Desktop success; the source
-  reports all six checks green. The merge owner T-01a1e2e1 holds the handoff
-  for independent review and sequential merge.
+  merged as `5de96d208ae122b421e5110592b8d670e74bcd5b`, with the merge owner
+  confirming the merge and an independent review PASS. All six CI checks were
+  green on the merged head; on the merge commit `5de96d2`, Feature checks and
+  Development/Desktop are success per gh while the full CI run was still in
+  progress at the last check — the main-only workflows are the merge owner's to
+  monitor and are not recorded as passing here.
 - Reproduced first on unmodified main: About with a missing
   `.system/version.txt` segfaults at `menu.cpp:756` (gdb-confirmed); a
   `version.txt` with a trailing newline renders a missing-glyph box (font3
@@ -815,7 +823,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Not delivered: no device runs (this orb has no Docker), so the device
   evidence is the CI tg5040 build plus the desktop verification, which does
   not speak for real hardware. "Unknown" stays a plain literal per the merge
-  owner's call; I4 adds the zh entry after the merge.
+  owner's call; I4 adds the zh entry (`Unknown` to the Chinese string) on a
+  fresh branch now that the fix has merged, as a small follow-up.
 - Scope: fix the settings crashes and corruption cases found in abnormal
   data — the missing-version crash, the trailing-newline missing glyphs, and
   the empty-timezone abort — with host regression coverage; no translation
@@ -825,8 +834,27 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Delivery/verification: host tests reproduce each abnormal case before the
   fix and pass after; English output unchanged; real-machine behavior stays
   with V1.
-- Next: independent review plus the merge owner's sequential merge; I4 adds
-  the zh entry for "Unknown" after the merge.
+- Next: I4's small follow-up for the zh entry; the I9 line closes with the
+  device-side behavior staying in V1.
+
+#### U9 — System update install UI (settings surface)
+- Owner thread: https://ampcode.com/threads/T-01a1e400-3b99-7794-9cf1-ad8cb5433bbc
+  (running, Step Medium; dispatched 2026-11-16 after PR #29 merged; the merge
+  owner released it at 11:10 to continue from main `5de96d2`).
+- Status: running; no pull request yet, so nothing is recorded as delivered.
+- Scope: an existing settings surface for update check, download into staging,
+  and user-initiated install; real failure and unconfigured states; Chinese and
+  English display; verifying the independent tool invocation safety when
+  replacing `.system`. Signature fixtures plus isolated roots; no real device,
+  no writing the real root, and no reboot/POWER/publish/production source or
+  key. The settings/menu ownership is settled with I9.
+- Depends on: U4 feed (in main), U1 transaction (in main), U7 boot payload sync
+  (in main), and the I9 settings fixes (in main).
+- Delivery/verification: host tests with signature fixtures and isolated roots
+  covering check, staging, install, failure, and unconfigured paths; a pull
+  request to the sole CI/merge owner; a run without a pull request is not a
+  delivery.
+- Next: hands the install UI to the merge owner after the pull request lands.
 
 ### P3 — Full UI translation remainder
 
@@ -982,6 +1010,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   (packaging slice delivered as PR #27, branch `feature/updater-update-package`)
 - Settings abnormal-data fault tolerance thread:
   https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
+- System update install UI thread:
+  https://ampcode.com/threads/T-01a1e400-3b99-7794-9cf1-ad8cb5433bbc
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
   in once confirmed; ran the exact libsamplerate co-render regression on main
   `1d9aea2` with `a6-host-adapter` @
