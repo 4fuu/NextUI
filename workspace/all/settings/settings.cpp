@@ -28,6 +28,8 @@ extern "C"
 #include "fnbuttonmenu.hpp"
 #include "version.hpp"
 #include "sysupdatemenu.hpp"
+#include "appinstallmenu.hpp"
+#include "toolrunner.hpp"
 
 #define BUSYBOX_STOCK_VERSION "1.27.2"
 
@@ -889,7 +891,7 @@ int main(int argc, char *argv[])
         // update exists. Test roots are injected only by the host controller test.
         SysUpdate::Config updateConfig;
         updateConfig.platform = PLATFORM;
-        updateConfig.system_version = SysUpdate::readSystemVersion(ROOT_SYSTEM_PATH "version.txt");
+        updateConfig.system_version = readSystemVersion(ROOT_SYSTEM_PATH "version.txt");
         if (const char *feed = getenv("NEXTUI_UPDATE_FEED"))
             updateConfig.feed = feed;
         if (const char *key = getenv("NEXTUI_UPDATE_TRUSTED_KEY"))
@@ -922,6 +924,22 @@ int main(int argc, char *argv[])
 
         sysUpdateMenu.reset(new SysUpdate::Menu(appQuit, ctx.dirty, updateController));
         mainItems.push_back(new MenuItem{ListItemType::Generic, TR("System Update"), TR("Check, download, and install a system update"), {}, {}, nullptr, nullptr, DeferToSubmenu, sysUpdateMenu.get()});
+
+        // Install-from-file page wiring. The package folder, the staging root and
+        // the target root are the SD card and are never taken from user input or
+        // package data; the trusted key follows the System Update contract and
+        // stays unconfigured until the owner provisions one, so the page reports
+        // that verification is not configured instead of installing anything.
+        AppInstall::Config appInstallConfig;
+        appInstallConfig.platform = PLATFORM;
+        appInstallConfig.system_version = updateConfig.system_version;
+        if (const char *key = getenv("NEXTUI_UPDATE_TRUSTED_KEY"))
+            appInstallConfig.trusted_key = key;
+        appInstallConfig.target_root = SDCARD_PATH;
+        AppInstall::Controller appInstallController(appInstallConfig);
+        std::unique_ptr<AppInstall::Menu> appInstallMenu;
+        appInstallMenu.reset(new AppInstall::Menu(appQuit, ctx.dirty, appInstallController));
+        mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Install from file"), TR("Install a signed app package from the SD card"), {}, {}, nullptr, nullptr, DeferToSubmenu, appInstallMenu.get()});
 
         ctx.menu = new MenuList(MenuItemType::List, "Main", mainItems);
 
@@ -1036,9 +1054,10 @@ int main(int argc, char *argv[])
         delete ctx.menu;
         delete appearanceMenu;
         delete systemMenu;
-        // Join the System Update worker before updateController (declared above)
-        // goes out of scope, so the worker never outlives the controller it calls.
+        // Join the workers before the controllers they call (declared above) go
+        // out of scope, so a worker never outlives its controller.
         sysUpdateMenu.reset();
+        appInstallMenu.reset();
         ctx.menu = NULL;
 
         // Color pickers are owned by unique_ptrs above; destroyed automatically here.

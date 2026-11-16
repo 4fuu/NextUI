@@ -7,6 +7,8 @@
 // Usage: sysupdate_controller_test <nextupd-binary> <fixtures-dir>
 #include "sysupdate.hpp"
 
+#include "toolrunner.hpp"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

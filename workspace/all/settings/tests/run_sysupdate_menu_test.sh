@@ -85,6 +85,7 @@ done
     workspace/all/settings/menu.cpp \
     workspace/all/settings/sysupdatemenu.cpp \
     workspace/all/settings/sysupdate.cpp \
+    workspace/all/settings/toolrunner.cpp \
     "${OBJS[@]}" \
     -o "$BUILD_DIR/sysupdate_menu_test" \
     $SDL_LIBS $COMMON_LIBS -pthread

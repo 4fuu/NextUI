@@ -169,7 +169,9 @@ public:
                      MenuList *submenu = nullptr)
         : type(type), name(name), desc(desc), on_get(on_get), on_set(on_set), 
         on_reset(on_reset), on_confirm(on_confirm), submenu(submenu) {}
-    ~AbstractMenuItem() {
+    // Virtual because MenuList owns its items through this base pointer and
+    // deletes them, including the rows a page rebuilds at runtime.
+    virtual ~AbstractMenuItem() {
          // delete submenu;
     }
 
@@ -326,7 +328,8 @@ protected:
 
 public:
     MenuList(MenuItemType type, const std::string &desc, std::vector<AbstractMenuItem*> items, MenuListCallback on_change = nullptr, MenuListCallback on_confirm = nullptr);
-    ~MenuList();
+    // Virtual because pages derive from MenuList and are deleted through it.
+    virtual ~MenuList();
     MenuList(MenuList &) = delete;
 
     static void showOverlay(const std::string& message, OverlayDismissMode dismissMode = OverlayDismissMode::None);
@@ -343,9 +346,12 @@ public:
     // returns true if the input was handled
     virtual InputReactionHint handleInput(int &dirty, int &quit);
 
+    // Virtual so a page can observe the rect it is drawn with: the "Install from
+    // file" page re-lays out its rows with it after a folder rescan.
+    virtual void draw(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle);
+
     SDL_Rect itemSizeHint(const AbstractMenuItem &item);
 
-    void draw(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle);
     void drawList(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle);
     void drawListItem(SDL_Surface *surface, const SDL_Rect &dst, const AbstractMenuItem &item, bool selected);
     void drawFixed(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle);

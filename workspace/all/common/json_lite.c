@@ -276,6 +276,10 @@ static int skip_object(JsonLiteCursor* cursor, int depth)
         json_lite_skip_ws(cursor);
         if (cursor->p >= cursor->end || *cursor->p != ':') return 0;
         cursor->p++;
+        /* Whitespace before a member value is part of the format, not of the
+         * value: a caller may hand this scanner a pretty-printed document, and
+         * json_lite_skip_value() expects the caller to have consumed it. */
+        json_lite_skip_ws(cursor);
         if (!json_lite_skip_value(cursor, depth + 1)) return 0;
         json_lite_skip_ws(cursor);
         if (cursor->p >= cursor->end) return 0;
@@ -302,6 +306,8 @@ static int skip_array(JsonLiteCursor* cursor, int depth)
 
     for (;;)
     {
+        /* See skip_object(): the whitespace before an element is the format's. */
+        json_lite_skip_ws(cursor);
         if (!json_lite_skip_value(cursor, depth + 1)) return 0;
         json_lite_skip_ws(cursor);
         if (cursor->p >= cursor->end) return 0;

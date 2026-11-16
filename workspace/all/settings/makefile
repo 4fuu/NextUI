@@ -22,7 +22,7 @@ SDL?=SDL
 TARGET = settings
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
 SOURCE = -c ../common/utils.c ../common/api.c ../common/config.c ../common/i18n.c ../common/palette.c ../common/scaler.c ../common/json_lite.c ../../$(PLATFORM)/platform/platform.c
-CXXSOURCE = $(TARGET).cpp menu.cpp colorpickermenu.cpp palettemenu.cpp fnbuttonmenu.cpp wifimenu.cpp btmenu.cpp keyboardprompt.cpp version.cpp sysupdate.cpp sysupdatemenu.cpp
+CXXSOURCE = $(TARGET).cpp menu.cpp colorpickermenu.cpp palettemenu.cpp fnbuttonmenu.cpp wifimenu.cpp btmenu.cpp keyboardprompt.cpp version.cpp sysupdate.cpp sysupdatemenu.cpp toolrunner.cpp appinstall.cpp appinstallmenu.cpp
 CXXSOURCE += build/$(PLATFORM)/utils.o build/$(PLATFORM)/api.o build/$(PLATFORM)/config.o build/$(PLATFORM)/i18n.o build/$(PLATFORM)/palette.o build/$(PLATFORM)/scaler.o build/$(PLATFORM)/json_lite.o build/$(PLATFORM)/platform.o
 
 CC = $(CROSS_COMPILE)gcc
