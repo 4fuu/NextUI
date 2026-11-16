@@ -4,6 +4,7 @@
 #include "sdl.h"
 #include "defines.h"
 #include "api.h"
+#include "led_i18n.h"
 #include "utils.h"
 
 
@@ -270,9 +271,9 @@ int main(int argc, char *argv[])
 
             if (msg_dirty) {
                 GFX_clear(screen);
-                GFX_blitMessage(font.large, "This device has no RGB lights.", screen,
+                GFX_blitMessage(font.large, (char*)TR("This device has no RGB lights."), screen,
                     &(SDL_Rect){0, 0, screen->w, screen->h});
-                GFX_blitButtonGroup((char*[]){ "B","BACK", NULL }, 1, screen, 1);
+                GFX_blitButtonGroup((char*[]){ "B", (char*)TR("BACK"), NULL }, 1, screen, 1);
                 GFX_flip(screen);
                 msg_dirty = 0;
             }
@@ -289,16 +290,16 @@ int main(int argc, char *argv[])
     // per light (the Brick family does, via its per-zone max_scale nodes)
     int combinedBrightness = 1;
     if (exactMatch("brick", device)) {
-        const char *brick_names[] = {"F1 key", "F2 key", "Top bar", "L&R triggers"};
+        const char *brick_names[] = {TR("F1 key"), TR("F2 key"), TR("Top bar"), TR("L&R triggers")};
         memcpy(lightnames, brick_names, sizeof(brick_names)); // Copy values
         combinedBrightness = 0;
     }
     else if (exactMatch("brickpro", device)) {
-        const char *brickpro_names[] = {"F1 key", "F2 key", "Top bar", "Joysticks", "Triggers"};
+        const char *brickpro_names[] = {TR("F1 key"), TR("F2 key"), TR("Top bar"), TR("Joysticks"), TR("Triggers")};
         memcpy(lightnames, brickpro_names, sizeof(brickpro_names)); // Copy values
         combinedBrightness = 0;
     } else {
-        const char *default_names[] = {"Joystick L","Joystick R", "Logo"};
+        const char *default_names[] = {TR("Joystick L"), TR("Joystick R"), "Logo"};
         memcpy(lightnames, default_names, sizeof(default_names)); // Copy values
     }
     // platforms that name their own lights win over the tables above
@@ -367,14 +368,14 @@ int main(int argc, char *argv[])
 
             if (show_setting) GFX_blitHardwareHints(screen, show_setting);
 
-            GFX_blitButtonGroup((char*[]){ "B","BACK", NULL }, 1, screen, 1);
-            GFX_blitButtonGroup((char*[]){ "L/R","Select light", NULL }, 0, screen, 0);
+            GFX_blitButtonGroup((char*[]){ "B", (char*)TR("BACK"), NULL }, 1, screen, 1);
+            GFX_blitButtonGroup((char*[]){ "L/R", (char*)TR("Select light"), NULL }, 0, screen, 0);
 
 
             int max_width = screen->w - SCALE1(PADDING * 2) - ow;
             // Display light name
             char light_name_text[256];
-            snprintf(light_name_text, sizeof(light_name_text), "%s", lightnames[selected_light]);
+            snprintf(light_name_text, sizeof(light_name_text), "%s", TR(lightnames[selected_light]));
 
             char title[256];
             int text_width = GFX_truncateText(font.medium, light_name_text, title, max_width, SCALE1(BUTTON_PADDING * 2));
@@ -391,10 +392,10 @@ int main(int argc, char *argv[])
             // this stuff is really not multiplatform at all, need to figure out a way so its not so TrimUI specific
             const char *settings_labels[5]; // Define array with correct size
             if (combinedBrightness) {
-                const char *non_brick_labels[] = {"Effect", "Color", "Speed", "Brightness (All Leds)", "Info brightness (All Leds)"};
+                const char *non_brick_labels[] = {TR("Effect"), TR("Color"), TR("Speed"), TR("Brightness (All Leds)"), TR("Info brightness (All Leds)")};
                 memcpy(settings_labels, non_brick_labels, sizeof(non_brick_labels)); // Copy values
             } else {
-                const char *brick_labels[] = {"Effect", "Color", "Speed", "Brightness", "Info brightness"};
+                const char *brick_labels[] = {TR("Effect"), TR("Color"), TR("Speed"), TR("Brightness"), TR("Info brightness")};
                 memcpy(settings_labels, brick_labels, sizeof(brick_labels)); // Copy values
             }
             int settings_values[5] = {
@@ -414,7 +415,7 @@ int main(int argc, char *argv[])
                 int y = SCALE1(PADDING + PILL_SIZE * (j + 1));
 
                 if (j == 0) { // Display effect name instead of number
-                    snprintf(setting_text, sizeof(setting_text), "%s: %s", settings_labels[j], effect_name_for(selected_light, settings_values[j]));
+                    snprintf(setting_text, sizeof(setting_text), "%s: %s", TR(settings_labels[j]), TR(effect_name_for(selected_light, settings_values[j])));
                     SDL_Surface *text = TTF_RenderUTF8_Blended(font.medium, setting_text, current_color);
                     int text_width = text->w + SCALE1(BUTTON_PADDING * 2);
                     GFX_blitPill(selected ? ASSET_WHITE_PILL : ASSET_BLACK_PILL, screen,

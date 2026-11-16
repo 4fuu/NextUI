@@ -33,12 +33,23 @@ if [ -f "$SDCARD_PATH/.media/splash_logo.png" ]; then
 	LOGO_PATH="$SDCARD_PATH/.media/splash_logo.png"
 fi
 
+# Localized splash text: zh when the shared settings file says so, English for a
+# missing file, an unknown value, or a payload without the strings file.
+if [ -f "$(dirname "$0")/boot_strings.sh" ]; then
+	. "$(dirname "$0")/boot_strings.sh"
+fi
+: "${BOOT_TEXT_INSTALLING:=Installing...}"
+: "${BOOT_TEXT_EXTRACTING:=Extracting}"
+: "${BOOT_TEXT_INSTALLING_PAK:=Installing}"
+: "${BOOT_TEXT_UPDATING:=Updating NextUI}"
+: "${BOOT_TEXT_INSTALLING_NEXTUI:=Installing NextUI}"
+
 if [ "$SHOW_SPLASH" = "yes" ] ; then
 	cd $(dirname "$0")/$PLATFORM
 	if [ "$DEVICE" = "brick" ] || [ "$DEVICE" = "brickpro" ]; then
-		./show2.elf --mode=daemon --image="$LOGO_PATH" --text="Installing..." --logoheight=144 --fontsize=32 --progress=-1 &
+		./show2.elf --mode=daemon --image="$LOGO_PATH" --text="$BOOT_TEXT_INSTALLING" --logoheight=144 --fontsize=32 --progress=-1 &
 	else
-		./show2.elf --mode=daemon --image="$LOGO_PATH" --text="Installing..." --logoheight=128 --progress=-1 &
+		./show2.elf --mode=daemon --image="$LOGO_PATH" --text="$BOOT_TEXT_INSTALLING" --logoheight=128 --progress=-1 &
 	fi
 	#sleep 0.5
 	#SHOW_PID=$!
@@ -77,7 +88,7 @@ echo before pkg install `cat /proc/uptime` >> /tmp/nextui_boottime
 # generic NextUI package install
 for pakz in $PAKZ_PATH; do
 	if [ ! -e "$pakz" ]; then continue; fi
-	echo "TEXT:Extracting $pakz" > /tmp/show2.fifo
+	echo "TEXT:$BOOT_TEXT_EXTRACTING $pakz" > /tmp/show2.fifo
 	cd $(dirname "$0")/$PLATFORM
 
 	./unzip -o -d "$SDCARD_PATH" "$pakz" # >> $pakz.txt
@@ -85,7 +96,7 @@ for pakz in $PAKZ_PATH; do
 
 	# run postinstall if present
 	if [ -f $SDCARD_PATH/post_install.sh ]; then
-		echo "TEXT:Installing $pakz" > /tmp/show2.fifo
+		echo "TEXT:$BOOT_TEXT_INSTALLING_PAK $pakz" > /tmp/show2.fifo
 		$SDCARD_PATH/post_install.sh # > $pakz_post.txt
 		rm -f $SDCARD_PATH/post_install.sh
 	fi
@@ -98,9 +109,9 @@ if [ -f "$UPDATE_PATH" ]; then
 	echo ok
 	cd $(dirname "$0")/$PLATFORM
 	if [ -d "$SYSTEM_PATH" ]; then
-		echo "TEXT:Updating NextUI" > /tmp/show2.fifo
+		echo "TEXT:$BOOT_TEXT_UPDATING" > /tmp/show2.fifo
 	else
-		echo "TEXT:Installing NextUI" > /tmp/show2.fifo
+		echo "TEXT:$BOOT_TEXT_INSTALLING_NEXTUI" > /tmp/show2.fifo
 	fi
 
 	# clean replacement for core paths
