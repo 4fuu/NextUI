@@ -54,6 +54,11 @@ typedef struct
     char state[24];
     char version[UPD_MAX_VERSION + 1];
     char previous_version[UPD_MAX_VERSION + 1];
+    /* Separate lifecycle for the signed .tmp_update payload. Values include
+     * none, unchanged, newer, committed, rolled_back, recovered. */
+    char boot_outcome[32];
+    char boot_version[UPD_MAX_VERSION + 1];
+    char previous_boot_version[UPD_MAX_VERSION + 1];
 } UpdTransactionResult;
 
 void upd_transaction_result_init(UpdTransactionResult* result);

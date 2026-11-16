@@ -8,19 +8,25 @@ install boot scripts call `recover` before the first `.system` write and before
 launch when a transaction record exists; the recovery tool ships in
 `.tmp_update/<platform>/`.
 
+A verified system package may also carry `.tmp_update/`. The installer stages
+that subtree from the same signed manifest, keeps the previous payload as
+`.tmp_update.bak`, publishes the new recovery tool before it moves `.system`,
+and records the boot phases in a separate `.nextupd-txn/boot.json`. A package
+without `.tmp_update/` keeps the old behavior: it updates `.system` only and
+leaves the boot payload untouched.
+
 The update feed is not configured by default. There is no built-in release
 source and no production signing key in this repository, so `feed` and `fetch`
 report `feed_unconfigured` until a caller supplies `--feed` or
 `NEXTUI_UPDATE_FEED` and a real trusted key is provisioned by the owner. The
 test feed and test signing seed are for protocol tests only. The install UI,
-`.tmp_update` refresh, real release publication, and production key custody
-remain separate tasks.
+real release publication, and production key custody remain separate tasks.
 
 The code lives in `workspace/all/nextupd/`. Host tests cover the manifest,
 signature, ZIP, corrupt-package, path/link, disk-space, interruption,
 transaction-phase crash, re-entry, rollback, backup-corruption, feed parsing,
-feed compatibility selection, download truncation/timeout, and staged-package
-reuse cases.
+feed compatibility selection, download truncation/timeout, staged-package
+reuse, and signed boot-payload synchronization cases.
 
 ## Package identity
 
@@ -58,6 +64,19 @@ One signed `nextui-update-v1` manifest describes one package:
   uncompressed size and SHA-256. Directories are accepted only when they are a
   prefix of a listed file. Extra files and unlisted directories are rejected.
 - The same format family covers system zips and application pakz.
+- A system package may include `.tmp_update/` in the same signed manifest. When
+  it does, the subtree must provide the recovery contract:
+  `.tmp_update/updater`, `.tmp_update/nextupd-recover.sh`,
+  `.tmp_update/<platform>.sh`, and `.tmp_update/<platform>/nextupd.elf`. The
+  tool and the two boot scripts must carry an executable mode in the archive.
+  `.tmp_update/.nextupd-boot.json` and `.tmp_update/staging/` are reserved; the
+  installer generates the stamp and the fetch staging area is never part of a
+  package.
+- A transactional system package contains the two roots the installer applies:
+  `.system/` and, optionally, `.tmp_update/`. The bootstrap `MinUI.zip` that
+  also carries `Tools/` is a different artifact; a transactional release must
+  publish an archive whose manifest covers only the applied roots, otherwise
+  `install` rejects the unhandled path instead of silently skipping it.
 
 ## What is rejected
 
@@ -73,6 +92,10 @@ One signed `nextui-update-v1` manifest describes one package:
 - An archive whose size or SHA-256 differs from the manifest.
 - A package for another platform, or below `min_system` when a current system
   version is supplied.
+- An incomplete boot payload, a boot tool or boot script without an executable
+  mode, a signed `.tmp_update/.nextupd-boot.json`, or a `.tmp_update/staging/`
+  path. A `.tmp_update/` subtree is all-or-nothing; a partial one is rejected
+  before the installer writes anything.
 - An invalid or missing signature when verification is required.
 
 The parser reads the ZIP central directory first, validates every local header,
@@ -274,8 +297,13 @@ default. The environment running the installer is never used as a target.
 Policy:
 
 - Only `kind: system` is installed. Every archive path must be under
-  `.system/`; `.system/version.txt` must be present in the package and equal the
-  signed manifest `version`.
+  `.system/` or `.tmp_update/`; `.system/version.txt` must be present in the
+  package and equal the signed manifest `version`.
+- When the package carries `.tmp_update/`, the complete boot contract described
+  above is required. The installer extracts it from the verified archive,
+  verifies every file and mode again, and keeps the current payload as
+  `.tmp_update.bak` before it writes a live boot file. A package without
+  `.tmp_update/` leaves the live payload untouched.
 - The package version must be strictly newer than
   `<target>/.system/version.txt`. An equal version returns `already_installed`
   without writing. An older version exits 14 with `downgrade_refused`.
@@ -294,11 +322,16 @@ Transaction layout:
 <target-root>/
   .system/                  live tree, real directory
   .system.bak/              one previous system after a successful commit
+  .tmp_update/              live boot payload, real directory
+  .tmp_update.bak/          previous boot payload while a release is in flight
   .nextupd-txn/
-    txn.json                durable phase record
-    new/                    complete candidate before commit
-    previous.bak/           older backup being evicted
+    txn.json                durable system phase record (schema v1)
+    new/                    complete system candidate before commit
+    previous.bak/           older system backup being evicted
     failed/                 tree being discarded during rollback
+    boot.json               durable boot phase record (separate schema)
+    boot.files              signed boot file list (path, size, mode, hash)
+    boot.new/               complete boot candidate before publish
 ```
 
 The candidate carries a `.nextupd-install-txn` marker with the transaction id.
@@ -339,6 +372,61 @@ tree: the rollback target is exactly the transaction's previous system, and
 retaining a differently-versioned older backup would make later recovery
 ambiguous.
 
+## Boot payload lifecycle
+
+The boot payload is a second signed tree, not a second source of truth. Its
+file list comes from the same `nextui-update-v1` manifest that signs
+`.system/`; the installer never reads a live `.tmp_update` file as package
+input. The boot journal is separate from `txn.json` on purpose:
+
+- Old tools parse `nextui-install-txn-v1` strictly and reject unknown fields.
+  Adding boot fields to that record would make every existing recovery tool
+  fail closed. `boot.json` is an additive file those tools ignore.
+- A new tool understands both the old `txn.json` and the new `boot.json`.
+  The install ordering publishes the new boot tool before it writes any system
+  transaction record and before it moves `.system`, so a future transaction
+  schema is only written after a tool that can read it is already live. This
+  release keeps `txn.json` at v1.
+- The boot journal binds to the system record by transaction id, version and
+  platform. A mismatch, an unknown boot schema, a missing file list, or a
+  boot id that does not hash the list fails closed with exit 13.
+- If the installer dies after publishing the boot payload but before writing
+  `txn.json`, the boot journal is an orphan. `recover` restores the old
+  payload rather than letting the boot tree advance without a recorded system
+  release.
+
+The boot states and their recovery rules:
+
+| State | Meaning | `recover` action |
+| --- | --- | --- |
+| `prepared` | boot candidate complete; live payload untouched | discard candidate, keep old boot; roll back an uncommitted system |
+| `installing` | recovery tool or later files may be published | verify live; finish from `boot.new`; otherwise restore `.tmp_update.bak` |
+| `installed` | live payload matches the signed list and stamp | finish the system commit; if the system rolls back, restore the old payload |
+| `committed` | release committed | remove staging, journal and `.tmp_update.bak` |
+| `rolled_back` | old payload restored or retained | remove staging and journal |
+
+Publish order is deliberate: `<platform>/nextupd.elf` first, then
+`nextupd-recover.sh`, `updater`, `<platform>.sh`, the remaining files, and the
+generated `.nextupd-boot.json` stamp last. If power is lost after the tool is
+published, the new tool runs the stable `recover` interface; if power is lost
+before it, the old tool and old scripts are still the complete live payload.
+At no point does the installer remove `.tmp_update` before a complete
+replacement exists. `.tmp_update.bak` is only removed after the live payload
+verifies and the system commit is durable.
+
+The boot payload is not published when:
+
+- the package has no `.tmp_update/` entries (legacy system-only package);
+- the live stamp already names the same version and boot id (`unchanged`);
+- the live stamp names a newer semantic version (`newer`), so a system update
+  cannot silently downgrade a boot payload;
+- the live stamp uses an unknown future schema (`unknown`), so this tool does
+  not guess that the signed package is newer.
+
+An equal system version returns `already_installed` before any boot work, as
+before. A same-version boot repair is therefore not part of `install`; the
+bootstrap `MinUI.zip` path remains the way to restore a missing live payload.
+
 ## Boot arbitration
 
 The three install boot scripts (`workspace/<platform>/install/boot.sh`, shipped
@@ -361,11 +449,12 @@ script in `.tmp_update/<platform>/nextupd.elf`, so arbitration does not read a
   same failed state. The attempt is appended to
   `.userdata/<platform>/logs/install.txt`.
 - The gate does not stage, install, download, or choose a version. It only
-  resolves a transaction another component created.
-- `.tmp_update` belongs to the release payload, not to the transaction target.
-  A future transactional update does not refresh it, so the boot payload must
-  first arrive through the existing `MinUI.zip`/bootstrap path. This release
-  includes `.tmp_update/<platform>/nextupd.elf` for that purpose.
+  resolves a transaction another component created, including a pending boot
+  journal.
+- `.tmp_update` is part of the release payload and is synchronized by a
+  verified system install. The boot tool is replaced before `.system` moves and
+  the old payload is retained until the release commits, so a failed or
+  interrupted system install still has an independent recovery tool.
 
 The host boot tests execute the real boot scripts against isolated roots,
 rewriting every device path into the root and stubbing device commands. They
@@ -412,6 +501,16 @@ staging reuse, replacement of damaged staging, and HTTPS without curl. They use
 only a test feed, test packages, and the committed test seed; they never contact
 a release source or a device.
 
+The boot-sync tests build a signed package with both `.system/` and
+`.tmp_update/` and install it into a throwaway root. They cover a normal sync,
+a system-only package that leaves the boot tree untouched, an identical boot
+payload that is not rewritten, a newer live boot payload that is not
+downgraded, incomplete/non-executable/reserved boot payloads that are refused
+without writing, every boot and system crash phase, repeat recovery, missing
+staging with and without a backup, a corrupt live tool, a mismatched boot
+version, an unknown boot schema, an unknown boot file-list schema, and a v1
+system-only transaction. They never touch `/mnt/SDCARD`, a feed, or a device.
+
 Fixed fixtures are in `workspace/all/nextupd/tests/fixtures/`. The private test
 seed is committed only to make signatures reproducible; it is not a production
 key and must never be used to sign a release.
@@ -426,9 +525,13 @@ key and must never be used to sign a release.
   image; the boot payload carries `nextupd.elf` in `.tmp_update/<platform>/`.
 - `recover` is wired into the install boot scripts only. It does not stage or
   install packages, and it does not run from `launch.sh`, keymon, or devserv.
-- `.tmp_update` is refreshed by the legacy `MinUI.zip`/bootstrap path, not by a
-  transactional install. A transactional install does not update the boot
-  payload.
+- A transactional install synchronizes `.tmp_update` only when the signed
+  package carries that subtree. Equal system versions return
+  `already_installed` before boot work, so a same-version repair still uses the
+  bootstrap `MinUI.zip` path. The release must publish an archive whose
+  manifest covers exactly the applied roots (`.system/` plus optional
+  `.tmp_update/`); the bootstrap archive that also carries `Tools/` is not a
+  transactional package.
 - The feed is unsigned routing metadata. It can select a signed package but
   cannot authorize one; the manifest signature and trusted key remain required.
 - There is no production feed address and no production key in this repository.
@@ -437,8 +540,8 @@ key and must never be used to sign a release.
 - HTTPS downloads delegate to the system `curl` with TLS verification enabled.
   If `curl` is absent, the result is `transport_unavailable`; there is no
   insecure fallback. Plain HTTP is supported for local/LAN feeds and fixtures.
-- `fetch` does not install and does not refresh `.tmp_update`. The install UI is
-  not part of this module; `feed`/`check` output is available for a later UI.
+- `fetch` does not install. The install UI is not part of this module;
+  `feed`/`check` output is available for a later UI.
 - A hard power loss during download may leave a hidden
   `.nextupd-incoming-*` directory. It has no `staged.json`, so it is never
   treated as a ready package; controlled failures remove it.
