@@ -403,6 +403,44 @@ static void testFeedCannotRedirectTarget()
           "redirect: no write outside the configured target");
 }
 
+// The production tool path is exactly the packaged independent boot tool at
+// <target>/.tmp_update/<platform>/nextupd.elf (no .system fallback): with the
+// tool present there it is used, and without it the page reports ToolUnavailable
+// instead of guessing. This is the UI-default-path vs package-path contract.
+static void testToolPathMatchesPackage()
+{
+    std::string base = freshBase();
+    std::string target = makeTarget(base, "v6.0.0");
+    std::string feed = buildFeed(base);
+
+    std::string toolDir = target + "/.tmp_update/tg5040";
+    mkdirs(toolDir);
+    std::ifstream src(g_tool.c_str(), std::ios::binary);
+    std::stringstream buffer;
+    buffer << src.rdbuf();
+    writeFile(toolDir + "/nextupd.elf", buffer.str());
+    chmod((toolDir + "/nextupd.elf").c_str(), 0755);
+
+    Config cfg = baseConfig(base, feed, target, "v6.0.0");
+    cfg.tool_path = ""; // exercise production resolution
+    Controller controller(cfg);
+    Result r = controller.checkForUpdates();
+    CHECK(r.state == State::UpdateAvailable,
+          "pkgpath: used the .tmp_update tool, state %d reason %s", (int)r.state,
+          r.reason.c_str());
+
+    std::string base2 = freshBase();
+    std::string target2 = makeTarget(base2, "v6.0.0");
+    std::string feed2 = buildFeed(base2);
+    Config cfg2 = baseConfig(base2, feed2, target2, "v6.0.0");
+    cfg2.tool_path = "";
+    Controller controller2(cfg2);
+    Result r2 = controller2.checkForUpdates();
+    CHECK(r2.state == State::ToolUnavailable,
+          "pkgpath: missing packaged tool -> ToolUnavailable, state %d reason %s",
+          (int)r2.state, r2.reason.c_str());
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -427,6 +465,7 @@ int main(int argc, char **argv)
     testNoConcurrentInstall();
     testPendingRecoveryReported();
     testFeedCannotRedirectTarget();
+    testToolPathMatchesPackage();
 
     printf("sysupdate controller: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

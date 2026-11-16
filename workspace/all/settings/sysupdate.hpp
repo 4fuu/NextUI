@@ -25,6 +25,8 @@
  *   reboots or cuts power itself; leaving is the normal appQuit -> relauncher
  *   path, and boot recovery (the independent .tmp_update/<platform>/nextupd.elf
  *   tool) resolves any interrupted transaction at the next boot, never from here.
+ *   The install UI calls that same packaged .tmp_update tool; there is no
+ *   .system fallback, so a missing tool is reported, not guessed at.
  * - Production staging/target roots are the SD card and are app-controlled; they
  *   are never taken from user input or feed data. Test roots are injected only by
  *   the host controller test, so the production entry cannot write a test root.

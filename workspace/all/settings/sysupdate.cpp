@@ -62,9 +62,14 @@ void Controller::release()
     busy_.store(false);
 }
 
-// Resolve the nextupd tool. Tests pass an explicit path. In production prefer the
-// independent boot payload tool (published before .system moves and therefore
-// unaffected by a .system swap), then fall back to a copy shipped inside .system.
+// Resolve the nextupd tool. Tests pass an explicit path. In production the only
+// packaged tool is the independent boot payload at
+// <target>/.tmp_update/<platform>/nextupd.elf -- the same path the update
+// package places and chmods 0755, published before .system moves so it survives
+// a .system swap. There is deliberately no .system fallback: no packaging step
+// ships a copy there, and invoking a tool from the tree being replaced would
+// defeat the point of the independent boot tool. A missing tool is reported as
+// ToolUnavailable rather than guessed at.
 bool Controller::resolveTool(std::string& path)
 {
     if (!config_.tool_path.empty())
@@ -73,11 +78,7 @@ bool Controller::resolveTool(std::string& path)
     }
     else
     {
-        std::string boot = config_.target_root + "/.tmp_update/" + config_.platform +
-                           "/nextupd.elf";
-        std::string system = config_.target_root + "/.system/" + config_.platform +
-                             "/bin/nextupd";
-        path = (access(boot.c_str(), X_OK) == 0) ? boot : system;
+        path = config_.target_root + "/.tmp_update/" + config_.platform + "/nextupd.elf";
     }
     return access(path.c_str(), X_OK) == 0;
 }
