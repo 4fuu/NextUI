@@ -93,8 +93,10 @@ Rules:
   target builds). Main landings: `201526c` full-platform packaging success,
   `bdab39e` success, and `212a695` Feature checks success; `b28b126` has all
   three workflows (Feature checks, Development/Desktop, CI) success. PR #11
-  (boot recovery wiring, head `329a7e1`) runs were in progress at the last
-  check — a run that has not finished is never recorded as passing.
+  (boot recovery wiring, head `329a7e1`) passed all six checks (Host tests
+  push/PR, tg5040 target build push/PR, build-linux, build-macos) and is
+  CLEAN/MERGEABLE with the merge owner reviewing — a run that has not finished
+  is never recorded as passing.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -373,7 +375,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   kept.
 - Evidence: `make -C tests test` green (169 updater + 56 boot-recovery checks),
   the same under ASan/UBSan; desktop build green; real tg5040 cross-build with
-  NEEDED only libz/libc. PR #11's CI runs were in progress at the last check.
+  NEEDED only libz/libc. PR #11 CI at head `329a7e1`: all six checks passed
+  (Host tests push/PR, tg5040 target build push/PR, build-linux, build-macos);
+  PR state CLEAN/MERGEABLE with the merge owner reviewing. Not merged.
 - Open boundaries (not delivered): no real-device boot or power-cut test; no
   feed/source switch, production key, install UI, or online update;
   `.tmp_update` is still refreshed only by the legacy MinUI.zip/bootstrap path.
