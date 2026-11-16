@@ -5,13 +5,14 @@ general application desktop. This file is the repo-side schedule of record. The
 Space coordination artifact "NextUI 通用桌面改造计划" carries the full research
 history; its top section mirrors the current schedule in this file.
 
-- Baseline: `origin/main` @ `3a50fe8` (merge of PR #1
-  `runtime-fn-actions`; fetched 2026-11-16). Earlier landing points on main:
-  PR #5 (`201526c`, batch7 line @ `684260d`), this schedule file (PR #2,
-  `59a63e6`), the updater staging module (PR #7, `bdab39e`), the LED/boot
-  localization (PR #4, `dea1f2d`), the display/audio backend module (PR #6,
-  `b506dbd`), and the runtime line (PR #1, `3a50fe8`); `de69781` is an ancestor
-  of all of them. Later updates branch from `origin/main`.
+- Baseline: `origin/main` @ `3ecefd5` (merge of PR #9, this schedule file's
+  update; fetched 2026-11-16). Landing points on main, oldest first: PR #5
+  (`201526c`, batch7 line @ `684260d`), PR #2 (schedule file, `59a63e6`), PR #7
+  (updater staging, `bdab39e`), PR #4 (LED/boot localization, `dea1f2d`), PR #6
+  (display/audio backend module, `b506dbd`), PR #1 (runtime line, `3a50fe8`),
+  PR #8 (updater offline install transaction, `212a695`), and PR #9 (this
+  file, `3ecefd5`); `de69781` is an ancestor of all of them. Later updates
+  branch from `origin/main`.
 - Companion contracts already in the tree: [DEVICE-API.md](DEVICE-API.md),
   [SESSION-API.md](SESSION-API.md), [APP_STATE.md](APP_STATE.md),
   [HOOKS.md](HOOKS.md), [PAKS.md](PAKS.md). This schedule references them and
@@ -72,7 +73,9 @@ Rules:
   `PATH_MAX` for `realpath` in devserv); the updater
   manifest/signature/staging module (PR #7, `bdab39e`); the LED and boot
   localization (PR #4, `dea1f2d`); the display/audio backend module (PR #6,
-  `b506dbd`); and this schedule file (PR #2, `59a63e6`).
+  `b506dbd`); the runtime line (PR #1, `3a50fe8`); the updater offline install
+  transaction and recovery core (PR #8, `212a695`); and this schedule file
+  (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`).
 - Host-done, unpushed: the settings i18n branch (I4, `i18n/settings-pages`)
   only. The runtime line (I1) merged into main as `3a50fe8`; the updater
   staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
@@ -85,12 +88,13 @@ Rules:
   `b1ca4b5` (Feature checks push and pull_request, Development/Desktop:
   success), PR #6 head `1c539cf` (Host tests, build-linux, build-macos, tg5040
   target build: success), PR #1 combo `ae4309f` (Feature checks and
-  Development/Desktop: success per the source; it predates `b506dbd`). Main
-  landings: `201526c` full-platform packaging success and `bdab39e` success;
-  `dea1f2d` and `b506dbd` runs were still in progress at the last check — a run
-  that has not finished is never recorded as passing. Main @ `3a50fe8` has its
-  full-platform runs (Development/Desktop, Feature checks, CI) still in
-  progress at the last check.
+  Development/Desktop: success per the source; it predates `b506dbd`). PR #8
+  head `e7f30868` checks green (Host tests, build-linux, build-macos, two tg5040
+  target builds). Main landings: `201526c` full-platform packaging success,
+  `bdab39e` success, and `212a695` Feature checks success; `3ecefd5` has
+  Feature checks and Development/Desktop success with the CI device run still
+  in progress at the last check — a run that has not finished is never recorded
+  as passing.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -333,31 +337,56 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 ### P2 — Update install, startup arbitration, rollback
 
 #### U1 — Own updater build and install/activate path
-- Owner: updater follow-up thread (I6 family) or new.
-- Status: not started. `makefile` still downloads the third-party updater pak
-  and Pak Store pak.
-- Depends on: I6 format family; own updater build.
-- Delivery/verification: `makefile:41` points at this repo's updater release
-  with a build-time checksum pin; install verifies the manifest/signature
-  before unpacking and aborts keeping the current version.
-- Next: U2.
+- Owner thread: https://ampcode.com/threads/T-01a1e2db-f2aa-72c4-9880-d4b519023346
+  (updater install transaction slice; PR #8).
+- Status: offline install transaction core merged into main. PR #8
+  (`feature/updater-install-transaction`), head `e7f30868`, merged as
+  `212a695`; its checks passed (Host tests, build-linux, build-macos, two
+  tg5040 target builds) with 169/169 host tests plain and under ASan/UBSan, a
+  desktop full build, and a tg5040 cross-build (aarch64; NEEDED only
+  libz/libc). Delivered: `staged.json` re-verification before any write; full
+  candidate extraction with size/CRC/SHA/mode checks; transaction states
+  preparing/prepared/backing_up/installing/installed/committed plus
+  rolling_back/rolled_back; a candidate marker for the two-rename window; an
+  offline `recover` entry and explicit `--rollback`; one retained `.system.bak`;
+  strict platform/version/`min_system` policy; explicit target root only, with
+  no default/device write and no auto-activation.
+- Not delivered by PR #8: boot/launch activation wiring (see U2), the
+  feed/updater source switch, application installs, the production key (test
+  key only), and device install. PR #8 is not the whole update chain.
+- Depends on: I6 format family (in main).
+- Next: U2's startup recovery wiring, then the feed/source switch (U4).
 
 #### U2 — Startup arbitration
-- Owner: updater follow-up thread or new.
-- Status: not started.
-- Depends on: U1.
-- Delivery/verification: staging (.part then rename) -> verify SHA-256 and
-  platform -> pre-unpack -> `cp -a` backup to `.system.bak` -> `state=swapping`
-  -> `state=done`; boot-time arbitration restores from `.system.bak` when the
-  current tree is incomplete; host fault injection for each failure point
-  (interrupted download, failed verification, interrupted backup, power cut in
-  the swap window). Real power-cut tests need separate owner authorization.
+- Owner thread: https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
+  (startup recovery wiring; dispatched 2026-11-16, orb workspace preparing, no
+  commit yet).
+- Status: the transaction states and the offline `recover` entry are in main
+  (PR #8); the boot/launch wiring is dispatched and not started.
+- Scope: wire the existing `recover` into the real SD boot/launch path before
+  the application starts, so an interrupted update restores a consistent
+  system without depending on a possibly incomplete new `.system` tool during
+  install; the failure path must not boot a half system or form a reboot loop;
+  existing boot behavior with no transaction is preserved.
+- Boundaries: no feed/source switch/production key; no expansion into
+  automatic online updates or changes to the device's internal system; all
+  interruption/corruption/re-entry fixtures run in test root directories only
+  (no ADB, real install, sleep/POWER, or device reboot). Boot wiring may touch
+  build references, so it coordinates with the emulator-removal thread (I8) and
+  the runtime thread (I1, which changed launch before).
+- Delivery/verification: host regression plus a real tg5040 compile/CI; proven
+  behaviors: no transaction, each interruption stage, missing tool/corrupt
+  log/backup, and repeated recovery; own branch and PR, with the CI/merge
+  owner merging after checks.
 - Next: U3.
 
 #### U3 — Rollback
-- Owner: updater follow-up thread or new.
-- Status: not started.
-- Depends on: U2.
+- Owner thread: https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
+  (same wiring slice) for the boot-time restore; the updater thread owns the
+  tool-side rollback already in main.
+- Status: tool-side rollback delivered in PR #8 (`--rollback`,
+  rolling_back/rolled_back states, one retained `.system.bak`); automatic
+  restore through boot arbitration awaits the U2 wiring.
 - Delivery/verification: automatic restore from `.system.bak` via arbitration
   plus a feed entry for the previous compatible version for user-initiated
   downgrade through the same flow.
@@ -524,6 +553,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e2d5-d596-70f5-87bb-4925f7d2f420
 - Built-in emulator removal thread:
   https://ampcode.com/threads/T-01a1e307-1d43-738e-b40a-56417f8ba038
+- Updater install transaction thread:
+  https://ampcode.com/threads/T-01a1e2db-f2aa-72c4-9880-d4b519023346
+- Startup recovery wiring thread:
+  https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
 
 ## Maintenance
 
@@ -534,13 +567,10 @@ as they happen; nothing is reported as passing without a run.
 
 ## Delivery of this file
 
-- This file is on `main`: PR #2 (https://github.com/4fuu/NextUI/pull/2) was
-  retargeted to `main` and merged as `59a63e6`. Later schedule updates branch
-  from `origin/main` and open a pull request into `main`; the CI/merge owner
-  merges after checks pass. This thread performs no merges itself.
-- The current update travels on branch `docs/schedule-update` (merged with
-  `origin/main` @ `3a50fe8`, merge commit, no history rewrite) and is delivered
-  as pull request #9 (https://github.com/4fuu/NextUI/pull/9), head
-  `05778f1fd113ab2f5a848e4d80fdeedad7bdb1b0`, state OPEN and mergeable. Its
-  Feature checks and Development/Desktop runs were in progress at the last
-  check; a job that has not finished is never recorded as passing.
+- This file is on `main`: PR #2 merged as `59a63e6`, updated by PR #9
+  (https://github.com/4fuu/NextUI/pull/9) merged as `3ecefd5`. Later schedule
+  updates branch from `origin/main` and open a pull request into `main`; the
+  CI/merge owner merges after checks pass. This thread performs no merges
+  itself.
+- The current update travels on branch `docs/schedule-update-2` (based on
+  `origin/main` @ `3ecefd5`).
