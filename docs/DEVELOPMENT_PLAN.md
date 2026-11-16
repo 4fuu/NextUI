@@ -113,18 +113,13 @@ Rules:
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
-- Host-done, unpushed: none. Open at the last check: PR #32 (U9 system update
-  install UI, branch `feature/sysupdate-ui`), head
-  `7b27adf22aa48ba1f28dee448cb8428cecdbd19f` (supersedes
-  `c629f848a7cd007c982706229fbc2df9213aa0bd`; it fixes two review-blocking
-  defects -- a UI freeze from a non-dismissible overlay starving the
-  deferred-submenu dispatch, and mislabeled failure states in the error
-  mapper -- and adds a real top-level-menu freeze regression plus two
-  `mapError` controller tests), OPEN,
-  MERGEABLE and CLEAN per gh; CI at this head is green per gh (Feature checks
-  push and pull_request, Development/Desktop) and the source reports Host
-  tests green as well. It is still not merged: the merge owner's incremental
-  re-review on this head is awaited, so nothing is recorded as review-passed. PR #33 (branch `ci/update-package-content`, "Add the
+- Host-done, unpushed: none. Open at the last check: PR #35 (the System Update
+  page's zh follow-up, branch `i18n/sysupdate-zh`), head
+  `13d079e66a9180d011d83d9415c24ff3fd005fa2`, base main, OPEN, MERGEABLE and
+  CLEAN per gh, with CI green on that head per gh (Feature checks push and
+  pull_request, Development/Desktop); it adds 34 append-only zh entries in
+  `i18n.c` with keys distinct from I4's merged entries, needs no new font
+  characters, and awaits the merge owner's review and merge. PR #33 (branch `ci/update-package-content`, "Add the
   tg5040 update package content check to Feature checks") is open at head
   `c2377db077f4fbf6dacd17c1320ad6e5f54c7c79`, OPEN and MERGEABLE per gh; it is
   the test-only package-content CI job that was only proposed before. CI at
@@ -161,7 +156,14 @@ Rules:
   fixture test has since landed as PR #34. PR #30 merged into main as
   `d25543b4b21db9e368fdc8c80fb8dece03a93b57` (2026-11-16T11:55:57Z per gh,
   final head `a51da4b`), and the post-merge runs on `d25543b` (Feature checks,
-  Development/Desktop, and CI) are success per gh. PR #34 (I4 fifth slice: the
+  Development/Desktop, and CI) are success per gh. PR #32 (U9 system update
+  install UI, branch `feature/sysupdate-ui`) merged into main as
+  `64540a7d52f8f2a01ebd42bf08eb47d9c5c31874` (2026-11-16T12:49:33Z per gh);
+  the merged head `e82f8c4354dccc59c8d745a91fed93c149e1af90` is a normal merge
+  of `a6f507f` into the branch, above the `7b27adf` head that fixed two
+  review-blocking defects (the non-dismissible overlay UI freeze and the
+  mislabeled failure states); the post-merge runs on `64540a7` (Feature
+  checks, Development/Desktop, and CI) are all success per gh. PR #34 (I4 fifth slice: the
   System, Display and FN switch Off/On rows in Chinese, plus the in-repo
   i18n fixture value test, branch `i18n/on-off-labels`, final head
   `a6cb5c228975fb35659d6e66b7204b736cd7e2d9`) merged into main as
@@ -1269,11 +1271,11 @@ as they happen; nothing is reported as passing without a run.
   a pull request into `main`; the CI/merge owner merges after checks pass. This
   thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because real tasks changed (the I4 fifth slice merged as PR #34 at
-  `a6f507f` with the in-repo i18n fixture value test, PR #27 and PR #30 merged into main with
-  green post-merge runs, the U9 system update install UI advanced to PR #32
-  head `7b27adf2` after two review-blocking fixes, and the package
-  content CI job opened as PR #33), not because a docs head moved. The previous
+  because real tasks changed (PR #32 merged into main as `64540a7` with all
+  post-merge runs green, the System Update page's zh follow-up opened as
+  PR #35, the I4 fifth slice merged as PR #34 at `a6f507f` with the in-repo
+  i18n fixture value test, and the package content CI job opened as PR #33),
+  not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
 - The current update travels on the branch `docs/schedule-update-11` cut from
