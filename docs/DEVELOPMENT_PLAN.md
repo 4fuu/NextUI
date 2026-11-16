@@ -552,7 +552,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   install; the application store source is the user's choice and is not chosen
   here; interrupted downloads must not leave a usable staged package;
   language/version/platform/`min_system` and error feedback stay consistent.
-  The `.tmp_update` refresh and the install UI remain undelivered.
+  The `.tmp_update` refresh (now tracked as U7, owner thread T-01a1e3a0) and
+  the install UI remain undelivered.
 - Depends on: I6 manifest/signature/staging (in main), U1 transaction (in
   main), and the X1 feed contract.
 - Next: U5 (signature policy and key custody) once the owner decides key
@@ -580,6 +581,29 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   READMEs point at this repo's documentation entry; NOTICE and the upstream
   issue reference stay as historical attribution.
 - Next: none (closes the update chain).
+
+#### U7 — `.tmp_update` payload sync (boot recovery tool refresh)
+- Owner thread: https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
+  (dispatched 2026-11-16 after PR #17 merged; the next open gap in the update
+  chain).
+- Status: dispatched, not started.
+- Scope: signed-package-driven, interruptible-recovery payload synchronization
+  and the packaging contract, so the `.tmp_update` area (today refreshed only
+  by the legacy MinUI.zip/bootstrap path) can be refreshed by this repo's own
+  signed packages. The old transaction record schema and the independent
+  recovery tools stay working: before any refresh ships, the schema must stay
+  compatible with existing recovery tools or gain a fallback, or old devices
+  refuse to boot until a manual payload refresh (long-term constraint carried
+  from U1).
+- Depends on: U1 transaction and U2 boot-time recovery (both in main), U4 feed
+  (merged into main), and the X1 feed contract.
+- Delivery/verification: payload sync verified in isolated test roots with
+  interrupted and resumed runs; no real-device boot or power-cut claim; no
+  publish/deploy; production feed/signing key and the install UI are separate
+  undelivered items and are not prerequisites for this task's host-level
+  verification.
+- Next: the install UI (a separate slice); production feed/signing key custody
+  stays with the owner decision (U5).
 
 ### P3 — Full UI translation remainder
 
@@ -722,8 +746,12 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e317-ed14-701d-8e4f-5c9548396d7b
 - System update check (feed/check/download staging) thread:
   https://ampcode.com/threads/T-01a1e35b-67b7-7425-aee1-a24f677db613
+  (archived 2026-11-16 after PR #17 merged; evidence retained)
 - Independent review thread for the U4 feed block: `T-01a1e380` (full URL to be
-  filled in once confirmed)
+  filled in once confirmed; archived 2026-11-16 with the PASS evidence
+  retained)
+- `.tmp_update` payload sync thread:
+  https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
   in once confirmed; ran the exact libsamplerate co-render regression on main
   `1d9aea2` with `a6-host-adapter` @
