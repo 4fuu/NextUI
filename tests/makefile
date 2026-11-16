@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh test-session test-session-e2e test-led-i18n test-boot-strings test-led-render test-show2-render clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-led-profile test-led-refresh test-session test-session-e2e test-updater test-led-i18n test-boot-strings test-led-render test-show2-render clean
 
-test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-session test-led-i18n test-boot-strings
+test: test-fn test-text test-manifest test-i18n test-app-state test-app-capabilities test-device test-led test-session test-updater test-led-i18n test-boot-strings
 
 # The render proofs drive the real binaries headless (SDL dummy video driver
 # plus an LD_PRELOAD capture shim), which is Linux-only; CI's host job is
@@ -56,6 +56,9 @@ test-session:
 
 test-session-e2e:
 	../workspace/all/common/tests/run_session_e2e_test.sh
+
+test-updater:
+	../workspace/all/nextupd/tests/run_tests.sh
 
 # Localization module tests (LedControl pak + boot splash wiring). They are
 # self-contained: the two shell tests only need the host SDL headers the other
