@@ -79,30 +79,35 @@ jobs:
           # nextupd build needs a writable build directory.
           sudo mkdir -p workspace/all/nextupd/build/desktop
           sudo chown -R "$(id -u):$(id -g)" workspace/all/nextupd/build
-          make update-package PLATFORM=tg5040 UPDATE_VERSION=v0.0.0-ci
+          make update-package PLATFORM=tg5040 UPDATE_VERSION=v0.0.0
 
+      # The content contract on the archive this job built: exact roots, the
+      # device layout, executable boot tools, and every shared resource file
+      # with its hash against skeleton/SYSTEM/res. Directory entries in the ZIP
+      # are not files and do not count toward the 68 resources.
       - name: Verify package content
         run: |
-          archive=releases/nextui-system-tg5040.zip
-          unzip -l "$archive"
-          unzip -Z1 "$archive" | cut -d/ -f1 | sort -u > roots.txt
-          echo "roots: $(tr '\n' ' ' < roots.txt)"
-          test "$(wc -l < roots.txt)" -eq 2
-          grep -qx '.system' roots.txt
-          grep -qx '.tmp_update' roots.txt
-          if unzip -Z1 "$archive" | grep -qE '^(Tools|Roms|Saves)/'; then
-            echo "archive carries a root the installer refuses" >&2
-            exit 1
-          fi
-          for boot in updater nextupd-recover.sh tg5040.sh tg5040/nextupd.elf; do
-            unzip -Z1 "$archive" | grep -qx ".tmp_update/$boot" || exit 1
-          done
-          for res in font3.ttf background.png assets.svg licenses; do
-            unzip -Z1 "$archive" | grep -q "^\.system/res/$res" || exit 1
-          done
-          test "$(unzip -Z1 "$archive" | grep -c '^\.system/res/')" -ge 60
-          test "$(unzip -Z1 "$archive" | grep -c '^\.system/tg5040/')" -ge 20
-          unzip -p "$archive" .system/version.txt | grep -qx 'v0.0.0-ci'
+          python3 scripts/verify_update_package.py \
+            --archive releases/nextui-system-tg5040.zip \
+            --platform tg5040 \
+            --version v0.0.0 \
+            --res-source skeleton/SYSTEM/res \
+            --expect-res-count 68
+
+      # A content check that accepts everything would pass the step above, so
+      # each defect is injected into a copy of the real archive and must be
+      # rejected: a missing boot tool, a non-executable boot tool, a missing or
+      # changed resource, a wrong layout, a missing launcher, and a bootstrap
+      # root the installer refuses.
+      - name: Verify the content check rejects defective packages
+        run: |
+          python3 tests/verify_update_package_negative_test.py \
+            --archive releases/nextui-system-tg5040.zip \
+            --verifier scripts/verify_update_package.py \
+            --platform tg5040 \
+            --version v0.0.0 \
+            --res-source skeleton/SYSTEM/res \
+            --expect-res-count 68
 
       - name: Upload target binaries
         uses: actions/upload-artifact@v7.0.2

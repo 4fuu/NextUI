@@ -147,12 +147,20 @@ required.
 
 ## Continuous integration
 
-`test.yaml`'s `tg5040 target build` job packages a real tg5040 tree with this
-target and asserts the archive content: exactly the `.system` and `.tmp_update`
-roots, no `Tools/`/`Roms/`/`Saves/`, the boot contract files, a populated
-`.system/res`, and the placeholder `version.txt`. It is unsigned and publishes
-nothing; the release source, feed configuration and production signing key stay
-owner decisions. Nothing here installs to a device.
+`test.yaml`'s `tg5040 target build` job packages a real tg5040 tree with a
+legal `v0.0.0` placeholder and verifies the archive with
+`scripts/verify_update_package.py`: exactly the `.system` and `.tmp_update`
+roots, no `Tools/`/`Roms/`/`Saves/` (or `Emus/`, `minarch/`, `cores/`); the boot
+contract files, with `.tmp_update/tg5040/nextupd.elf` at 0755; the device layout
+(`.system/tg5040/bin/nextui.elf` and `paks/MinUI.pak/launch.sh`); and every one
+of the 68 shared `.system/res` files with its SHA-256 against
+`skeleton/SYSTEM/res`. ZIP directory entries are excluded from the file counts.
+`tests/verify_update_package_negative_test.py` then injects a missing boot tool,
+a 0644 boot tool, a missing and a changed resource, a wrong layout, a missing
+launcher and a `Tools/` root into copies of that archive and requires the check
+to reject each one. The archive is unsigned and publishes nothing; the release
+source, feed configuration and production signing key stay owner decisions.
+Nothing here installs to a device.
 
 ## Not included
 
