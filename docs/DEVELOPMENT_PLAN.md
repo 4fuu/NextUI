@@ -6,10 +6,11 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `a6f507f` (merge of PR #34, the Off/On labels slice and the in-repo
-  i18n fixture value test; below it PR #30 the About page Unknown zh entry,
-  which also carries PR #27 the transactional update package build and PR #29
-  the I9 settings abnormal-data fixes; fetched 2026-11-16).
+  rule): `64540a7` (merge of PR #32, the System Update install UI; below it
+  PR #34 the Off/On labels slice and the in-repo i18n fixture value test,
+  PR #30 the About page Unknown zh entry -- which also carries PR #27 the
+  transactional update package build -- and PR #29 the I9 settings
+  abnormal-data fixes; fetched 2026-11-16).
   Docs-only main heads do not move this baseline; the last
   docs-only tip was `8e4f744` (merge of PR #28). Landing points on
   main, oldest first: PR #5
@@ -108,7 +109,8 @@ Rules:
   abnormal-data fixes (PR #29, `5de96d2`); the transactional update package
   build (PR #27, `0239203`); the About page Unknown zh entry (PR #30,
   `d25543b`); the Off/On labels slice with the in-repo i18n fixture value
-  test (PR #34, `a6f507f`); this schedule file (PR #28,
+  test (PR #34, `a6f507f`); the System Update install UI (PR #32, `64540a7`);
+  this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #32 (U9 system update
@@ -1014,19 +1016,20 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner thread: https://ampcode.com/threads/T-01a1e400-3b99-7794-9cf1-ad8cb5433bbc
   (running, Step Medium; dispatched 2026-11-16 after PR #29 merged; the merge
   owner released it at 11:10 to continue from main `5de96d2`).
-- Status: delivered and pushed; not merged. PR #32
-  (https://github.com/4fuu/NextUI/pull/32, branch `feature/sysupdate-ui`), head
-  `7b27adf22aa48ba1f28dee448cb8428cecdbd19f` (supersedes
-  `c629f848a7cd007c982706229fbc2df9213aa0bd`; the branch stays a normal merge
-  of `origin/main` `d25543b`, which carries PR #27 packaging and PR #30
-  Unknown wiring, with no rebase/force), OPEN, MERGEABLE and CLEAN per gh.
-  CI at this head is green per gh (Feature checks push and pull_request,
-  Development/Desktop); the source reports Host tests green as well. This head
-  fixes two review-blocking defects found at `c629f848`: a UI freeze from a
+- Status: merged into main; not device-verified. PR #32
+  (https://github.com/4fuu/NextUI/pull/32, branch `feature/sysupdate-ui`),
+  merged into main as `64540a7d52f8f2a01ebd42bf08eb47d9c5c31874`
+  (2026-11-16T12:49:33Z per gh); the merged head
+  `e82f8c4354dccc59c8d745a91fed93c149e1af90` is a normal merge of
+  `origin/main` `a6f507f` into the branch with no rebase/force, above the
+  `7b27adf22aa48ba1f28dee448cb8428cecdbd19f` head that fixed two
+  review-blocking defects found at `c629f848` (a UI freeze from a
   non-dismissible overlay starving the deferred-submenu dispatch, and
-  mislabeled failure states in the error mapper. It is still not merged -- the
-  merge owner's incremental re-review on this head is awaited, so no
-  review-passed state is recorded. This is not "the product has it" yet.
+  mislabeled failure states in the error mapper). The post-merge runs on
+  `64540a7` (Feature checks, Development/Desktop, and CI) are all success per
+  gh. The merge owner performed the merge; no separate review-passed report
+  reached this schedule, so only the merge and CI facts are recorded. This is
+  still not a device pass: no install-UI run on real hardware.
 - Delivered: a self-contained System Update page in the settings app wiring
   only the existing nextupd feed/fetch/signature-verified staging plus
   user-initiated install (no PR #27 artifacts); an SDL-free Controller
@@ -1064,15 +1067,28 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   device-run acceptance: PR #32's default tool path matches the real package,
   which still says nothing about running on hardware.
 - Not delivered: the real feed and the production trusted key are
-  owner-provisioned; the zh translations for all new page strings stay with
-  the U9 source as an append-only follow-up on a fresh branch after PR #32
-  merges, aligning the `i18n.c` keys with PR #30 (this responsibility is not
-  transferred to I4); real-device boot is out of scope. No
+  owner-provisioned; real-device boot is out of scope. No
   device, real root, reboot, publish, or production key.
+- zh follow-up (the U9 source's own scope, not transferred to I4): delivered
+  and open as PR #35 (https://github.com/4fuu/NextUI/pull/35, branch
+  `i18n/sysupdate-zh`), head `13d079e66a9180d011d83d9415c24ff3fd005fa2`, base
+  main, OPEN, MERGEABLE and CLEAN per gh, with CI green on that head per gh
+  (Feature checks push and pull_request, Development/Desktop). It adds 34
+  append-only zh entries in `i18n.c` for every new page string (menu entry and
+  hint, Current version and Status rows, Check/Download/Install buttons and
+  their hints, in-flight prompts, and all status/error states); the keys are
+  distinct from I4's merged entries, no new font characters are needed (all
+  covered by `font3.ttf`, no rebuild), and `menu`/`version`/packaging are
+  untouched. Evidence: `test-i18n`, `test-i18n-fixture` (value multiset),
+  `test-i18n-width` (FONT_TINY fit), and actual zh render screenshots
+  (labels, buttons, and a live status). It awaits the merge owner's review
+  and merge; if PR #33's fix moves main, the source normal-merges.
 - Depends on: U4 feed (in main), U1 transaction (in main), U7 boot payload sync
   (in main), and the I9 settings fixes (in main).
-- Next: the merge owner reviews and merges PR #32; after the merge the source
-  opens the zh branch for the new page's strings.
+- Next: PR #32 is merged, so the remaining follow-ups are packaging-only (the
+  `nextupd.elf` boot-payload copy is verified present in the real package)
+  plus the zh follow-up PR #35 awaiting the merge owner, and any
+  owner-provisioned production feed/key.
 
 ### P3 — Full UI translation remainder
 
