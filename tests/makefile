@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-settings test-led-render test-show2-render test-sysupdate clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-settings test-led-render test-show2-render test-update-package test-sysupdate clean
 
-test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings test-settings test-sysupdate
+test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings test-settings test-update-package test-sysupdate
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -74,6 +74,11 @@ test-session-e2e:
 
 test-updater:
 	../workspace/all/nextupd/tests/run_tests.sh
+
+# Transactional update package build output: packaging script contract plus a
+# real nextupd check/stage/install/recover cycle on isolated roots.
+test-update-package:
+	./run_update_package_test.sh
 
 # Localization module tests (LedControl pak + boot splash wiring). They are
 # self-contained: the two shell tests only need the host SDL headers the other
