@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "fn_action.h"
+
 // portability, deprecated
 extern uint32_t THEME_COLOR1_255;
 extern uint32_t THEME_COLOR2_255;
@@ -86,10 +88,9 @@ enum {
 // not per-device: which of them a given device actually exposes is a UI question.
 #define FN_BUTTON_COUNT 3
 
-// Prefix for the "launch a Tools pak" action, followed by a path relative to
-// Tools/<PLATFORM> (e.g. "pak:Bootlogo.pak"). The platform dir is resolved at launch
-// time rather than stored, so settings stay portable when a card moves between devices.
-#define FN_ACTION_PAK_PREFIX "pak:"
+// FN action kinds (pak:/home/overlay/none) are defined in fn_action.h. The
+// platform dir for "pak:" is resolved at launch time rather than stored, so
+// settings stay portable when a card moves between devices.
 
 // Input hint styles
 enum {
@@ -104,6 +105,8 @@ typedef struct
 	// Theme
 	char fontFile[256];
 	int fontStyle; // 0x00 = TTF_STYLE_NORMAL, 0x01 = TTF_STYLE_BOLD, etc.
+	bool fontExplicit; // true once the user picked a font; language defaults must not override it
+	char language[8]; // "en" (default) or "zh"; invalid persisted values fall back to "en"
 	uint32_t color1_255; // not screen mapped
 	uint32_t color2_255; // not screen mapped
 	uint32_t color3_255; // not screen mapped
@@ -145,7 +148,8 @@ typedef struct
 	bool muteLeds;
 
 	// User-assignable buttons (see BTN_FN1/BTN_FN2/BTN_FN3 in platform.h).
-	// Action strings, "" == unassigned. See CFG_getFnAction().
+	// Action strings; legacy "" falls back to the per-slot default and
+	// "none" is an explicit unassignment. See CFG_getEffectiveFnAction().
 	char fnAction[FN_BUTTON_COUNT][256];
 
 	// Power
@@ -200,7 +204,9 @@ typedef struct
 #define TRANSITION_COMFY  2
 
 #define CFG_DEFAULT_FONT_FILE "font1.ttf"  // Next
+#define CFG_LANGUAGE_DEFAULT_FONT_FILE "font3.ttf" // Chinese UI default; missing -> CFG_DEFAULT_FONT_FILE
 #define CFG_DEFAULT_FONT_STYLE 0x01 // TTF_STYLE_BOLD (MinUI default)
+#define CFG_DEFAULT_LANGUAGE "en"
 #define CFG_DEFAULT_COLOR1 0xffffffffU
 #define CFG_DEFAULT_COLOR2 0x9b2257ffU
 #define CFG_DEFAULT_COLOR3 0x1e2329ffU
@@ -237,7 +243,7 @@ typedef struct
 #define CFG_DEFAULT_STATEFORMAT STATE_FORMAT_SAV
 #define CFG_DEFAULT_EXTRACTEDFILENAME false
 #define CFG_DEFAULT_MUTELEDS false
-#define CFG_DEFAULT_FN_ACTION "" // unassigned
+#define CFG_DEFAULT_FN_ACTION "" // unset: use the per-slot default in fnActionDefault()
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_WIFI false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
@@ -283,14 +289,21 @@ void CFG_init(FontLoad_callback_t fontCallback, ColorSet_callback_t ccb);
 void CFG_print(void);
 void CFG_get(const char *key, char * value);
 // void CFG_defaults(NextUISettings*);
-// The font filename to use as the UI font.
-// Built-in: "font1.ttf" (Next, default), "font2.ttf" (OG)
-// Custom fonts go in RES_PATH alongside built-in fonts.
+// The active font filename. When the user has not chosen one explicitly this
+// follows the language: font3.ttf for zh, font1.ttf for en. Missing language
+// fonts fall back to font1.ttf. Built-in: "font1.ttf" (Next), "font2.ttf" (OG);
+// custom fonts also live in RES_PATH.
 const char* CFG_getFontFile(void);
+// Choose a font explicitly, or pass NULL/"" to return to the language default.
+// An explicit choice is persisted and survives language changes.
 void CFG_setFontFile(const char* filename);
 // The font style to use for the UI font.
 int CFG_getFontStyle(void);
 void CFG_setFontStyle(int style);
+// The UI language: "en" or "zh". Anything else (including a missing or
+// corrupted persisted value) is normalized to "en".
+const char* CFG_getLanguage(void);
+void CFG_setLanguage(const char* language);
 // The colors to use for the UI. These are packed 0xRRGGBBAA values.
 // 0 - Color1 (primary hint/asset colour)
 // 1 - Color2 (accent colour)
@@ -386,14 +399,16 @@ void CFG_setUseExtractedFileName(bool);
 // Enable/disable mute also shutting off LEDs.
 bool CFG_getMuteLEDs(void);
 void CFG_setMuteLEDs(bool);
-// The action bound to a user-assignable button, where `index` is 0 (FN1), 1 (FN2) or
-// 2 (FN3, the "HOME" button).
-// The value is a "<kind>:<arg>" action string so more kinds can be added later without
-// migrating existing settings; "" means unassigned. The only kind today is
-// FN_ACTION_PAK_PREFIX. Callers must ignore kinds they don't recognise, so a card
-// configured on a newer build degrades to "does nothing" on an older one.
+// The raw action stored for a user-assignable button, where `index` is 0 (FN1),
+// 1 (FN2) or 2 (FN3, the "HOME" button). Legacy cards may contain "" here; use
+// CFG_getEffectiveFnAction() when deciding what the button should do.
 // Returns "" for an out of range index.
 const char* CFG_getFnAction(int index);
+// As above, but falls back to the per-slot built-in default when the stored
+// value is empty: FN1 unassigned, FN2 "home", FN3 "overlay". An explicit "none"
+// is preserved. Callers still route the result through fnActionDispatch() so
+// actions that do not apply to the current scope are no-ops.
+const char* CFG_getEffectiveFnAction(int index);
 void CFG_setFnAction(int index, const char* action);
 // Set game art width percentage.
 double CFG_getGameArtWidth(void);

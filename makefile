@@ -77,6 +77,11 @@ endif
 	make build-core -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true CORE=$(CORE)
 
 system:
+ifeq ($(PLATFORM), desktop)
+	# A host header can already be installed while the local .so is missing, so
+	# the per-binary header prerequisites alone do not guarantee this file exists.
+	make -f $(TOOLCHAIN_FILE) libmsettings PLATFORM=$(PLATFORM) COMPILE_CORES=
+endif
 	make -f ./workspace/$(PLATFORM)/platform/makefile.copy PLATFORM=$(PLATFORM)
 	
 	# populate system
@@ -100,6 +105,9 @@ endif
 	cp ./workspace/all/nextui/build/$(PLATFORM)/nextui.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/minarch/build/$(PLATFORM)/minarch.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/nextval/build/$(PLATFORM)/nextval.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/nextstate/build/$(PLATFORM)/nextstate.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/devserv/build/$(PLATFORM)/devserv.elf ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/nextdev/build/$(PLATFORM)/nextdev.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/$(PLATFORM)/Clock.pak/
 	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
 	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/EXTRAS/Tools/$(PLATFORM)/Settings.pak/

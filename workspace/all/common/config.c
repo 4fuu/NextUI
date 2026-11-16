@@ -33,6 +33,8 @@ void CFG_defaults(NextUISettings *cfg)
     NextUISettings defaults = {
         .fontFile = CFG_DEFAULT_FONT_FILE,
         .fontStyle = CFG_DEFAULT_FONT_STYLE,
+        .fontExplicit = false,
+        .language = CFG_DEFAULT_LANGUAGE,
         .color1_255 = CFG_DEFAULT_COLOR1,
         .color2_255 = CFG_DEFAULT_COLOR2,
         .color3_255 = CFG_DEFAULT_COLOR3,
@@ -64,8 +66,6 @@ void CFG_defaults(NextUISettings *cfg)
         .gameSwitcherCurtain = CFG_DEFAULT_GAMESWITCHER_CURTAIN,
 
         .muteLeds = CFG_DEFAULT_MUTELEDS,
-
-        .fnAction = {CFG_DEFAULT_FN_ACTION, CFG_DEFAULT_FN_ACTION, CFG_DEFAULT_FN_ACTION},
 
         .screenTimeoutSecs = CFG_DEFAULT_SCREENTIMEOUTSECS,
         .suspendTimeoutSecs = CFG_DEFAULT_SUSPENDTIMEOUTSECS,
@@ -107,6 +107,14 @@ void CFG_defaults(NextUISettings *cfg)
     };
 
     *cfg = defaults;
+
+    // Keep the defaults in one place so the stored value and the legacy-empty
+    // fallback can never disagree.
+    for (int i = 0; i < FN_BUTTON_COUNT; i++) {
+        const char* action = fnActionDefault(i);
+        strncpy(cfg->fnAction[i], action, sizeof(cfg->fnAction[i]) - 1);
+        cfg->fnAction[i][sizeof(cfg->fnAction[i]) - 1] = '\0';
+    }
 }
 
 static inline uint32_t parseHexColor(const char *hexColor) {
@@ -137,6 +145,77 @@ uint32_t CFG_parseHexColor(const char *hexColor)
     return parseHexColor(hexColor);
 }
 
+// Accepts "en" and "zh" case-insensitively, including region tags such as
+// "zh-CN" or "en-US". Anything else falls back to English so a corrupted or
+// newer settings value can never leave the UI without a usable language.
+static const char* normalizeLanguage(const char *value)
+{
+    if (!value || !value[0])
+        return CFG_DEFAULT_LANGUAGE;
+
+    while (*value && isspace((unsigned char)*value))
+        value++;
+
+    char first = (char)tolower((unsigned char)value[0]);
+    char second = value[1] ? (char)tolower((unsigned char)value[1]) : '\0';
+
+    if (first == 'z' && second == 'h' &&
+        (value[2] == '\0' || value[2] == '-' || value[2] == '_' || isspace((unsigned char)value[2])))
+        return "zh";
+
+    if (first == 'e' && second == 'n' &&
+        (value[2] == '\0' || value[2] == '-' || value[2] == '_' || isspace((unsigned char)value[2])))
+        return "en";
+
+    return CFG_DEFAULT_LANGUAGE;
+}
+
+// Update the persisted value without writing it back. Used while parsing the
+// settings file, where the file is still open for reading.
+static void setLanguageRaw(const char *value)
+{
+    const char *normalized = normalizeLanguage(value);
+    strncpy(settings.language, normalized, sizeof(settings.language) - 1);
+    settings.language[sizeof(settings.language) - 1] = '\0';
+}
+
+// The font used when the user has not made an explicit choice.
+static const char* languageDefaultFont(void)
+{
+    if (strcmp(settings.language, "zh") == 0)
+        return CFG_LANGUAGE_DEFAULT_FONT_FILE;
+    return CFG_DEFAULT_FONT_FILE;
+}
+
+static void setFontFileRaw(const char *filename)
+{
+    const char *chosen = (filename && filename[0]) ? filename : languageDefaultFont();
+    strncpy(settings.fontFile, chosen, sizeof(settings.fontFile) - 1);
+    settings.fontFile[sizeof(settings.fontFile) - 1] = '\0';
+}
+
+// Resolve settings.fontFile to a file that exists and hand it to the loader.
+// This intentionally does not touch fontExplicit: a missing language font is a
+// runtime fallback, not a user choice.
+static void loadFontFile(void)
+{
+    char fontPath[512];
+    snprintf(fontPath, sizeof(fontPath), "%s/%s", RES_PATH, settings.fontFile);
+
+    if (access(fontPath, F_OK) != 0)
+    {
+        if (strcmp(settings.fontFile, CFG_LANGUAGE_DEFAULT_FONT_FILE) == 0)
+            printf("[CFG] missing %s for language '%s', falling back to %s\n",
+                   settings.fontFile, CFG_getLanguage(), CFG_DEFAULT_FONT_FILE);
+
+        snprintf(settings.fontFile, sizeof(settings.fontFile), "%s", CFG_DEFAULT_FONT_FILE);
+        snprintf(fontPath, sizeof(fontPath), "%s/%s", RES_PATH, settings.fontFile);
+    }
+
+    if (settings.onFontChange)
+        settings.onFontChange(fontPath);
+}
+
 // Defined below, alongside the rest of the palette-name accessors.
 static void setPaletteNameRaw(const char *name);
 
@@ -146,6 +225,8 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
     settings.onFontChange = cb;
     settings.onColorSet = ccb;
     bool fontLoaded = false;
+    bool fontExplicitSeen = false;
+    bool fontExplicitValue = false;
 
     char settingsPath[MAX_PATH];
     sprintf(settingsPath, "%s/minuisettings.txt", SHARED_USERDATA_PATH);
@@ -164,15 +245,28 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
             if (strncmp(line, "font=", 5) == 0)
             {
                 char *value = line + 5;
-                value[strcspn(value, "\n")] = 0;
+                value[strcspn(value, "\r\n")] = 0;
                 // backward compat: "0" -> font2.ttf, "1" -> font1.ttf
                 if (strcmp(value, "0") == 0)
-                    CFG_setFontFile("font2.ttf");
+                    setFontFileRaw("font2.ttf");
                 else if (strcmp(value, "1") == 0)
-                    CFG_setFontFile("font1.ttf");
+                    setFontFileRaw("font1.ttf");
                 else
-                    CFG_setFontFile(value);
+                    setFontFileRaw(value);
                 fontLoaded = true;
+                continue;
+            }
+            if (sscanf(line, "fontExplicit=%i", &temp_value) == 1)
+            {
+                fontExplicitSeen = true;
+                fontExplicitValue = temp_value != 0;
+                continue;
+            }
+            if (strncmp(line, "lang=", 5) == 0)
+            {
+                char *value = line + 5;
+                value[strcspn(value, "\r\n")] = 0;
+                setLanguageRaw(value);
                 continue;
             }
             if (strncmp(line, "palette=", 8) == 0)
@@ -512,7 +606,8 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
             }
             if (sscanf(line, "fontStyle=%i", &temp_value) == 1)
             {
-                CFG_setFontStyle(temp_value);
+                // Apply later, after the language and font choice are known.
+                settings.fontStyle = clamp(temp_value, 0x00, 0x01);
                 continue;
             }
             if (sscanf(line, "gameSwitcherCurtain=%i", &temp_value) == 1)
@@ -529,6 +624,24 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
         fclose(file);
     }
 
+    // Normalize the default or a missing value as well, so CFG_getLanguage()
+    // always returns a value the rest of the UI can compare against.
+    setLanguageRaw(settings.language);
+
+    // Old settings files have no fontExplicit marker. Preserve a non-default
+    // font as an explicit choice, but treat the default font1 as "auto" so a
+    // language switch can pick font3 for zh. New writes always include the
+    // marker, so this migration only runs once.
+    if (fontExplicitSeen)
+        settings.fontExplicit = fontExplicitValue;
+    else if (fontLoaded)
+        settings.fontExplicit = strcmp(settings.fontFile, CFG_DEFAULT_FONT_FILE) != 0;
+    else
+        settings.fontExplicit = false;
+
+    if (!settings.fontExplicit)
+        setFontFileRaw(NULL);
+
     // load gfx related stuff until we drop the indirection
     CFG_setColor(1, CFG_getColor(COLOR_MAIN));
     CFG_setColor(2, CFG_getColor(COLOR_ACCENT));
@@ -537,9 +650,9 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
     CFG_setColor(5, CFG_getColor(COLOR_LIST_TEXT_SELECTED));
     CFG_setColor(6, CFG_getColor(COLOR_HINT));
     CFG_setColor(7, CFG_getColor(COLOR_BACKGROUND));
-    // avoid reloading the font if not neccessary
-    if (!fontLoaded)
-        CFG_setFontFile(CFG_getFontFile());
+
+    // Load the resolved font once, after language and explicit-choice parsing.
+    loadFontFile();
 }
 
 const char* CFG_getFontFile(void)
@@ -549,27 +662,22 @@ const char* CFG_getFontFile(void)
 
 void CFG_setFontFile(const char* filename)
 {
-    if (!filename || !filename[0]) {
-        strncpy(settings.fontFile, CFG_DEFAULT_FONT_FILE, sizeof(settings.fontFile) - 1);
-        settings.fontFile[sizeof(settings.fontFile) - 1] = '\0';
-    } else {
-        strncpy(settings.fontFile, filename, sizeof(settings.fontFile) - 1);
-        settings.fontFile[sizeof(settings.fontFile) - 1] = '\0';
-    }
+    bool explicitChoice = filename && filename[0];
+    settings.fontExplicit = explicitChoice;
+    setFontFileRaw(explicitChoice ? filename : NULL);
+    loadFontFile();
+    CFG_sync();
+}
 
-    // resolve full path: all fonts live in RES_PATH
-    char fontPath[512];
-    snprintf(fontPath, sizeof(fontPath), "%s/%s", RES_PATH, settings.fontFile);
+const char* CFG_getLanguage(void)
+{
+    return settings.language[0] ? settings.language : CFG_DEFAULT_LANGUAGE;
+}
 
-    // fall back to default if file doesn't exist
-    if (access(fontPath, F_OK) != 0) {
-        strncpy(settings.fontFile, CFG_DEFAULT_FONT_FILE, sizeof(settings.fontFile) - 1);
-        settings.fontFile[sizeof(settings.fontFile) - 1] = '\0';
-        snprintf(fontPath, sizeof(fontPath), "%s/%s", RES_PATH, settings.fontFile);
-    }
-
-    if (settings.onFontChange)
-        settings.onFontChange(fontPath);
+void CFG_setLanguage(const char* language)
+{
+    setLanguageRaw(language);
+    CFG_sync();
 }
 
 uint32_t CFG_getColor(int color_id)
@@ -943,6 +1051,11 @@ const char* CFG_getFnAction(int index)
     return settings.fnAction[index];
 }
 
+const char* CFG_getEffectiveFnAction(int index)
+{
+    return fnActionEffective(index, CFG_getFnAction(index));
+}
+
 void CFG_setFnAction(int index, const char* action)
 {
     if (index < 0 || index >= FN_BUTTON_COUNT)
@@ -1304,9 +1417,11 @@ int CFG_getFontStyle(void)
 void CFG_setFontStyle(int style)
 {
     settings.fontStyle = clamp(style, 0x00, 0x01);
+
+    // Reload the active font to apply the new style. Keep fontExplicit as-is:
+    // changing the style is not choosing a new font family.
+    loadFontFile();
     CFG_sync();
-    // reload the font to apply the new style (if the font supports it)
-    CFG_setFontFile(CFG_getFontFile());
 }
 
 int CFG_getGameSwitcherCurtain(void)
@@ -1341,6 +1456,10 @@ void CFG_get(const char *key, char *value)
             sprintf(value, "0");
         else
             sprintf(value, "1");
+    }
+    else if (strcmp(key, "lang") == 0)
+    {
+        sprintf(value, "\"%s\"", CFG_getLanguage());
     }
     else if (strcmp(key, "palette") == 0)
     {
@@ -1618,13 +1737,18 @@ void CFG_sync(void)
     }
 
     // backward compat: write integer for built-in fonts so existing paks
-    // that parse "font=" as an int keep working
-    if (strcmp(settings.fontFile, "font1.ttf") == 0)
+    // that parse "font=" as an int keep working. When the font is automatic,
+    // persist font1 as the preference and let fontExplicit=0 drive the language
+    // default at load time (this avoids writing font3.ttf for zh).
+    const char *persistedFont = settings.fontExplicit ? settings.fontFile : CFG_DEFAULT_FONT_FILE;
+    if (strcmp(persistedFont, "font1.ttf") == 0)
         fprintf(file, "font=1\n");
-    else if (strcmp(settings.fontFile, "font2.ttf") == 0)
+    else if (strcmp(persistedFont, "font2.ttf") == 0)
         fprintf(file, "font=0\n");
     else
-        fprintf(file, "font=%s\n", settings.fontFile);
+        fprintf(file, "font=%s\n", persistedFont);
+    fprintf(file, "fontExplicit=%i\n", settings.fontExplicit);
+    fprintf(file, "lang=%s\n", CFG_getLanguage());
     fprintf(file, "palette=%s\n", settings.paletteName);
     fprintf(file, "color1=0x%08X\n", settings.color1_255);
     fprintf(file, "color2=0x%08X\n", settings.color2_255);
@@ -1700,6 +1824,7 @@ void CFG_print(void)
         printf("\t\"font\": 0,\n");
     else
         printf("\t\"font\": 1,\n");
+    printf("\t\"lang\": \"%s\",\n", CFG_getLanguage());
     printf("\t\"palette\": \"%s\",\n", settings.paletteName);
     printf("\t\"color1\": \"0x%08X\",\n", settings.color1_255);
     printf("\t\"color2\": \"0x%08X\",\n", settings.color2_255);

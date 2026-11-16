@@ -518,9 +518,9 @@ int OptionCheats_openMenu(MenuList* list, int i) {
 			strcpy(item->name, cheat->name);
 
 			if(cheat->info) {
-				len = strlen(cheat->info) + 1;
-				item->desc = calloc(len, sizeof(char));
-				strncpy(item->desc, cheat->info, len);
+				size_t info_len = strlen(cheat->info);
+				item->desc = calloc(info_len * 2 + 1, sizeof(char));
+				strncpy(item->desc, cheat->info, info_len);
 				GFX_wrapText(font.tiny, item->desc, DEVICE_WIDTH - SCALE1(2*PADDING), 2);
 			}
 

@@ -310,6 +310,12 @@ enum {
 };
 
 SDL_Surface* GFX_init(int mode);
+/* Initialize GFX's drawing resources against a display owned by the caller.
+ * Does not create a window, renderer, video surface or GL context and must not
+ * be mixed with GFX_init()/GFX_flip(). Returns the logical screen surface used
+ * for palette mapping, or NULL when fonts/assets are unavailable. */
+SDL_Surface* GFX_initAttached(int width, int height);
+void GFX_quitAttached(void);
 #define GFX_resize PLAT_resizeVideo				// (int w, int h, int pitch);
 #define GFX_setSharpness PLAT_setSharpness // (int sharpness)
 #define GFX_setEffectColor PLAT_setEffectColor // (int color)
@@ -361,6 +367,8 @@ void PLAT_resetScrollText(void);
 void GFX_scrollTextSurface(TTF_Font* font, const char* in_name, SDL_Surface** out_surface, int max_width, int height, int padding, SDL_Color color,float heightratio); // returns final width
 int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
 int GFX_getTextHeight(TTF_Font* font, const char* in_name, char* out_name, int max_width, int padding); // returns final width
+// Wraps in place. The buffer must hold at least 2 * strlen(str) + 1 bytes:
+// CJK text can insert one line break between characters.
 int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines);
 int GFX_blitWrappedText(TTF_Font* font, const char* text, int max_width, int max_lines, SDL_Color color, SDL_Surface* surface, int y); // returns new y position
 
@@ -598,6 +606,7 @@ enum LightProfile {
 	LIGHT_PROFILE_CHARGING = 4, // derived from default
 	LIGHT_PROFILE_SLEEP = 5, // sleep mode
 	LIGHT_PROFILE_AMBIENT = 6, // ambient mode
+	LIGHT_PROFILE_APP = 7, // temporary app lease, see LEDS_pushAppProfile()
 	LIGHT_PROFILE_COUNT
 };
 
@@ -634,6 +643,40 @@ void LEDS_setProfile(int profile); // enum LightProfile
 // reapplies the current led config. This should only be necessary
 // if youre directly modifying the LightSettings structure.
 void LEDS_updateLeds(bool indicator_only);
+
+// Application LED lease.
+//
+// The app profile is a copy of lightsDefault taken when the first lease is
+// acquired. LEDS_pushAppProfile() pushes LIGHT_PROFILE_APP on the same override
+// stack used by sleep/ambient, so battery/charging/mute rules keep their
+// existing priority. Nested pushes are allowed; each pop removes one layer.
+// LEDS_restoreDefault() is the explicit cleanup path: it removes every app
+// profile layer (even when another override is on top) and reapplies the rules.
+//
+// The app profile never writes lightsDefault; LedControl remains the only
+// writer of the user's defaults. Acquire/restore re-read the current settings
+// file, so a release restores the user's current default, not a stale one.
+// Re-read the user's LED settings from disk and rebuild the derived profiles.
+// LedControl can change the file while devserv is alive; acquire/restore call
+// this so "user default" means the current file, not the service-start view.
+void LEDS_loadDefaults(void);
+
+bool LEDS_pushAppProfile(void);
+bool LEDS_popAppProfile(void);
+bool LEDS_appProfileActive(void);
+// Writes lightsApp if LIGHT_PROFILE_APP is currently the visible profile. The
+// profile can be stored but not visible while charging/critical/mute wins; in
+// that case this returns true without touching the hardware, and the rules
+// apply it when the higher-priority profile clears.
+bool LEDS_updateAppProfile(void);
+// Removes all app-profile entries from the override stack and reapplies the
+// rules. Returns the number of app entries removed. Safe when no lease is held.
+int LEDS_restoreDefault(void);
+// Bounds-checked accessors for the real zone count (LEDS_getCount()). These
+// return NULL for indices past the populated slots; walking a zeroed MAX_LIGHTS
+// slot would write brightness 0 to the global LED controller.
+LightSettings *LEDS_getAppLight(int index);
+const LightSettings *LEDS_getDefaultLight(int index);
 
 enum {
 	CPU_SPEED_AUTO = 0,

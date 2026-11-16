@@ -1,0 +1,7 @@
+# Extra punctuation not present in the GB 2312 symbol rows but useful in UI copy:
+# en dash U+2013, em dash U+2014, middle dot U+00B7, no-break space U+00A0.
+# Format: one Unicode codepoint per line, U+XXXX; comments start with #.
+U+2013
+U+2014
+U+00B7
+U+00A0

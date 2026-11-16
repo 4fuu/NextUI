@@ -1,6 +1,6 @@
 # there is no reason to use this makefile manually
 
-.PHONY: build clean
+.PHONY: build clean libmsettings
 
 ifeq (,$(PLATFORM))
 $(error please specify PLATFORM, eg. make PLATFORM=tg5040)
@@ -34,6 +34,9 @@ build:
 
 build-cores: 
     COMPILE_CORES=$(COMPILE_CORES) cd workspace && make cores
+
+libmsettings:
+	cd workspace/$(PLATFORM)/libmsettings && make
 
 build-core:
 ifndef CORE

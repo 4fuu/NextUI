@@ -11,10 +11,14 @@
 #include "api.h"
 #include "utils.h"
 #include "config.h"
+#include "app_capabilities.h"
+#include "i18n.h"
 #include <sys/resource.h>
 #include <pthread.h>
 #include <assert.h>
 #include <limits.h>
+#include "pak_manifest.h"
+#include "app_state.h"
 
 ///////////////////////////////////////
 
@@ -132,6 +136,8 @@ typedef struct Entry {
 	char* path;
 	char* name;
 	char* unique;
+	char* icon; // optional pak.json icon path; NULL for legacy paks and non-pak entries
+	unsigned capabilities; // PAK_CAPABILITY_* declared by pak.json; 0 for legacy paks
 	int type;
 	int alpha; // index in parent Directory's alphas Array, which points to the index of an Entry in its entries Array :sweat_smile:
 } Entry;
@@ -143,13 +149,40 @@ static Entry* Entry_new(char* path, int type) {
 	self->path = strdup(path);
 	self->name = strdup(display_name);
 	self->unique = NULL;
+	self->icon = NULL;
+	self->capabilities = 0;
 	self->type = type;
 	self->alpha = 0;
+
+	// pak.json is optional metadata: a legacy launch.sh-only pak keeps the
+	// directory name, and an absent or malformed manifest never changes how
+	// the pak is listed or launched.
+	if (type==ENTRY_PAK) {
+		PakManifest manifest;
+		if (pak_manifest_load(path, &manifest)==PAK_MANIFEST_OK) {
+			self->capabilities = manifest.capabilities;
+			if (manifest.name[0]) {
+				free(self->name);
+				self->name = strdup(manifest.name);
+			}
+			if (manifest.icon[0]) {
+				if (manifest.icon[0]=='/') {
+					self->icon = strdup(manifest.icon);
+				}
+				else {
+					char icon_path[MAX_PATH];
+					int len = snprintf(icon_path, sizeof(icon_path), "%s/%s", path, manifest.icon);
+					if (len>0 && (size_t)len<sizeof(icon_path)) self->icon = strdup(icon_path);
+				}
+			}
+		}
+	}
 	return self;
 }
 
-static Entry* Entry_newNamed(char* path, int type, char* displayName) {
+static Entry* Entry_newNamed(char* path, int type, const char* displayName) {
 	Entry *self = Entry_new(path, type);
+	free(self->name);
 	self->name = strdup(displayName);
 	return self;
 }
@@ -158,6 +191,7 @@ static void Entry_free(Entry* self) {
 	free(self->path);
 	free(self->name);
 	if (self->unique) free(self->unique);
+	if (self->icon) free(self->icon);
 	free(self);
 }
 
@@ -419,15 +453,24 @@ static int hasEmu(char* emu_name);
 static Recent* Recent_new(char* path, char* alias) {
 	Recent* self = malloc(sizeof(Recent));
 
-	char sd_path[256]; // only need to get emu name
+	char sd_path[256];
 	sprintf(sd_path, "%s%s", SDCARD_PATH, path);
-
-	char emu_name[256];
-	getEmuName(sd_path, emu_name);
 
 	self->path = strdup(path);
 	self->alias = alias ? strdup(alias) : NULL;
-	self->available = hasEmu(emu_name);
+
+	// Apps share the recents list with ROMs. A pak is available while its
+	// launch.sh still exists; everything else keeps the emulator lookup.
+	if (suffixMatch(".pak", sd_path)) {
+		char launch_path[256];
+		snprintf(launch_path, sizeof(launch_path), "%s/launch.sh", sd_path);
+		self->available = exists(launch_path);
+	}
+	else {
+		char emu_name[256];
+		getEmuName(sd_path, emu_name);
+		self->available = hasEmu(emu_name);
+	}
 	return self;
 }
 static void Recent_free(Recent* self) {
@@ -461,6 +504,11 @@ static Array *quickActions; // EntryArray
 static int quit = 0;
 static int can_resume = 0;
 static int should_resume = 0; // set to 1 on BTN_RESUME but only if can_resume==1
+static int pak_can_resume = 0; // B4: selected pak has declared saves + a valid B3 state
+static int should_resume_pak = 0; // set to 1 on BTN_RESUME but only if pak_can_resume==1
+static char pak_resume_cache_path[256]; // last inspected pak; avoids duplicate hashes on redraw/open
+static int pak_resume_cache_result = 0;
+static int pak_resume_cache_valid = 0;
 static int has_preview = 0;
 static int simple_mode = 0;
 static int switcher_selected = 0;
@@ -624,7 +672,7 @@ static int hasRecents(void) {
 				if (recents->count<MAX_RECENTS) {
 					// this logic replaces an existing disc from a multi-disc game with the last used
 					char m3u_path[256];
-					if (hasM3u(sd_path, m3u_path)) { // TODO: this might tank launch speed
+					if (!suffixMatch(".pak", sd_path) && hasM3u(sd_path, m3u_path)) { // TODO: this might tank launch speed
 						char parent_path[256];
 						strcpy(parent_path, path);
 						char* tmp = strrchr(parent_path, '/') + 1;
@@ -804,25 +852,92 @@ static Array* getCollections(void)
 	return NULL;
 }
 
+static int isLaunchablePak(const char* path) {
+	char launch_path[256];
+	int len = snprintf(launch_path, sizeof(launch_path), "%s/launch.sh", path);
+	return len>0 && (size_t)len<sizeof(launch_path) && exists(launch_path);
+}
+
+static void addPakEntries(Array* entries, const char* path) {
+	DIR* dh = opendir(path);
+	if (!dh) return;
+
+	struct dirent* dp;
+	char full_path[256];
+	while ((dp = readdir(dh)) != NULL) {
+		if (hide(dp->d_name)) continue;
+		if (!suffixMatch(".pak", dp->d_name)) continue;
+		if (dp->d_type!=DT_DIR && dp->d_type!=DT_UNKNOWN) continue;
+
+		int len = snprintf(full_path, sizeof(full_path), "%s/%s", path, dp->d_name);
+		if (len<=0 || (size_t)len>=sizeof(full_path)) continue;
+		if (!isLaunchablePak(full_path)) continue;
+
+		// Keep B1's metadata/version scan for paks first seen from the app root.
+		pak_manifest_note_scan(full_path, SHARED_USERDATA_PATH "/.paks");
+		Array_push(entries, Entry_new(full_path, ENTRY_PAK));
+	}
+	closedir(dh);
+}
+
+static Array* getApps(void) {
+	Array* entries = Array_new();
+
+	// Tools/$PLATFORM is the canonical app install root (Pak Store and .pakz
+	// both land there). It is not a game-only folder, so show-tools no longer
+	// hides installed apps. Emus are legacy paks and are still listed.
+	if (!simple_mode) {
+		char tools_path[256];
+		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
+		addPakEntries(entries, tools_path);
+	}
+
+	char emus_path[256];
+	snprintf(emus_path, sizeof(emus_path), "%s/Emus/%s", SDCARD_PATH, PLATFORM);
+	addPakEntries(entries, emus_path);
+	addPakEntries(entries, SDCARD_PATH "/Emus");
+	addPakEntries(entries, PAKS_PATH "/Emus"); // built-in emulator paks
+
+	EntryArray_sort(entries);
+
+	// The launcher has no way to tell two identical labels apart; keep the first.
+	for (int i=1; i<entries->count; ) {
+		Entry* prev = entries->items[i-1];
+		Entry* entry = entries->items[i];
+		if (exactMatch(prev->name, entry->name)) {
+			Entry_free(entry);
+			Array_remove(entries, entry);
+		}
+		else i++;
+	}
+
+	return entries;
+}
+
 static Array* getQuickEntries(void) {
 	Array* entries = Array_new();
 
 	// We assume Menu_init was already called and populated this
 	if (recents && recents->count)
-		Array_push(entries, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, "Recents"));
+		Array_push(entries, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, TR("Recents")));
 
 	if (hasCollections())
-		Array_push(entries, Entry_new(COLLECTIONS_PATH, ENTRY_DIR));
+		Array_push(entries, Entry_newNamed(COLLECTIONS_PATH, ENTRY_DIR, TR("Collections")));
 
-	// Not sure we need this, its just a button press away (B)
-	Array_push(entries, Entry_newNamed(ROMS_PATH, ENTRY_DIR, "Games"));
-
-	// Add tools if applicable
-    if (hasTools() && !simple_mode) {
+	// Games is no longer a default navigation category. Old game content stays
+	// reachable through Collections, Recents, or an app that browses files.
+	// Tools remains as a generic tools-folder shortcut; installed apps are
+	// already listed flat at the root.
+    if (hasTools() && CFG_getShowTools() && !simple_mode) {
 		char tools_path[256];
 		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-        Array_push(entries, Entry_new(tools_path, ENTRY_DIR));
+		Array_push(entries, Entry_newNamed(tools_path, ENTRY_DIR, TR("Tools")));
     }
+
+	// Keep the quick switcher non-empty on a card with no recents, collections
+	// or tools; an empty Recents view is still a valid place to land.
+	if (entries->count==0)
+		Array_push(entries, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, TR("Recents")));
 
 	return entries;
 }
@@ -855,15 +970,15 @@ static Array* getRoot(void) {
     Array* root = Array_new();
 
     if (hasRecents() && CFG_getShowRecents())
-		Array_push(root, Entry_new(FAUX_RECENT_PATH, ENTRY_DIR));
+		Array_push(root, Entry_newNamed(FAUX_RECENT_PATH, ENTRY_DIR, TR("Recents")));
 
-	Array *entries = getRoms();
+	Array *entries = getApps();
 
 	// Handle collections
 	if (hasCollections() && CFG_getShowCollections()) {
         if (entries->count) {
-            Array_push(root, Entry_new(COLLECTIONS_PATH, ENTRY_DIR));
-        } else { // No visible systems, promote collections to root
+            Array_push(root, Entry_newNamed(COLLECTIONS_PATH, ENTRY_DIR, TR("Collections")));
+        } else { // No visible apps, promote collections to root
 			Array *collections = getCollections();
 			Array_yoink(entries, collections);
         }
@@ -871,13 +986,6 @@ static Array* getRoot(void) {
 
     // Move entries to root
 	Array_yoink(root, entries);
-
-	// Add tools if applicable
-    if (hasTools() && CFG_getShowTools() && !simple_mode) {
-		char tools_path[256];
-		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
-        Array_push(root, Entry_new(tools_path, ENTRY_DIR));
-    }
 
     return root;
 }
@@ -965,7 +1073,7 @@ static Array* getDiscs(char* path){
 				Entry* entry = Entry_new(disc_path, ENTRY_ROM);
 				free(entry->name);
 				char name[16];
-				sprintf(name, "Disc %i", disc);
+				snprintf(name, sizeof(name), TR("Disc %i"), disc);
 				entry->name = strdup(name);
 				Array_push(entries, entry);
 			}
@@ -1030,6 +1138,10 @@ static void addEntries(Array* entries, char* path) {
 					type = ENTRY_ROM;
 				}
 			}
+			// B1: read pak.json when present and record the installed version.
+			// Legacy launch.sh-only paks are untouched; the display name stays
+			// the directory name (no icon/menu-root work in this step).
+			if (type==ENTRY_PAK) pak_manifest_note_scan(full_path, SHARED_USERDATA_PATH "/.paks");
 			Array_push(entries, Entry_new(full_path, type));
 		}
 		closedir(dh);
@@ -1176,6 +1288,50 @@ static void readyResume(Entry* entry) {
 	readyResumePath(entry->path, entry->type);
 }
 
+// B4: pak resume is deliberately separate from the legacy ROM save slots.
+// A pak is resumable only when pak.json declares the exact "saves" capability
+// and B3 validates every payload file; a declaration alone is never enough.
+//
+// The launcher never writes state itself, and an app save returns through a
+// fresh launcher process, so caching the last inspected pak cannot hide a new
+// save. This avoids re-hashing the same payload when the switcher redraws or
+// the A-button path inspects the entry already shown on screen.
+static void readyPakResume(Entry* entry) {
+	pak_can_resume = 0;
+	if (!entry || entry->type!=ENTRY_PAK) {
+		pak_resume_cache_valid = 0;
+		return;
+	}
+	if (!(entry->capabilities & PAK_CAPABILITY_SAVES)) {
+		pak_resume_cache_valid = 0;
+		return;
+	}
+	if (pak_resume_cache_valid && exactMatch(pak_resume_cache_path, entry->path)) {
+		pak_can_resume = pak_resume_cache_result;
+		return;
+	}
+
+	pak_resume_cache_valid = 0;
+	PakManifest manifest;
+	if (pak_manifest_load(entry->path, &manifest)!=PAK_MANIFEST_OK) return;
+
+	AppCapabilityInfo info;
+	app_capabilities_inspect(SHARED_USERDATA_PATH "/.minui/apps", entry->path,
+	                         &manifest, &info);
+	pak_can_resume = (app_capabilities_actions(&info, APP_CAPABILITIES_DESKTOP, NULL)
+	                  & APP_CAPABILITIES_ACTION_RESUME)!=0;
+
+	strncpy(pak_resume_cache_path, entry->path, sizeof(pak_resume_cache_path)-1);
+	pak_resume_cache_path[sizeof(pak_resume_cache_path)-1] = '\0';
+	pak_resume_cache_result = pak_can_resume;
+	pak_resume_cache_valid = 1;
+}
+
+static void readyEntryResume(Entry* entry) {
+	readyResume(entry);
+	readyPakResume(entry);
+}
+
 static void saveLast(char* path);
 static void loadLast(void);
 
@@ -1217,32 +1373,39 @@ static int autoResume(void) {
 	return 1;
 }
 
-static void openPak(char* path) {
-	// NOTE: escapeSingleQuotes() modifies the passed string
-	// so we need to save the path before we call that
-	// if (prefixMatch(ROMS_PATH, path)) {
-	// 	addRecent(path);
-	// }
+static void openPakMode(char* path, AppLaunchMode mode) {
+	addRecent(path, NULL); // apps share the recents list with ROMs
 	saveLast(path);
 
-	char cmd[256];
-	sprintf(cmd, "'%s/launch.sh'", escapeSingleQuotes(path));
+	// State-capable apps receive NEXTUI_APP_* below. Legacy paks keep the exact
+	// old launch command, and a state setup failure must never block launching.
+	PakManifest manifest;
+	char cmd[APP_STATE_CMD_MAX];
+	pak_manifest_load(path, &manifest);
+
+	int built = app_state_build_launch(SHARED_USERDATA_PATH "/.minui/apps", path,
+	                                   &manifest, mode, cmd, sizeof cmd);
+	if (!built && mode==APP_LAUNCH_RESUME) {
+		// The state may have changed between the menu check and the launch.
+		// Falling back to a normal launch is safer than blocking the app.
+		built = app_state_build_launch(SHARED_USERDATA_PATH "/.minui/apps", path,
+		                               &manifest, APP_LAUNCH_NORMAL, cmd, sizeof cmd);
+	}
+	if (!built) {
+		// NOTE: escapeSingleQuotes() modifies the passed string
+		snprintf(cmd, sizeof cmd, "'%s/launch.sh'", escapeSingleQuotes(path));
+	}
 	queueNext(cmd);
 }
+static void openPak(char* path) {
+	openPakMode(path, APP_LAUNCH_NORMAL);
+}
 
-// Run the action bound to a user-assignable button (0 == FN1, 1 == FN2).
-// Returns 1 if something was launched.
-static int runFnAction(int index) {
-	const char* action = CFG_getFnAction(index);
-	if (!action || !action[0]) return 0; // unassigned
-
-	// only "launch a Tools pak" exists so far; ignore kinds we don't know so a card
-	// configured on a newer build just does nothing here instead of misfiring
-	size_t prefix_len = strlen(FN_ACTION_PAK_PREFIX);
-	if (strncmp(action, FN_ACTION_PAK_PREFIX, prefix_len)!=0) return 0;
-
-	const char* rel = action + prefix_len;
-	if (!rel[0]) return 0;
+// Launcher half of the FN action boundary: only a validated Tools/<PLATFORM>
+// path reaches this handler. fnActionDispatch() owns parsing and scope checks.
+static int launchPakFnAction(void* user, const char* rel) {
+	(void)user;
+	if (!rel || !rel[0]) return 0;
 
 	char pak_path[256];
 	snprintf(pak_path, sizeof(pak_path), "%s/Tools/%s/%s", SDCARD_PATH, PLATFORM, rel);
@@ -1258,11 +1421,35 @@ static int runFnAction(int index) {
 		saveLast(entry->path);
 	}
 
-	char cmd[256];
-	// NOTE: escapeSingleQuotes() modifies pak_path in place
-	snprintf(cmd, sizeof(cmd), "'%s/launch.sh'", escapeSingleQuotes(pak_path));
+	char cmd[APP_STATE_CMD_MAX];
+	PakManifest manifest;
+	pak_manifest_load(pak_path, &manifest);
+	if (!app_state_build_launch(SHARED_USERDATA_PATH "/.minui/apps", pak_path, &manifest,
+	                            APP_LAUNCH_NORMAL, cmd, sizeof cmd)) {
+		// NOTE: escapeSingleQuotes() modifies pak_path in place
+		snprintf(cmd, sizeof cmd, "'%s/launch.sh'", escapeSingleQuotes(pak_path));
+	}
 	queueNext(cmd);
 	return 1;
+}
+
+// Run the action bound to a user-assignable button (0 == FN1, 1 == FN2,
+// 2 == FN3/HOME). Returns 1 if something was launched.
+//
+// The launcher owns only `pak:` actions. `home` and `overlay` are valid
+// application-runtime bindings, but there is no foreground app here (and the
+// app-side handlers are not wired yet), so fnActionDispatch() reports them
+// unsupported and this is a deliberate no-op.
+static int runFnAction(int index) {
+	FnActionHandlers handlers = {
+		.user = NULL,
+		.launch_pak = launchPakFnAction,
+		.exit_to_home = NULL,
+		.open_overlay = NULL,
+	};
+	return fnActionDispatch(CFG_getEffectiveFnAction(index),
+							FN_ACTION_SCOPE_DESKTOP, &handlers)
+		   == FN_ACTION_DISPATCH_HANDLED;
 }
 static void openRom(char* path, char* last) {
 	LOG_info("openRom(%s,%s)\n", path, last);
@@ -1554,7 +1741,10 @@ static void Entry_open(Entry* self) {
 	}
 	else if (self->type==ENTRY_PAK) {
 		startgame = 1;
-		openPak(self->path);
+		int resume = should_resume_pak;
+		should_resume_pak = 0;
+		if (resume) openPakMode(self->path, APP_LAUNCH_RESUME);
+		else openPak(self->path);
 	}
 	else if (self->type==ENTRY_DIR) {
 		openDirectory(self->path, 1);
@@ -1639,7 +1829,7 @@ static void loadLast(void) { // call after loading root directory
 
 	if (top->selected >= 0 && top->selected < top->entries->count) {
 		Entry *selected_entry = top->entries->items[top->selected];
-		readyResume(selected_entry);
+		readyEntryResume(selected_entry);
 	}
 }
 
@@ -2385,7 +2575,7 @@ int main (int argc, char *argv[]) {
 					restore_end = 0;
 				}
 				Entry_open(selected);
-				if (top->entries->count > 0) readyResume(top->entries->items[top->selected]);
+				if (top->entries->count > 0) readyEntryResume(top->entries->items[top->selected]);
 				dirty = 1;
 			}
 			else if (PAD_justPressed(BTN_RIGHT)) {
@@ -2463,7 +2653,9 @@ int main (int argc, char *argv[]) {
 				putFile(GAME_SWITCHER_PERSIST_PATH, "unused");
 				startgame = 1;
 				Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
-				should_resume = can_resume;
+				readyEntryResume(selectedEntry);
+				should_resume = (selectedEntry->type!=ENTRY_PAK && can_resume);
+				should_resume_pak = (selectedEntry->type==ENTRY_PAK && pak_can_resume);
 				Entry_open(selectedEntry);
 				dirty = 1;
 				Entry_free(selectedEntry);
@@ -2609,10 +2801,14 @@ int main (int argc, char *argv[]) {
 			Entry* entry = top->entries->items[top->selected];
 
 			if (dirty && total>0)
-				readyResume(entry);
+				readyEntryResume(entry);
 
-			if (total>0 && can_resume && PAD_justReleased(BTN_RESUME)) {
-				should_resume = 1;
+			if (total>0
+			    && ((entry->type==ENTRY_PAK && pak_can_resume)
+			        || (entry->type!=ENTRY_PAK && can_resume))
+			    && PAD_justReleased(BTN_RESUME)) {
+				if (entry->type==ENTRY_PAK) should_resume_pak = 1;
+				else should_resume = 1;
 				Entry_open(entry);
 
 				dirty = 1;
@@ -2625,7 +2821,7 @@ int main (int argc, char *argv[]) {
 				}
 				dirty = 1;
 
-				if (total>0) readyResume(top->entries->items[top->selected]);
+				if (total>0) readyEntryResume(top->entries->items[top->selected]);
 			}
 			else if (PAD_justPressed(BTN_B) && stack->count>1) {
 				closeDirectory();
@@ -2633,7 +2829,7 @@ int main (int argc, char *argv[]) {
 				total = top->entries->count;
 				dirty = 1;
 
-				if (total>0) readyResume(top->entries->items[top->selected]);
+				if (total>0) readyEntryResume(top->entries->items[top->selected]);
 			}
 		}
 
@@ -2692,9 +2888,9 @@ int main (int argc, char *argv[]) {
 
 				// buttons (duped and trimmed from below)
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
-				else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU","SLEEP",  NULL }, 0, screen, 0);
+				else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU",(char*)TR("SLEEP"),  NULL }, 0, screen, 0);
 
-				GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OPEN", NULL }, 1, screen, 1);
+				GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"), "A",(char*)TR("OPEN"), NULL }, 1, screen, 1);
 
 				if(CFG_getShowQuickswitcherUI()) {
 					#define MENU_ITEM_SIZE 72 // item size, top line
@@ -2836,7 +3032,7 @@ int main (int argc, char *argv[]) {
 				// For all recents with resumable state (i.e. has savegame), show game switcher carousel
 				if(recents->count > 0) {
 					Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
-					readyResume(selectedEntry);
+					readyEntryResume(selectedEntry);
 					// title pill
 					{
 						int max_width = screen->w - SCALE1(PADDING * 2) - ow;
@@ -2869,10 +3065,10 @@ int main (int argc, char *argv[]) {
 						SDL_FreeSurface(text);
 					}
 
-					GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 0);
+					GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"),  NULL }, 0, screen, 0);
 
-					if(can_resume) GFX_blitButtonGroup((char*[]){ "Y", "REMOVE", "A","RESUME", NULL }, 1, screen, 1);
-					else GFX_blitButtonGroup((char*[]){ "A","OPEN", NULL }, 1, screen, 1);
+					if(can_resume || pak_can_resume) GFX_blitButtonGroup((char*[]){ "Y", (char*)TR("REMOVE"), "A",(char*)TR("RESUME"), NULL }, 1, screen, 1);
+					else GFX_blitButtonGroup((char*[]){ "A",(char*)TR("OPEN"), NULL }, 1, screen, 1);
 
 					if(has_preview) {
 						// lotta memory churn here
@@ -2951,15 +3147,15 @@ int main (int argc, char *argv[]) {
 								GFX_animateSurface(tmpsur,0-screen->w,0,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
 						}
 						SDL_FreeSurface(tmpsur);
-						GFX_blitMessage(font.large, "No Preview", screen, &preview_rect);
+						GFX_blitMessage(font.large, (char*)TR("No Preview"), screen, &preview_rect);
 					}
 					Entry_free(selectedEntry);
 				}
 				else {
 					SDL_Rect preview_rect = {ox,oy,screen->w,screen->h};
 					SDL_FillRect(screen, &preview_rect, 0);
-					GFX_blitMessage(font.large, "No Recents", screen, &preview_rect);
-					GFX_blitButtonGroup((char*[]){ "B","BACK", NULL }, 1, screen, 1);
+					GFX_blitMessage(font.large, (char*)TR("No Recents"), screen, &preview_rect);
+					GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"), NULL }, 1, screen, 1);
 				}
 
 				GFX_flipHidden();
@@ -3049,23 +3245,23 @@ int main (int argc, char *argv[]) {
 
 				// buttons
 				if (show_setting && !GetHDMI()) GFX_blitHardwareHints(screen, show_setting);
-				else if (can_resume) GFX_blitButtonGroup((char*[]){ "X","RESUME",  NULL }, 0, screen, 0);
+				else if (can_resume || pak_can_resume) GFX_blitButtonGroup((char*[]){ "X",(char*)TR("RESUME"),  NULL }, 0, screen, 0);
 				else GFX_blitButtonGroup((char*[]){
 					BTN_SLEEP==BTN_POWER?"POWER":"MENU",
-					BTN_SLEEP==BTN_POWER||simple_mode?"SLEEP":"INFO",
+					BTN_SLEEP==BTN_POWER||simple_mode?(char*)TR("SLEEP"):(char*)TR("INFO"),
 					NULL }, 0, screen, 0);
 
 				if (total==0) {
 					if (stack->count>1) {
-						GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 1);
+						GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"),  NULL }, 0, screen, 1);
 					}
 				}
 				else {
 					if (stack->count>1) {
-						GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OPEN", NULL }, 1, screen, 1);
+						GFX_blitButtonGroup((char*[]){ "B",(char*)TR("BACK"), "A",(char*)TR("OPEN"), NULL }, 1, screen, 1);
 					}
 					else {
-						GFX_blitButtonGroup((char*[]){ "A","OPEN", NULL }, 0, screen, 1);
+						GFX_blitButtonGroup((char*[]){ "A",(char*)TR("OPEN"), NULL }, 0, screen, 1);
 					}
 				}
 
@@ -3166,7 +3362,7 @@ int main (int argc, char *argv[]) {
 				}
 				else {
 					// TODO: for some reason screen's dimensions end up being 0x0 in GFX_blitMessage...
-					GFX_blitMessage(font.large, "Empty folder", screen, &(SDL_Rect){0,0,screen->w,screen->h}); //, NULL);
+					GFX_blitMessage(font.large, (char*)TR("Empty folder"), screen, &(SDL_Rect){0,0,screen->w,screen->h}); //, NULL);
 				}
 
 				lastScreen = SCREEN_GAMELIST;

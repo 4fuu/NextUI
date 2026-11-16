@@ -1,0 +1,149 @@
+# Fixed-UI zh values - the single source of truth for font3.ttf coverage.
+# Source: workspace/all/common/i18n.c at integration/i18n-display@5bfc39d plus
+# the System page and FN switch page rows (138 entries), regenerated 2026-11-15.
+# Original A3 snapshot: 32 entries delivered 2026-11-15 (thread
+# T-01a1dff8-f4eb-73ca-8e1a-4a4cd923cd8a, based on origin/main 3e41a1f).
+# Extensions: Settings Display page, the System/FN-switch volume rows, the
+# FN-switch LED row, and the remaining System page and FN switch page rows and
+# their page-local value labels. One simplified-Chinese value per line;
+# comments start with #. The font build collects every character from these
+# lines, so this file must stay in sync with i18n.c. Still no Level-2/rare/
+# traditional chars and no non-ASCII digits or units.
+最近游玩
+最近
+收藏
+工具
+游戏
+无预览
+暂无最近记录
+空文件夹
+光盘 %i
+返回
+打开
+继续
+移除
+休眠
+信息
+外观
+界面自定义
+显示
+系统
+FN 开关
+FN 开关设置
+按键分配
+自定义按键功能
+游戏内
+MinArch 的游戏内设置
+网络
+蓝牙
+关于
+确定
+语言
+界面显示语言。返回桌面后生效。
+简体中文
+亮度
+显示亮度（0 到 10）
+色温
+色温（0 到 40）
+对比度
+对比度增强（-4 到 5）
+饱和度
+饱和度增强（-5 到 5）
+曝光
+曝光增强（-4 到 5）
+白点校正
+校正显示白点，使其更接近 sRGB 标准，但会牺牲一定的峰值亮度。
+红色增益
+白点校正红色通道增益（0 到 200）
+绿色增益
+白点校正绿色通道增益（0 到 200）
+蓝色增益
+白点校正蓝色通道增益（0 到 200）
+恢复默认设置
+将本菜单中的所有选项恢复为默认值。
+音量
+扬声器音量
+切换时音量
+扬声器音量（0-20）
+FN 开关关闭 LED
+该开关同时关闭 LED。
+屏幕超时
+无操作多久后关闭屏幕（0-600秒）
+休眠超时
+屏幕关闭后多久进入休眠（5-600秒）
+振动反馈
+启用或禁用系统中特定操作的振动反馈
+默认视图
+开机时显示的初始界面
+24小时制
+以24小时制显示时钟
+显示时钟
+在状态栏中显示时钟
+自动设置时间和日期
+通过网络时间协议（NTP）自动调整系统时间（需要联网）
+时区
+您所在的时区
+存档格式
+MinUI：Game.gba.sav，Retroarch：Game.srm，通用：Game.sav
+即时存档格式
+MinUI：st0，类 Retroarch：state.0，Retroarch：state0
+使用解压文件名
+使用解压文件名而非压缩包名。仅对不支持压缩包的内核生效。
+安全关机
+绕过原厂关机流程以避免“limbo bug”，直接指示 PMIC 软断开电池。
+USB 连接时保持唤醒
+作为 USB 设备连接电脑时（不仅是充电）防止息屏和休眠。
+风扇转速
+选择风扇转速百分比(安静/标准/性能或 0-100%)
+静音
+内容列表
+游戏切换器
+快捷菜单
+MinUI（默认）
+Retroarch（压缩）
+Retroarch（未压缩）
+类 Retroarch（压缩）
+类 Retroarch（未压缩）
+通用
+性能
+标准
+安静
+从不
+5秒
+10秒
+15秒
+30秒
+45秒
+1分钟
+90秒
+2分钟
+4分钟
+6分钟
+10分钟
+切换时亮度
+切换时色温
+切换时对比度
+切换时饱和度
+切换时曝光
+连发 A
+启用 A 连发
+连发 B
+启用 B 连发
+连发 X
+启用 X 连发
+连发 Y
+启用 Y 连发
+连发 L1
+启用 L1 连发
+连发 L2
+启用 L2 连发
+连发 R1
+启用 R1 连发
+连发 R2
+启用 R2 连发
+切换时十字键模式
+十字键：默认；摇杆：仅作模拟摇杆；两者：可同时输入。
+不更改
+十字键
+摇杆
+两者

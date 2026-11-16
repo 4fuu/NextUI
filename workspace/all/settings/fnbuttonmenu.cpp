@@ -42,6 +42,14 @@ PakEntry pakEntry(const std::string &rel, const std::string &name)
     return {std::string(FN_ACTION_PAK_PREFIX) + rel, name.substr(0, name.size() - 4)};
 }
 
+// Legacy empty values fall back to the per-slot default; an explicit "none" is
+// what the menu should show for a button the user turned off.
+std::string effectiveFnAction(int index)
+{
+    std::string action = CFG_getEffectiveFnAction(index);
+    return action.empty() ? std::string(FN_ACTION_NONE) : action;
+}
+
 // Tools paks, including those one subfolder deep (Tools/<PLATFORM>/<group>/<name>.pak),
 // which is how larger pak collections tend to organize themselves.
 std::vector<PakEntry> enumerateToolPaks()
@@ -130,12 +138,18 @@ MenuList* buildFnButtonMenu()
         std::string button = fnButtonName(i);
         if (button.empty()) continue; // this device doesn't have that button
 
-        // "" == unassigned, followed by every pak we found
-        std::vector<std::any> values = {std::string("")};
-        std::vector<std::string> labels = {"None"};
+        // Explicit unassignment and the two system actions come first, followed
+        // by every pak we found.
+        std::vector<std::any> values = {
+            std::string(FN_ACTION_NONE),
+            std::string(FN_ACTION_HOME),
+            std::string(FN_ACTION_OVERLAY),
+        };
+        std::vector<std::string> labels = {"None", "Exit to desktop", "System overlay"};
 
-        std::string current = CFG_getFnAction(i);
-        bool found = current.empty();
+        std::string current = effectiveFnAction(i);
+        bool found = current == FN_ACTION_NONE || current == FN_ACTION_HOME ||
+                     current == FN_ACTION_OVERLAY;
         for (const auto &p : paks) {
             if (p.action == current)
                 found = true;
@@ -163,11 +177,11 @@ MenuList* buildFnButtonMenu()
         auto *submenu = new MenuList(MenuItemType::Fixed, button + " button", std::move(subItems));
 
         items.push_back(new FnMenuItem{ListItemType::Generic, button + " button",
-            "The pak to launch when this button is pressed in the main menu.",
+            "Action for this button; pak actions open from the menu.",
             values, labels,
-            [i]() -> std::any { return std::string(CFG_getFnAction(i)); },
+            [i]() -> std::any { return effectiveFnAction(i); },
             [i](const std::any &value) { CFG_setFnAction(i, std::any_cast<std::string>(value).c_str()); },
-            [i]() { CFG_setFnAction(i, CFG_DEFAULT_FN_ACTION); },
+            [i]() { CFG_setFnAction(i, fnActionDefault(i)); },
             DeferToSubmenu, submenu});
     }
 

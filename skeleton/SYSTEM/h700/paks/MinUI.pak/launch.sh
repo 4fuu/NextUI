@@ -115,18 +115,32 @@ cd "$(dirname "$0")"
 
 parse_hook_cmd() {
 	HOOK_CMD="$1"
-	HOOK_EMU_PATH=$(echo "$HOOK_CMD" | sed "s/^'\\([^']*\\)'.*/\\1/")
-	_remainder=$(echo "$HOOK_CMD" | sed "s/^'[^']*'//")
-	if echo "$_remainder" | grep -q "'"; then
+	# State-capable paks prefix the command with NEXTUI_APP_*='...' assignments.
+	# Parse through the shell and skip those assignments so HOOK_EMU_PATH and
+	# HOOK_TYPE still describe the actual launch command.
+	eval "set -- $HOOK_CMD"
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			[A-Za-z_][A-Za-z0-9_]*=*) shift ;;
+			*) break ;;
+		esac
+	done
+	HOOK_EMU_PATH="${1:-}"
+	HOOK_ROM_PATH=""
+	if [ $# -gt 1 ]; then
 		HOOK_TYPE="rom"
-		HOOK_ROM_PATH=$(echo "$_remainder" | sed "s/.*'\\([^']*\\)'.*/\\1/")
+		HOOK_ROM_PATH="$2"
 	else
 		HOOK_TYPE="pak"
-		HOOK_ROM_PATH=""
 	fi
 	[ -f /tmp/last.txt ] && HOOK_LAST=$(cat /tmp/last.txt) || HOOK_LAST=""
 	export HOOK_CMD HOOK_EMU_PATH HOOK_TYPE HOOK_ROM_PATH HOOK_LAST
 }
+
+# C3: shared device session lifecycle. The helper starts devserv once with the
+# persistent grants path under SHARED_USERDATA_PATH and wraps the app command.
+. "$SYSTEM_PATH/../res/nextui-session.sh"
+nextui_devserv_start
 
 #######################################
 
@@ -148,7 +162,9 @@ while [ -f "$EXEC_PATH" ]; do
 		CMD="$(cat "$NEXT_PATH")"
 		parse_hook_cmd "$CMD"
 		"$SYSTEM_PATH/bin/run_hooks.sh" pre-launch.d
+		nextui_session_start
 		eval "$CMD"
+		nextui_session_stop
 		"$SYSTEM_PATH/bin/run_hooks.sh" post-launch.d
 		rm -f "$NEXT_PATH"
 		# reset to performance when exiting, UI will reset to auto if needed
