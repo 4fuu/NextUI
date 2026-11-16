@@ -123,7 +123,13 @@ Rules:
   pull_request run per gh while Development/Desktop succeeded; per the merge
   owner the failure is the invalid version placeholder `v0.0.0-ci` (exit 64),
   and the packaging thread is changing it to `v0.0.0` while keeping the tool
-  exec bit and the res assertions. Merged
+  exec bit and the res assertions. PR #34 (I4 fifth slice: the System, Display
+  and FN switch Off/On rows in Chinese, plus the in-repo i18n fixture value
+  test, branch `i18n/on-off-labels`) is open at head
+  `2528d0e23aff90e2348cb272a8efb45a3843904a`, cut fresh from `origin/main`
+  `d25543b`, OPEN, MERGEABLE and CLEAN per gh, with CI green on that head per
+  gh (Feature checks push and pull_request, Development/Desktop); it is not
+  merged. Merged
   since the last check: PR #27 (U8 transactional update package build, final
   head `c6b5e6f`) merged into main as
   `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh)
@@ -148,7 +154,8 @@ Rules:
   (also green per gh). OPEN and mergeable per gh, not merged; the independent
   review result is not yet reported, and there is no in-repo multiset test in
   this pull request because `tests/makefile` belongs to the crash-fix thread
-  until PR #27 lands; PR #27 has since merged. PR #30 merged into main as
+  until PR #27 lands; PR #27 has since merged, and the in-repo multiset
+  fixture test has since landed as PR #34. PR #30 merged into main as
   `d25543b4b21db9e368fdc8c80fb8dece03a93b57` (2026-11-16T11:55:57Z per gh,
   final head `a51da4b`), and the post-merge runs on `d25543b` (Feature checks,
   Development/Desktop, and CI) are success per gh. PR #32 stays open and is
@@ -304,6 +311,54 @@ Rules:
   PASS: table and fixture 241 to 241, Pair unique, `TR(None)` present, 242
   width counts, 390 font coverage. Assignments remains scratch work, not a
   device result.
+- Fifth slice (Off/On labels), open and not merged: PR #34
+  (https://github.com/4fuu/NextUI/pull/34, branch `i18n/on-off-labels`), head
+  `2528d0e23aff90e2348cb272a8efb45a3843904a`, cut fresh from `origin/main`
+  `d25543b` (two commits, no force and no amend: `ee17fe0` the Off/On fix,
+  `2528d0e` the multiset fixture test), OPEN, MERGEABLE and CLEAN per gh; CI
+  at this head is green per gh (Feature checks push and pull_request,
+  Development/Desktop) and the source reports all six checks pass. `i18n.c`
+  already carried the `Off`/`On` entries and the Appearance page already used
+  the translated copy, but every other Off/On row still passed the static
+  `on_off` vector, which is a file-scope `static const` initialised before the
+  language loads; 16 rows now point at `on_off_tr`: `White point correction`
+  on Display; `Haptic feedback`, `Show 24h time format`, `Show clock`,
+  `Set time and date automatically`, `Safe poweroff`, and `Keep awake over
+  USB` on System; `FN switch disables LED` and the eight `Turbo fire` rows on
+  the FN switch page. `i18n.c` is not touched, so no key is added and the
+  System Update UI thread (PR #32) can add its page strings to the same table
+  without a conflict from this pull request. English output is unchanged
+  because `TR()` returns its key when the language is not Chinese.
+- The multiset fixture test is now in the repository: PR #34 adds
+  `workspace/all/common/tests/i18n_fixture_values_test.py` plus a runner,
+  wired into `make -C tests test` through the `test-i18n-fixture` target. It
+  compares the table's values against the fixture's lines as multisets on both
+  sides and checks the fixture's `# ---- values (N) ----` header; it is a C
+  scanner rather than a regex because a key or value can be built from
+  adjacent string literals that C concatenates across lines, which is how the
+  earlier out-of-tree version reported a passing 242 vs 242. Duplicate values
+  are legitimate (`ENTER` and `enter` share a value), so both sides are
+  multisets; duplicate keys are already caught by `tests/i18n_test.c`; values
+  containing a newline cannot live in a line-based fixture, so they are
+  excluded, counted, and named on every run (exactly one today). Five
+  controls fail as they should.
+- PR #34 evidence (host only, no device): `make -C tests test` exit 0 with
+  `test-i18n`, `test-i18n-width` (243 entries, enforced FONT_TINY limit
+  1014 px, widest hint 958 px), `test-settings`, and `test-i18n-fixture`
+  (242 comparable table values, 1 skipped for a newline, 242 fixture lines)
+  all passing; `make common PLATFORM=desktop` exit 0 with the head rebuilding
+  to a byte-identical `settings.elf`; the font verifier against the A4
+  fixture passes 391/391 with `font3.ttf` unchanged; real renders on
+  `DEVICE=smartpro` (the host's tg5040 stand-in and the only platform with
+  both the display-calibration rows and the mute toggle) show the zh rows
+  translated on Display, System, and the FN switch page including all eight
+  `Turbo fire` rows, with English unchanged on the same pages.
+- PR #34 boundary: desktop build only, so CI's tg5040 target compile is the
+  first device-side check; the `DEVICE=smartpro` renders cover the tg5040 row
+  set, and on tg5050 the Display page has no calibration rows while on h700
+  contrast/saturation and exposure are absent. Open gaps unchanged and not
+  claimed: Bluetooth Options submenus, the WiFi Connect row for a
+  saved-credential network, and Assignments remaining desktop-scratch-only.
 - Scope boundary for PR #23: the new WiFi Connect row with saved credentials
   is desktop-unreachable and was not visually verified; do not read the slice
   as full visual coverage.
@@ -1168,9 +1223,10 @@ as they happen; nothing is reported as passing without a run.
   a pull request into `main`; the CI/merge owner merges after checks pass. This
   thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because real tasks changed (PR #27 and PR #30 merged into main with green
-  post-merge runs, the U9 system update install UI advanced to PR #32 head
-  `c629f848` with the device-tool-path boundary recorded, and the package
+  because real tasks changed (the I4 fifth slice opened as PR #34 with the
+  in-repo i18n fixture value test, PR #27 and PR #30 merged into main with
+  green post-merge runs, the U9 system update install UI advanced to PR #32
+  head `c629f848` with the device-tool-path boundary recorded, and the package
   content CI job opened as PR #33), not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
@@ -1179,5 +1235,5 @@ as they happen; nothing is reported as passing without a run.
   `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
   `8e4f744`). Its pull request is PR #31; while that pull request stays open,
   later real changes fold into it instead of opening another one, which is why
-  the PR #32, PR #33, and merge facts ride the same branch. The schedule
-  baseline moved to `d25543b` with those merges.
+  the PR #32, PR #33, PR #34, and merge facts ride the same branch. The
+  schedule baseline moved to `d25543b` with those merges.
