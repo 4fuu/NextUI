@@ -1158,12 +1158,10 @@ static int restore_live_from_backup(const UpdAppPaths* paths, const AppTxnRecord
                           strerror(errno));
             return 0;
         }
-        if (!upd_fsync_dir(paths->root))
-        {
-            upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->root,
-                          strerror(errno));
-            return 0;
-        }
+        /* The restore publishes the live entry in Tools/<platform>/ and removes
+         * the backup from the state dir; both parents must be durable or a
+         * power cut can lose the restored app while the record says done. */
+        if (!sync_root_and_state(paths, error)) return 0;
         return 1;
     }
     /* No backup: there is no previous app to restore. A fresh install has no
@@ -1220,12 +1218,10 @@ static int commit_app_candidate(const UpdAppPaths* paths, AppTxnRecord* record,
                           strerror(errno));
             return 0;
         }
-        if (!upd_fsync_dir(paths->root))
-        {
-            upd_error_set(error, UPD_E_IO, "io_error", "cannot sync %s: %s", paths->root,
-                          strerror(errno));
-            return 0;
-        }
+        /* Moving the live app out of Tools/<platform>/ must be durable before
+         * the candidate is published; sync_root_and_state covers that directory
+         * as well as the state dir and the root. */
+        if (!sync_root_and_state(paths, error)) return 0;
         if (!verify_pak_version(paths->backup, record->previous_version, "backup_corrupt",
                                 error))
             return 0;
