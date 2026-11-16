@@ -155,14 +155,6 @@ static const std::vector<std::string> on_off = {"Off", "On"};
 static const std::vector<std::string> scaling_strings = {"Fullscreen", "Fit", "Fill"};
 static const std::vector<std::any> scaling = {(int)GFX_SCALE_FULLSCREEN, (int)GFX_SCALE_FIT, (int)GFX_SCALE_FILL};
 
-// Notification duration options (in seconds)
-static const std::vector<std::any> notify_duration_values = {1, 2, 3, 4, 5};
-static const std::vector<std::string> notify_duration_labels = {"1s", "2s", "3s", "4s", "5s"};
-
-// Progress notification duration options (in seconds, 0 = disabled)
-static const std::vector<std::any> progress_duration_values = {0, 1, 2, 3, 4, 5};
-static const std::vector<std::string> progress_duration_labels = {"Off", "1s", "2s", "3s", "4s", "5s"};
-
 // Menu transition mode options
 static const std::vector<std::any>    transition_mode_values = {(int)TRANSITION_OFF, (int)TRANSITION_SNAPPY, (int)TRANSITION_COMFY};
 static const std::vector<std::string> transition_mode_labels = {"Off", "Snappy", "Comfy"};

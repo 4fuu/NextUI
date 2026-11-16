@@ -57,22 +57,6 @@ enum {
 	SCREEN_OFF
 };
 
-// Achievement sort order options
-enum {
-	RA_SORT_UNLOCKED_FIRST,
-	RA_SORT_DISPLAY_ORDER_FIRST,
-	RA_SORT_DISPLAY_ORDER_LAST,
-	RA_SORT_WON_BY_MOST,
-	RA_SORT_WON_BY_LEAST,
-	RA_SORT_POINTS_MOST,
-	RA_SORT_POINTS_LEAST,
-	RA_SORT_TITLE_AZ,
-	RA_SORT_TITLE_ZA,
-	RA_SORT_TYPE_ASC,
-	RA_SORT_TYPE_DESC,
-	RA_SORT_COUNT
-};
-
 // Theme colors
 enum {
 	COLOR_MAIN = 1,
@@ -182,20 +166,6 @@ typedef struct
 	bool notifyAdjustments;
 	int notifyDuration;
 
-	// RetroAchievements
-	bool raEnable;
-	char raUsername[64];
-	char raPassword[128];
-	bool raHardcoreMode;
-	char raToken[64];           // API token (stored after successful auth)
-	char raServerUsername[64];  // Server's internal username (from avatar URL, used for sync hash)
-	bool raAuthenticated;       // Whether we have a valid token
-	bool raShowNotifications;   // Show achievement unlock notifications
-	bool raShowChallengeIndicators; // Show on-screen indicator while a challenge achievement is active
-	int raNotificationDuration; // Duration for achievement notifications (1-5 seconds)
-	int raProgressNotificationDuration; // Duration for progress notifications (0-5 seconds, 0 = disabled)
-	int raAchievementSortOrder; // Sort order for achievements list (RA_SORT_* enum)
-
 } NextUISettings;
 
 // Transition mode constants
@@ -264,20 +234,6 @@ typedef struct
 #define CFG_DEFAULT_NOTIFY_SCREENSHOT true
 #define CFG_DEFAULT_NOTIFY_ADJUSTMENTS true
 #define CFG_DEFAULT_NOTIFY_DURATION 1
-
-// RetroAchievements defaults
-#define CFG_DEFAULT_RA_ENABLE false
-#define CFG_DEFAULT_RA_USERNAME ""
-#define CFG_DEFAULT_RA_PASSWORD ""
-#define CFG_DEFAULT_RA_HARDCOREMODE false
-#define CFG_DEFAULT_RA_TOKEN ""
-#define CFG_DEFAULT_RA_SERVER_USERNAME ""
-#define CFG_DEFAULT_RA_AUTHENTICATED false
-#define CFG_DEFAULT_RA_SHOW_NOTIFICATIONS true
-#define CFG_DEFAULT_RA_SHOW_CHALLENGE_INDICATORS true
-#define CFG_DEFAULT_RA_NOTIFICATION_DURATION 3
-#define CFG_DEFAULT_RA_PROGRESS_NOTIFICATION_DURATION 1
-#define CFG_DEFAULT_RA_ACHIEVEMENT_SORT_ORDER RA_SORT_UNLOCKED_FIRST
 
 // Transition animation parameters (fixed per mode)
 #define TRANSITION_SNAPPY_DURATION  150
@@ -462,38 +418,6 @@ bool CFG_getNotifyAdjustments(void);
 void CFG_setNotifyAdjustments(bool enable);
 int CFG_getNotifyDuration(void);
 void CFG_setNotifyDuration(int seconds);
-
-// RetroAchievements settings
-bool CFG_getRAEnable(void);
-void CFG_setRAEnable(bool enable);
-const char* CFG_getRAUsername(void);
-void CFG_setRAUsername(const char* username);
-const char* CFG_getRAPassword(void);
-void CFG_setRAPassword(const char* password);
-bool CFG_getRAHardcoreMode(void);
-void CFG_setRAHardcoreMode(bool enable);
-const char* CFG_getRAToken(void);
-void CFG_setRAToken(const char* token);
-const char* CFG_getRAServerUsername(void);
-void CFG_setRAServerUsername(const char* username);
-// Extract the RA server's internal username from any string containing
-// "/UserPic/USERNAME.png" (e.g. an avatar URL or raw JSON) and persist
-// it via CFG_setRAServerUsername().  Returns true if a username was
-// extracted and stored; returns false (and leaves any existing stored
-// value untouched) if the pattern is missing or malformed.
-bool CFG_setRAServerUsernameFromAvatarUrl(const char* str);
-bool CFG_getRAAuthenticated(void);
-void CFG_setRAAuthenticated(bool authenticated);
-bool CFG_getRAShowNotifications(void);
-void CFG_setRAShowNotifications(bool show);
-bool CFG_getRAShowChallengeIndicators(void);
-void CFG_setRAShowChallengeIndicators(bool show);
-int CFG_getRANotificationDuration(void);
-void CFG_setRANotificationDuration(int seconds);
-int CFG_getRAProgressNotificationDuration(void);
-void CFG_setRAProgressNotificationDuration(int seconds);
-int CFG_getRAAchievementSortOrder(void);
-void CFG_setRAAchievementSortOrder(int sortOrder);
 
 void CFG_sync(void);
 void CFG_quit(void);
