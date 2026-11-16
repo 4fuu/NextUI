@@ -76,10 +76,13 @@ Rules:
   `b506dbd`); the runtime line (PR #1, `3a50fe8`); the updater offline install
   transaction and recovery core (PR #8, `212a695`); and this schedule file
   (PR #2, `59a63e6`, updated by PR #9, `3ecefd5`, and PR #10, `b28b126`).
-- Host-done, unpushed: the settings i18n branch (I4, `i18n/settings-pages`)
-  only. The runtime line (I1) merged into main as `3a50fe8`; the updater
-  staging module (I6, `bdab39e`), the LED/boot localization (I5, `dea1f2d`),
-  and the display/audio backend module (PR #6, `b506dbd`) are on main as well.
+- Host-done, unpushed: none. Every in-flight line rides on an open pull
+  request: I4 (settings i18n, PR #14, head `6937959`), I8 (emulator removal,
+  PR #13, head `e1275e4`), U2/U3 (boot recovery, PR #11, head `329a7e1`), and
+  the updater transaction hardening (PR #15, head `c6dc914`). The runtime line
+  (I1) merged into main as `3a50fe8`; the updater staging module (I6,
+  `bdab39e`), the LED/boot localization (I5, `dea1f2d`), and the display/audio
+  backend module (PR #6, `b506dbd`) are on main as well.
 - CI infrastructure: the Feature checks workflow
   (`.github/workflows/test.yaml`) runs the host test suite and a real tg5040
   cross-compile on every branch push and pull request; packaging and
@@ -97,7 +100,9 @@ Rules:
   push/PR, tg5040 target build push/PR, build-linux, build-macos) and is
   CLEAN/MERGEABLE with the merge owner reviewing — a run that has not finished
   is never recorded as passing. PR #13 (built-in emulator removal, head
-  `ba2296a`) CI is green (Feature checks push/PR, Development/Desktop).
+  `e1275e4`) CI is green (Feature checks push/PR, Development/Desktop). PR #14
+  (settings Appearance page i18n, head `6937959`) and PR #15 (updater
+  transaction hardening, head `c6dc914`) CI runs are green.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -170,19 +175,31 @@ Rules:
 
 ### I4 — Settings pages i18n (remaining user-visible settings)
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-e50d-7610-be41-7417d83ab622
-- State: branch `i18n/settings-pages` on `de69781`; survey complete, zero
-  commits.
+- State: first slice delivered as PR #14
+  (https://github.com/4fuu/NextUI/pull/14, branch `i18n/settings-pages-main`,
+  based on `origin/main` @ `b28b126`), head
+  `69379591f256c8cde1713814b34d15f48bc4b540` "Translate the settings Appearance
+  page into Simplified Chinese"; OPEN, CI green (Feature checks push/PR,
+  Development/Desktop), not merged; handed to the CI/merge owner at 07:31.
+- First slice covers: the whole Appearance page (font/style rows, color
+  definitions, battery percentage, menu animations and transitions, artwork
+  radius/width, recents/tools/quickswitcher/curtain rows, input prompt style,
+  page title and Reset), the Color Palette submenu, the per-color RGBA picker
+  hints, and the shared static label vectors; plus `test-i18n-width` in
+  `tests/makefile`, `i18n_width_test.c`, and the charset fixture
+  `a4-settings-zh-2026-11-16.txt`.
+- Evidence: `test-i18n` and `test-i18n-width` pass (197 checks, 1014px cap,
+  widest 958px; the FONT_SMALL row-name path is declared report-only because
+  the constraint is name+value+padding); font coverage 357/357 with zero
+  missing; English output unchanged (25-frame Appearance comparison, AE = 0).
 - Owns: `workspace/all/settings/*` and `workspace/all/common/i18n.c` plus
-  charset fixtures. Coordinates shared i18n keys with I5; must not edit
+  charset fixtures/tests; coordinates shared i18n keys with I5; must not edit
   devserv/keymon/launch/updater or revive the stopped permission UI.
 - Depends on: baseline; I5 coordination.
-- Delivery/verification: per-page commits with a full page coverage list
-  (Appearance, Assignments, Network/WiFi, Bluetooth, About, Notifications,
-  RetroAchievements, In-Game, sub-dialogs); dynamic content (SSID, device
-  names, pak names, palette names, paths) listed as untranslatable; i18n test,
-  text-layout/font tests, desktop build, and zh/en screenshots with no
-  truncation; English behavior unchanged.
-- Next: page-by-page commits, then hand off remaining shared keys to I5.
+- Next: the remaining settings pages in follow-up slices (the second block
+  About / In-Game / Notifications / RetroAchievements is in progress and
+  uncommitted; the In-Game page disappears with PR #13, so that slice drops
+  it).
 
 ### I5 — LedControl and boot text i18n
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-ed1c-779c-965c-e559b98248b0
@@ -257,12 +274,17 @@ Rules:
 - State: delivered for review as PR #13
   (https://github.com/4fuu/NextUI/pull/13, branch
   `remove-builtin-emulator`), head
-  `ba2296ac3ff86185da12c61eef026c8a925a2a45`, based on `origin/main` @
+  `e1275e4fa1a941b5b44ec9859ab3055115aee172`, based on `origin/main` @
   `b28b126` (docs-only delta, clean rebase); OPEN and mergeable, not merged.
-  CI on that head is green (Host tests, tg5040 target build, build-macos,
-  build-linux; the Feature checks and Development/Desktop runs completed
-  success).
-- Deleted (built-in emulator specific only): `workspace/all/minarch` and the
+  The head moved from `ba2296a` to `e1275e4` ("Drop emulator core jobs from CI
+  and release"). CI on `e1275e4` is green (Feature checks push/PR,
+  Development/Desktop).
+- Merge precondition (not a post-merge cleanup): the core-matrix/build-core
+  cleanup must land together with the removal and be verified complete before
+  the merge, so `main` never references make targets that no longer exist. The
+  `e1275e4` commit covers the CI and release side; the merge owner confirms the
+  full cleanup as part of the review.
+- Deleted (built-in emulator specific): `workspace/all/minarch` and the
   rcheevos/libchdr/libretro-common/libsrm builds it vendored;
   `workspace/{all,desktop,tg5040,tg5050,h700}/cores` (core builds, per-platform
   core lists, core patches); `skeleton/SYSTEM/*/paks/Emus` (FC, GB, GBA, GBC,
@@ -275,9 +297,17 @@ Rules:
   ("In-game settings for MinArch") with its Notifications and
   RetroAchievements submenus plus the libretro save-format rows; the build
   targets cores/cores-json/build-cores/build-core, the minarch build and copy
-  steps, the emulator-only shared libraries (samplerate, zip, bz2, lzma, zstd,
-  chdr, crypto, lz4), the Emus entry in the extras zip, and the minarch/cores
-  .vscode debug configs.
+  steps, the Emus entry in the extras zip, and the minarch/cores .vscode debug
+  configs.
+- Shared-library packaging (open dependency, do not call emulator-only without
+  evidence): PR #13 also removes the packaging steps that copied the
+  minarch-built libraries (libsamplerate, libzip, bz2, lzma, zstd, chdr,
+  crypto, lz4) into the device image. `libsamplerate` is not emulator-only:
+  `workspace/desktop/apostropheoverlaydemo/makefile` explicitly links
+  `-lsamplerate` (api.c calls libsamplerate) with an rpath, so removing the
+  packaging breaks that dependency unless the library is provided another way.
+  The deletion source and the merge owner are checking restoration; the
+  resolution is not recorded until there is evidence.
 - Kept (generic capabilities): pak install and launch (Tools/<platform> scan,
   pak.json, B3 app-state slots, B4 `saves` resume), Recents, Collections, quick
   menu and quick actions, game switcher, folder backgrounds and artwork, the
@@ -288,11 +318,11 @@ Rules:
 - Depends on: `origin/main`.
 - Delivery/verification: the desktop menu no longer shows an emulator entry,
   packages no longer carry the built-in emulator, host regression tests and the
-  tg5040 build still pass; PR #13's CI is green on head `ba2296a`.
-- Next: the CI/merge owner reviews and merges; emulator-specific CI/core build
-  cleanup waits for the merged handoff and stays coordinated with the
-  CI/merge owner. This schedule no longer treats minarch or cores as
-  development goals or acceptance prerequisites.
+  tg5040 build still pass; PR #13's CI is green on head `e1275e4`.
+- Next: the CI/merge owner reviews and merges once the merge preconditions
+  (core cleanup completeness and the libsamplerate dependency) are resolved.
+  This schedule no longer treats minarch or cores as development goals or
+  acceptance prerequisites.
 
 ## Backlog, in priority order
 
@@ -381,6 +411,15 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Not delivered by PR #8: boot/launch activation wiring (see U2), the
   feed/updater source switch, application installs, the production key (test
   key only), and device install. PR #8 is not the whole update chain.
+- Follow-up in review: PR #15
+  (https://github.com/4fuu/NextUI/pull/15, branch
+  `fix/updater-transaction-lock`, head
+  `c6dc91487060e27b4b1f69aef626dfc61694129a`) hardens the transaction from the
+  PR #8 independent review: `install` and `recover` take an exclusive `flock`
+  on the target root (a concurrent command exits `busy` (12) without writing;
+  the lock releases on exit or crash), and a candidate `version.txt` mismatch
+  goes through `rollback_precommit`, ending the record in `rolled_back` with
+  `.system` unchanged. OPEN, CI green, not merged.
 - Depends on: I6 format family (in main).
 - Next: U2's startup recovery wiring, then the feed/source switch (U4).
 
