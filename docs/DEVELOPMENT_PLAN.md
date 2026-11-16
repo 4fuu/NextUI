@@ -159,11 +159,11 @@ Rules:
   `3a0b04813d3b67fbc10703008d5826b07e66e93b` (2026-11-16T13:39:43Z per gh,
   final head `be3d548d8acc1660d9fc290226db80cacc5b5a02`), and the post-merge
   runs on `3a0b048` (Feature checks, Development/Desktop, and CI) are success
-  per gh. PR #36 (U10, branch `fix/update-package-atomic-output`) is open at
-  head `ed7b9de5e4aa7a57fe0f6d697bf2333652aefa87`, based on main `3a0b048`,
-  OPEN, MERGEABLE and CLEAN per gh, with CI green on that head per gh
-  (Feature checks push and pull_request, Development/Desktop); it is not
-  merged. Merged
+  per gh. PR #36 (U10, branch `fix/update-package-atomic-output`) merged into
+  main as `b3dcae45180c30b0962b9f904d2c4b84b768d5e4` (2026-11-16T14:30:39Z per
+  gh, final head `63f982a6955f9177020b16fe516e9ffd7ece631e`), and the post-merge
+  runs on `b3dcae4` (Feature checks and Development/Desktop) are success per gh
+  while the full CI run is in progress (not recorded as passing). Merged
   since the last check: PR #27 (U8 transactional update package build, final
   head `c6b5e6f`) merged into main as
   `0239203eb2ba1bc5764c3ccf98519eacbfbd8e5e` (2026-11-16T11:45:17Z per gh)
