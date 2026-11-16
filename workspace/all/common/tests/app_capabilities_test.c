@@ -776,8 +776,12 @@ int main(void)
 
     {
         char command[600];
+        int status;
+
         snprintf(command, sizeof command, "rm -rf -- '%s'", temp.path);
-        (void)system(command);
+        status = system(command);
+        if (status != 0)
+            fprintf(stderr, "warning: could not remove %s (status %d)\n", temp.path, status);
     }
 
     if (failures != 0)

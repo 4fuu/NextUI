@@ -59,8 +59,12 @@ static int temp_dir_create(void)
 static void temp_dir_remove(void)
 {
     char command[600];
+    int status;
+
     snprintf(command, sizeof command, "rm -rf -- '%s'", temp.path);
-    (void)system(command);
+    status = system(command);
+    if (status != 0)
+        fprintf(stderr, "warning: could not remove %s (status %d)\n", temp.path, status);
 }
 
 static int path_join(char* out, size_t out_size, const char* a, const char* b)

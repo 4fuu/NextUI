@@ -84,7 +84,7 @@ static int create_pak(const char* name, const char* capabilities_json)
 
     snprintf(directory, sizeof directory, "%s/%s", temp_path, name);
     snprintf(command, sizeof command, "rm -rf -- '%s'", directory);
-    (void)system(command);
+    if (system(command) != 0) return 0;
     if (mkdir(directory, 0755) != 0) return 0;
     snprintf(path, sizeof path, "%s/launch.sh", directory);
     if (!write_text(path, "#!/bin/sh\nexit 0\n")) return 0;
@@ -352,8 +352,12 @@ int main(void)
 
     {
         char command[600];
+        int status;
+
         snprintf(command, sizeof command, "rm -rf -- '%s'", temp_path);
-        (void)system(command);
+        status = system(command);
+        if (status != 0)
+            fprintf(stderr, "warning: could not remove %s (status %d)\n", temp_path, status);
     }
 
     if (failures != 0)
