@@ -416,12 +416,15 @@ static int read_directory_version(const char* directory, char* out, size_t out_s
         upd_error_set(error, UPD_E_STATE, reason, "%s does not contain vX.Y.Z", path);
         return 0;
     }
-    if (strlen(text) >= out_size)
     {
-        upd_error_set(error, UPD_E_STATE, reason, "version in %s is too long", path);
-        return 0;
+        size_t text_length = strlen(text);
+        if (text_length >= out_size)
+        {
+            upd_error_set(error, UPD_E_STATE, reason, "version in %s is too long", path);
+            return 0;
+        }
+        memcpy(out, text, text_length + 1);
     }
-    snprintf(out, out_size, "%s", text);
     return 1;
 }
 
