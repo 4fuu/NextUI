@@ -855,6 +855,8 @@ def test_install_refusals(key_der):
     app_package = os.path.join(app_dir, "Demo.pakz")
     write_zip(app_package, [
         {"name": "launch.sh", "data": b"#!/bin/sh\nexec ./demo\n", "mode": 0o100755},
+        {"name": "demo", "data": b"\x7fELF" + bytes(range(8)), "mode": 0o100755},
+        {"name": "pak.json", "data": b'{"id":"com.example.demo","version":"v1.0.0"}\n'},
     ])
     app_manifest = os.path.join(app_dir, "Demo.manifest.json")
     manifest_for(app_package, app_manifest, identity={
@@ -870,10 +872,17 @@ def test_install_refusals(key_der):
         fail("stage app for install", "could not stage app", proc)
     else:
         app_staged = os.path.join(app_staging, "com.example.demo-v1.0.0-universal")
-        before = tree_manifest(target)
-        expect("install rejects app package", run(install_args(app_staged, target)), 3,
-               "unsupported_kind")
-        expect_unchanged("install app writes nothing", target, before)
+        proc = run(install_args(app_staged, target))
+        if expect("install app package", proc, 0, "installed"):
+            pak = os.path.join(target, "Tools", "tg5040", "com.example.demo.pak")
+            if os.path.isfile(os.path.join(pak, "launch.sh")):
+                ok("install app lands in Tools/<platform>/<id>.pak")
+            else:
+                fail("install app lands in Tools/<platform>/<id>.pak", "launch.sh missing")
+            if read_version_file(target) == "v6.15.0":
+                ok("install app leaves the system tree untouched")
+            else:
+                fail("install app leaves the system tree untouched", ".system changed")
 
 
 def test_install_verification_is_zero_write(key_der):

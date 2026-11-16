@@ -151,5 +151,14 @@ test-led-render:
 test-show2-render:
 	../workspace/all/show2/tests/run_show2_render_proof.sh
 
+# Local signed application install/update/recovery (the independent app
+# transaction in update_app.c). Declared on its own lines rather than added to
+# the .PHONY and test lists above, so this hunk never collides with another
+# thread editing those lines. The app suite also runs inside test-updater via
+# nextupd/tests/run_tests.sh, so `make test` already covers it.
+.PHONY: test-app-install
+test-app-install:
+	../workspace/all/nextupd/tests/run_app_install_test.sh
+
 clean:
 	rm -f $(TEST_BIN)

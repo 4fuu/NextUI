@@ -1,7 +1,10 @@
 # Update package manifests, feeds, safe staging, and offline system installs
 
 Status: manifest verification, feed checking, download-to-staging, safe staging,
-and the offline install transaction are implemented. Installation only happens
+and the offline install transaction are implemented. Signed local application
+install, update, and recovery are also implemented through an independent app
+transaction that lands apps in `Tools/<platform>/<id>.pak/`; it is separate from
+any store and selects no source. Installation only happens
 inside an explicitly supplied target root; there is no default root, no automatic
 activation, and no edit to `launch.sh`, keymon, devserv, or a release feed. The
 install boot scripts call `recover` before the first `.system` write and before
@@ -372,6 +375,117 @@ tree: the rollback target is exactly the transaction's previous system, and
 retaining a differently-versioned older backup would make later recovery
 ambiguous.
 
+## Installing a local application
+
+A signed `nextui-update-v1` package with `kind: app` installs a local
+application into the launcher's canonical app root. This path is separate from
+any store: it consumes a package the caller has already staged on the device,
+selects no source, contacts no network, and uses no production key. It does not
+replace or reuse the third-party Pak Store, and it does not change the boot
+`unzip` path.
+
+```sh
+nextupd install --staged-dir "$STAGE" --target-root "$SDCARD_PATH" \
+  --trusted-key nextui-release.pub --platform tg5040 --system-version v6.16.0
+```
+
+`install` re-verifies the staged package exactly as it does for a system
+package (manifest, detached signature, per-file SHA-256, ZIP safety, staged
+descriptor cross-check), then routes `kind: app` to an independent transaction.
+The system `nextui-install-txn-v1` contract, `.system`, `.system.bak`, and the
+`.tmp_update` boot payload are never read or written by an app install.
+
+Destination policy:
+
+- The destination is always `Tools/<platform>/<id>.pak/` under the explicit
+  `--target-root`. `<platform>` is the target platform passed to `install`
+  (e.g. `tg5040`, `h700`, `desktop`), and `<id>` is the signed manifest id.
+  The package never chooses its own landing spot, so it cannot write to an
+  arbitrary SD location, overwrite a different app, or touch `.system`,
+  `.tmp_update`, or user data.
+- Every manifest file must be a safe relative path inside the package; the
+  installer maps each one under the single `Tools/<platform>/<id>.pak/`
+  directory. Absolute paths, `..`, and the reserved transaction marker are
+  rejected before any write. This is the same discovery layout the launcher
+  scans: a directory whose name ends in `.pak` and that contains `launch.sh`.
+- The package must carry `launch.sh` (an executable entry) and `pak.json`. The
+  installed `pak.json` version must equal the signed manifest version, so the
+  launcher's metadata and version record match the signed package.
+- `platform` may be `universal` in the **manifest**, in which case the app
+  installs on any concrete target. The install **target** `--platform` must be a
+  concrete platform (`tg5040`, `h700`, `desktop`, ...): a `universal` target is
+  refused with `invalid_platform`, because the launcher only scans
+  `Tools/<concrete-platform>/` and a universal target would publish an app that
+  is never listed and a transaction that cannot be recovered.
+
+Version policy (the installed version is the live `pak.json` version):
+
+- No existing app: a fresh install.
+- Same version: `already_installed`, nothing is written.
+- Older package: `downgrade_refused` (exit 14), nothing is written.
+- Newer package: an update that keeps the previous app as a backup.
+- An existing app whose `pak.json` version cannot be read is refused with
+  `installed_version_unknown` rather than overwritten silently.
+- `min_system` is enforced against `--system-version` at install time, exactly
+  as for a system package.
+
+App transaction layout (independent of the system transaction):
+
+```text
+<target-root>/
+  Tools/<platform>/<id>.pak/     live app
+  .nextupd-app-txn/
+    <id>/
+      txn.json                   durable record (schema nextui-app-install-txn-v1)
+      new/                       complete candidate before commit
+      backup/                    one previous app, restored on rollback
+      previous.bak/              older backup being evicted
+      failed/                    tree being discarded during rollback
+```
+
+The candidate carries a `.nextupd-app-install-txn` marker with the transaction
+id, removed only after the `installed` record is durable, so the window between
+the two directory renames is recoverable. Every rename that publishes or moves
+the live app is followed by an fsync of the directory that directly contains the
+live entry (`Tools/<platform>/`) as well as the state directory, so a power cut
+cannot leave a durable record pointing at a lost live directory. The states
+mirror the system transaction (`preparing`, `prepared`, `backing_up`,
+`installing`, `installed`, `committed`, `rolling_back`, `rolled_back`) and
+`recover` applies the same commit-or-rollback arbitration.
+
+Recovery coexistence is deliberate. `recover` has an unambiguous selector:
+
+- `recover --target-root <t>` (plain) arbitrates a pending system transaction
+  first, then a pending app transaction. A committed (terminal) system record
+  resolves to `nothing_to_recover`, so a normal system update leaves a record
+  that does **not** block recovery of a pending app install in the same call. A
+  genuinely interrupted system transaction is resolved first and the app
+  transaction follows on the next idempotent `recover`.
+- A terminal **app** record (`committed`/`rolled_back`) is treated as done, not
+  pending: a plain recover returns `nothing_to_recover` without requiring or
+  verifying the live tree, so removing an installed app does not make the boot
+  gate fail closed. Only `--app <id> --rollback` reaches a committed record to
+  roll it back.
+- `recover --target-root <t> --rollback` is the **system** rollback and is
+  system-only; it returns `.system` to `.system.bak`.
+- `recover --target-root <t> --app <id>` targets one application, and
+  `recover --target-root <t> --app <id> --rollback` rolls that app back to its
+  recorded previous version. This route never reads or writes `.system`,
+  `.nextupd-txn`, or any other app, so an app rollback can never silently roll
+  back the system even when a system record is present.
+
+The two lifecycles never read or rewrite each other's records. A corrupt or
+unknown-schema app record fails closed (exit 13) without touching the live app.
+Rollback of a fresh install is refused (`backup_missing`) because removing an app
+(uninstall) is out of scope.
+
+The installed tree is what the launcher scans: `Tools/<platform>/<id>.pak/` is a
+`.pak` directory containing an executable `launch.sh`, which is exactly the
+`nextui.c` discovery predicate (`getApps`/`addPakEntries`/`isLaunchablePak`). The
+host tests run that predicate against a real install and assert the app is
+listed while non-launchable neighbours (no `launch.sh`, hidden, `.disabled`,
+non-`.pak`, or a `.pak` file) are not.
+
 ## Boot payload lifecycle
 
 The boot payload is a second signed tree, not a second source of truth. Its
@@ -526,8 +640,11 @@ key and must never be used to sign a release.
 
 - ZIP64 is rejected; the current release archives are below 4 GiB.
 - No symlinks are accepted in this version.
-- Only system packages are installed. Application `.pakz` packages can be
-  verified and staged but are rejected by `install` with `unsupported_kind`.
+- Only system packages were installed in the first release; application
+  `.pakz` packages could be verified and staged but were rejected by `install`
+  with `unsupported_kind`. Signed local application install, update, and
+  recovery are now implemented through an independent app transaction (see
+  below); uninstall, a store source, and an online catalog are not part of it.
 - The module is built standalone and is not copied into the running system
   image; the boot payload carries `nextupd.elf` in `.tmp_update/<platform>/`.
 - `recover` is wired into the install boot scripts only. It does not stage or
@@ -554,7 +671,10 @@ key and must never be used to sign a release.
   treated as a ready package; controlled failures remove it.
 - The application store source is not part of this feed. This change does not
   select or replace the app-store source; only the default third-party system
-  updater pak reference was removed.
+  updater pak reference was removed. Local signed application install is a
+  separate path from any store: it consumes an already-staged package, selects
+  no source, and contacts no network. There is no store source selection, no
+  online catalog, and no store permission product here.
 - Version policy trusts the target's `.system/version.txt`. There is no signed,
   monotonic anti-rollback counter; replaying an older signed package is refused
   while the live version file is newer, but an attacker who can rewrite that
