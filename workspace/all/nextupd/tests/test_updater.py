@@ -834,6 +834,13 @@ def test_install_refusals(key_der):
            "system_too_old")
     expect_unchanged("install required system writes nothing", target, before)
 
+    bad_backup = make_target("install-bad-backup", previous="v6.10.0")
+    os.unlink(os.path.join(bad_backup, ".system.bak", "version.txt"))
+    before = tree_manifest(bad_backup)
+    expect("install refuses bad existing backup", run(install_args(staged, bad_backup)),
+           13, "backup_corrupt")
+    expect_unchanged("install bad existing backup writes nothing", bad_backup, before)
+
     app_dir = fresh("install-app")
     app_package = os.path.join(app_dir, "Demo.pakz")
     write_zip(app_package, [
@@ -1075,6 +1082,23 @@ def test_install_missing_marker_refuses(key_der):
     expect_unchanged("ambiguous recovery writes nothing", target, before)
 
 
+def test_install_corrupt_transaction_record(key_der):
+    staged = build_stage("install-corrupt-txn-stage")
+    target = make_target("install-corrupt-txn")
+    proc = run(install_args(staged, target),
+               env={"NEXTUPD_TEST_CRASH_PHASE": "prepared"})
+    if proc.returncode != 70:
+        fail("install corrupt txn setup", "expected exit 70", proc)
+        return
+    with open(os.path.join(target, ".nextupd-txn", "txn.json"), "w",
+              encoding="ascii") as handle:
+        handle.write('{"schema":"nextui-install-txn-v1","state":"prepared"}\n')
+    before = tree_manifest(target)
+    expect("recover refuses corrupt transaction", run(recover_args(target)), 13,
+           "transaction_corrupt")
+    expect_unchanged("corrupt transaction recovery writes nothing", target, before)
+
+
 def test_install_backup_retention(key_der):
     staged = build_stage("install-retention-stage")
     target = make_target("install-retention", previous="v6.10.0")
@@ -1131,6 +1155,7 @@ def main():
     test_install_backup_corruption(key_der)
     test_install_rollback_crash(key_der)
     test_install_missing_marker_refuses(key_der)
+    test_install_corrupt_transaction_record(key_der)
     test_install_backup_retention(key_der)
 
     print(f"\n{PASS} passed, {FAIL} failed")
