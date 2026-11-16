@@ -325,21 +325,26 @@ Rules:
   unconfigured-key state overlaps the Status pill, needing small-screen
   rendering. Recorded with the FAIL as non-blocking boundaries: the id/version
   show only in the selected row's footer (the screenshot harness crops the
-  page), and a scan-to-stage SD swap race is not covered by the static
-  app-kind gate, so no claim is made that the system transaction is
-  unreachable for that race. The merge owner independently confirmed the real
+  page), and an SD swap race was not covered by the static
+  app-kind gate, so no claim was made that the system transaction is
+  unreachable for that race (corrected precision, kept as the record: the
+  scan-to-stage path was already refused by the `.zip` archive-name rule, so
+  the reachable window was the staged directory between the page's two calls,
+  which PR #42 now covers). The merge owner independently confirmed the real
   launcher test compiles the real `nextui.c` and executes `launch.sh`, so the
   production-path host evidence is owner-verified; device boot and rendering
   remain unverified. The fix head
   `8ae60476393ef3c3dad22720a3091775c8b0c094` passed the merge owner's
   independent re-review on the exact head, and PR #41 merged into main as
   `cb622fa4a95ee53cef58ad5d392ad50f354df192` (2026-11-16T19:05:42Z per gh);
-  the FAIL at `7418cf5` stays as history. Post-merge on `cb622fa`: Feature
-  checks and Development/Desktop are success per gh while the full CI run is
-  in progress through the existing subscription (not recorded as passing until
-  it finishes). Device behavior is not verified. Dispatched the same day for
-  the residual swap race: thread T-01a1e5c2 (recorded as F6c), with no head
-  yet. Open at this check: only this schedule's own PR #31.
+  the FAIL at `7418cf5` stays as history. Post-merge on `cb622fa`: the merge
+  owner reported at 2026-11-16 19:16 that all six checks are success,
+  including main's actual package, and gh also shows Feature checks and
+  Development/Desktop success. Device behavior is not verified. Dispatched the
+  same day for the residual swap race: thread T-01a1e5c2 (recorded as F6c),
+  which delivered its first head as PR #42 on 2026-11-16 awaiting the merge
+  owner's independent review. Open at this check: only this schedule's own PR
+  #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1456,10 +1461,15 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   overlaps the Status pill, which needs new small-screen rendering.
   Non-blocking boundaries recorded with the FAIL: the id/version appear only
   in the selected row's footer and the screenshot harness crops the page, so
-  they are not visible on every row; and while a static app-kind gate exists,
-  a scan-to-stage SD swap race is not covered, so this schedule does not claim
-  the system transaction is unreachable for that race -- the owner asks for
-  either a staged-kind check or an honestly recorded boundary. The merge owner
+  they are not visible on every row; and while a static app-kind gate exists, an
+  SD swap race was not covered, so this schedule did not claim the system
+  transaction was unreachable for that race -- the owner asked for either a
+  staged-kind check or an honestly recorded boundary. Corrected precision
+  (kept as the record and superseding the scan-to-stage wording): the
+  scan-to-stage swap of a system manifest was already refused by the `.zip`
+  archive-name rule (`invalid_archive`), a naming convention rather than a kind
+  check; the reachable window was the staged directory between the page's two
+  calls, which PR #42's regression now covers. The merge owner
   has sent the fix to the source directly; no defect is recorded for the
   existing Settings convention of having no page title.
 - Fix head merged 2026-11-16: PR #41 merged into main as
@@ -1476,21 +1486,55 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   build passing; gh also shows CI green at the exact head (Feature checks
   push and pull_request with Host tests at 634 passed / 0 failed per the run
   log and the tg5040 target build; Development/Desktop with build-linux and
-  build-macos). Post-merge on `cb622fa`: Feature checks and Development/Desktop
-  are success per gh while the full CI run is in progress through the existing
-  subscription (not recorded as passing until it finishes). The FAIL at
-  `7418cf5` stays as history. Device behavior is not verified.
-- F6c — swap-race hardening (dispatched 2026-11-16; stays open): the residual
-  scan-to-stage SD swap race recorded with the PR #41 FAIL is still unfixed,
-  so this item is not closed by the F6b merge. Dispatched to
+  build-macos). Post-merge on `cb622fa`: the merge owner reported at
+  2026-11-16 19:16 that all six checks are success, including main's actual
+  package, and gh also shows Feature checks and Development/Desktop success.
+  The FAIL at `7418cf5` stays as history. Device behavior is not verified.
+- F6c — swap-race hardening (dispatched 2026-11-16; delivered, awaiting
+  independent review; stays open): the residual SD swap race recorded with the
+  PR #41 FAIL is not closed by the source's "closed" claim -- only an
+  independent review and merge close it. Dispatched to
   https://ampcode.com/threads/T-01a1e5c2-0302-71cd-b14f-828546632bc9 (Step
   Medium, an independent thread): backend expected-kind checks plus app UI
   wiring that refuse a system package before the actual signature verification
   and distribution, a real isolated-root swap regression, and System Update
   backward compatibility; no permission product, no store, no production key
-  changes, and no device operation. Status: dispatched; no head delivered, so
-  nothing is recorded as done; the new head goes to the sole merge owner's
-  independent gate.
+  changes, and no device operation. Delivered 2026-11-16 as PR #42
+  (https://github.com/4fuu/NextUI/pull/42, branch
+  `feature/app-entry-expected-kind`, "Check the expected package kind on the
+  tool, not in the app page's scan"), head
+  `dccda876651e240cae29d6d77e3a4c313a8c9a42`, base main, OPEN, MERGEABLE and
+  CLEAN per gh; CI at the exact head is green per gh (Feature checks push and
+  pull_request with Host tests at 652 passed / 0 failed per the run log and
+  the tg5040 target build; Development/Desktop with build-linux and
+  build-macos). Source-reported content: `nextupd` gained
+  `--expected-kind <app|system>` on `check`, `stage`, and `install`, and the
+  "Install from file" page passes `--expected-kind app` to both of its calls;
+  the check runs against the manifest that same invocation verified, right
+  after the detached signature covers it -- before `stage` creates a staging
+  directory and before `install` chooses a system or app transaction; a
+  mismatch exits 3 with `kind_mismatch` and writes nothing. Existing checks
+  are unchanged and in the same order, and omitting the flag leaves routing as
+  it was, so System Update and any script that never named a kind keep
+  working. Source-reported local evidence: `make -C tests test` green,
+  SANITIZE=1 nextupd suites green, the desktop build `-Werror` clean, and with
+  the real desktop binary and isolated roots an app install works while a
+  validly signed system package is refused at stage and at install with
+  `.system`, `.tmp_update`, and the transaction bytes unchanged, while the
+  same staged system package without the flag applies a real system update.
+  Not merged; awaiting the merge owner's independent review, so nothing is
+  written as accepted and a source self-test is not acceptance. No device,
+  real SD card, power-loss, or production key evidence; the staged-system
+  fixture uses the committed test-only seed in isolated roots; the tg5040
+  target build is not on-device acceptance.
+- Residual precision (corrected, kept as the record): the scan-to-stage swap of
+  a system manifest was already refused by the `.zip` archive-name rule
+  (`invalid_archive`), which is a naming convention rather than a kind check;
+  the empirically identified gap was the staged-directory window between the
+  page's two calls, where a validly signed system package could be re-verified
+  and applied as a system update. PR #42's new regression covers that window
+  and UPDATES.md now says so, so the earlier wording that described the
+  scan-to-stage path as the gap is superseded by this correction.
 - I10 mapping (reconciled at the merge): PR #41 merged into main as `cb622fa`,
   which also landed main's copy of this file carrying the source's "I10 —
   Local application install UI (settings surface)" entry. That entry is the
@@ -1971,7 +2015,10 @@ as they happen; nothing is reported as passing without a run.
   and awaits an independent re-review; the re-review PASSed on the exact head
   and PR #41 merged into main as `cb622fa`, moving the schedule baseline to
   `cb622fa`, and the residual swap race is dispatched as F6c to thread
-  T-01a1e5c2),
+  T-01a1e5c2, which delivered its first head as PR #42 (head `dccda87`,
+  exact-head CI green, awaiting the merge owner's independent review, not
+  closed), with the residual's precision corrected so the scan-to-stage path
+  is no longer recorded as the gap),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
