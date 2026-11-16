@@ -20,6 +20,20 @@ typedef struct
     PakManifest manifest;
 } ResolvedApp;
 
+/* Library default stays legacy so existing gate tests keep their contract;
+ * devserv explicitly selects default-allow at startup. */
+static int default_allow = 0;
+
+void device_gate_set_default_allow(int enabled)
+{
+    default_allow = enabled ? 1 : 0;
+}
+
+int device_gate_default_allow(void)
+{
+    return default_allow;
+}
+
 static void set_detail(char* detail, size_t detail_size, const char* format, ...)
 {
     va_list arguments;
@@ -236,7 +250,8 @@ DeviceGateError device_gate_call(const DeviceCallRequest* request, const char* g
     if (result == NULL) return DEVICE_GATE_BAD_REQUEST;
     device_call_result_init(result);
 
-    if (request == NULL || grants_path == NULL || grants_path[0] == '\0')
+    if (request == NULL
+        || (!default_allow && (grants_path == NULL || grants_path[0] == '\0')))
     {
         set_detail(result->detail, sizeof result->detail, "invalid request");
         result->error = DEVICE_GATE_BAD_REQUEST;
@@ -298,7 +313,14 @@ DeviceGateError device_gate_call(const DeviceCallRequest* request, const char* g
     result->available = backend->available(backend->context, request->capability,
                                            backend_detail, sizeof backend_detail);
 
-    if (capability->grant_required)
+    if (default_allow)
+    {
+        /* Installed apps get every implemented capability; the manifest is
+         * descriptive, not an authorization request. Availability still decides
+         * whether the backend can actually serve this call. */
+        result->authorized = 1;
+    }
+    else if (capability->grant_required)
     {
         if (app.manifest_status == PAK_MANIFEST_INVALID)
         {
@@ -435,7 +457,7 @@ DeviceGateError device_gate_status(const char* claimed_app, const char* pak_path
     if (status == NULL) return DEVICE_GATE_BAD_REQUEST;
     device_status_result_init(status);
 
-    if (grants_path == NULL || grants_path[0] == '\0')
+    if (!default_allow && (grants_path == NULL || grants_path[0] == '\0'))
     {
         set_detail(status->detail, sizeof status->detail, "invalid grant store path");
         status->error = DEVICE_GATE_BAD_REQUEST;
@@ -454,7 +476,17 @@ DeviceGateError device_gate_status(const char* claimed_app, const char* pak_path
     memcpy(status->app, app.app, strlen(app.app) + 1);
     memcpy(status->pak, app.pak, strlen(app.pak) + 1);
     status->manifest_status = app.manifest_status;
-    status->grants_status = device_grants_load(grants_path, &grants);
+    if (default_allow)
+    {
+        /* The legacy store is diagnostic only; it cannot change authorization. */
+        status->grants_status = (grants_path != NULL && grants_path[0] != '\0')
+                                    ? device_grants_load(grants_path, &grants)
+                                    : DEVICE_GRANTS_STATUS_MISSING;
+    }
+    else
+    {
+        status->grants_status = device_grants_load(grants_path, &grants);
+    }
     status->identity_status = device_identity_scan(app.pak, 1, &identity);
     if (status->identity_status != DEVICE_IDENTITY_OK)
         snprintf(status->identity_detail, sizeof status->identity_detail, "%s",
@@ -470,14 +502,20 @@ DeviceGateError device_gate_status(const char* claimed_app, const char* pak_path
         memset(entry, 0, sizeof *entry);
         snprintf(entry->name, sizeof entry->name, "%s", info->name);
         entry->supported = 1;
-        entry->grant_required = info->grant_required;
+        entry->grant_required = default_allow ? 0 : info->grant_required;
         entry->declared = app.manifest_status == PAK_MANIFEST_OK
                           && pak_manifest_requests_device_capability(&app.manifest, info->name);
         ignored[0] = '\0';
         entry->available = backend->available(backend->context, info->name, ignored,
                                               sizeof ignored);
 
-        if (!info->grant_required)
+        if (default_allow)
+        {
+            /* Permission is the install itself. `available` still reports the
+             * backend honestly; no grant store participates in this decision. */
+            entry->authorized = 1;
+        }
+        else if (!info->grant_required)
         {
             entry->authorized = 1;
         }
@@ -520,7 +558,7 @@ DeviceGateError device_gate_status(const char* claimed_app, const char* pak_path
             entry = &status->capabilities[status->capability_count];
             memset(entry, 0, sizeof *entry);
             snprintf(entry->name, sizeof entry->name, "%s", name);
-            entry->grant_required = 1;
+            entry->grant_required = default_allow ? 0 : 1;
             entry->declared = 1;
             status->capability_count++;
         }

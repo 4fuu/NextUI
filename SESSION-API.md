@@ -7,7 +7,7 @@ performed. The only compiled target here is `PLATFORM=desktop`, which is a
 development preview and deliberately reports no device fields.
 
 This document is the C3 contract plus the C4 additions. It does not replace
-`DEVICE-API.md`; C1 grants, capability authorization and
+`DEVICE-API.md`; C1's default-allow policy, legacy grant mode and
 `ping`/`status`/`call` remain defined there.
 
 ## What a session is
@@ -50,9 +50,10 @@ it uses the already-parsed `HOOK_EMU_PATH` (or an explicitly supplied
 `launch.sh` starts `devserv` once, before the desktop loop:
 
 - It first checks for a live socket; an already-running service is reused.
-- The grant store is always explicit:
-  `--grants "$SHARED_USERDATA_PATH/device_grants.json"`.
-  There is no `/tmp` grant fallback.
+- The helper still passes `--grants "$SHARED_USERDATA_PATH/device_grants.json"`
+  for compatibility. Default-allow does not read it, so no grant file is
+  required; legacy `--require-grants` mode still rejects an implicit `/tmp`
+  store.
 - Start failure, a missing binary or a rejected session request is logged by
   the service/helper and never blocks the application.
 - `desktop` is a preview platform; the helper does not start a device service
@@ -182,8 +183,9 @@ a failed C2 LED release is retried.
 
 ## Protocol
 
-The C1 socket contract is extended with three operations. Existing
-`ping`/`status`/`call` behavior and the C1 grant/identity checks are unchanged.
+The C1 socket contract is extended with session/exit operations. Existing
+`ping`/`status`/`call` behavior is unchanged; the default-allow call path needs
+no grant, while `--require-grants` keeps the legacy grant/identity checks.
 
 ```json
 {"op":"session-start","app":"id","pak":"/path/App.pak"}
@@ -206,8 +208,8 @@ report is rejected by the same generation guard and never changes a newer
 session. `forced:true` means the grace expired and the parent sent `SIGKILL`.
 
 `session-start` does not require a grant. It is lifecycle state, not a
-capability. Session operations do not go through C1 grant/identity
-authorization and never authorize a `call`. They are a cooperative lifecycle
+capability. Session operations never authorize or revoke a `call`; the default
+installed-app path already allows implemented capabilities. They are a cooperative lifecycle
 channel for local processes, not a security boundary (apps already run as root
 and can write sysfs directly). The concrete isolation guarantee is narrower:
 a stale or unknown generation id cannot stop a newer session or release its
@@ -269,8 +271,8 @@ failure can delay, but never block, the app launch.
   old foreground `eval` and no force path is claimed. A `devserv` crash or power
   loss can still lose the in-memory request; the next launch's pre-start
   ID-less stop restores the stale session.
-- Session state is runtime-only. No session file is written; grants remain the
-  only C3-adjacent persistent file and are C1-owned.
+- Session state is runtime-only. No session file is written. The legacy grant
+  store remains C1-owned and is diagnostic/compatibility-only in default mode.
 - C2 owns the LED app profile. C3 owns the session association and teardown
   call. No second LED, display, audio or rumble backend is added.
 - Other platforms keep compile/interface wiring only. Brick Pro remains the
@@ -288,10 +290,13 @@ failure can delay, but never block, the app launch.
   persistent grants path, one devserv start, live-socket reuse, `NEXTUI_PAK_PATH`
   with spaces, rejected/missing service non-blocking, EXIT trap, repeated stop,
   and all four `launch.sh` files preserving B3 hook parsing and hook order.
-- `run_devserv_test.sh`: real Unix-socket E2E — start/status/duplicate/stale/
-  stop/repeat, raw socket requests, no grant required for sessions, no fake
-  field success. C4 adds adapted vs legacy HOME policy, session-id and `at_ms`
-  stale rejection, idempotent exit requests, and normal/forced outcome reports.
+- `run_devserv_test.sh`: legacy `--require-grants` Unix-socket E2E —
+  start/status/duplicate/stale/stop/repeat, raw socket requests, grant and
+  identity enforcement, no fake field success.
+- `run_devserv_default_allow_test.sh`: default policy — no grant file, no
+  manifest declaration, legacy pak access, `grant_required:false` and
+  `authorized:true`; unknown capability still unsupported, no backend still
+  `unavailable`, corrupt legacy store cannot block.
 - `run_launch_session_test.sh`: C4 normal (SIGTERM exits) and stuck (grace
   expires -> SIGKILL) apps, bounded elapsed time, no surviving child, one
   id-bearing stop, and `app-exit-result` normal/forced reporting.

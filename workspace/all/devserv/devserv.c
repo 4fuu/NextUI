@@ -45,7 +45,9 @@ static void usage(FILE* stream)
             "hardware capability reports unavailable.\n"
             "Sessions: session-start/stop/status restore only fields the service saw\n"
             "change; app-action records a session-scoped home/overlay request and\n"
-            "never accepts a PID; the launch parent performs the bounded TERM/KILL.\n",
+            "never accepts a PID; the launch parent performs the bounded TERM/KILL.\n"
+            "Policy: installed apps may use every implemented capability without a\n"
+            "grant; --require-grants enables the legacy grant/identity gate.\n",
             DEFAULT_SOCKET_PATH);
 }
 
@@ -625,6 +627,7 @@ int main(int argc, char* argv[])
     struct sigaction action;
     int listener;
     int socket_overridden = 0;
+    int require_grants = 0;
     int i;
 
     snprintf(socket_path, sizeof socket_path, "%s", DEFAULT_SOCKET_PATH);
@@ -651,6 +654,10 @@ int main(int argc, char* argv[])
             }
             snprintf(grants_path, sizeof grants_path, "%s", argv[++i]);
         }
+        else if (strcmp(argv[i], "--require-grants") == 0)
+        {
+            require_grants = 1;
+        }
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
         {
             usage(stdout);
@@ -670,12 +677,19 @@ int main(int argc, char* argv[])
 
     if (grants_path[0] == '\0' && !resolve_grants_path(grants_path, sizeof grants_path))
     {
-        fprintf(stderr,
-                "devserv: grants path is not configured; set SHARED_USERDATA_PATH,\n"
-                "         NEXTUI_DEVICE_GRANTS, or pass --grants PATH.\n"
-                "         Persistent grants are never stored in /tmp implicitly.\n");
-        return 2;
+        if (require_grants)
+        {
+            fprintf(stderr,
+                    "devserv: --require-grants needs SHARED_USERDATA_PATH,\n"
+                    "         NEXTUI_DEVICE_GRANTS, or --grants PATH.\n");
+            return 2;
+        }
+        /* Default-allow does not read the legacy store; no path is required. */
     }
+
+    /* Installed apps get implemented capabilities by default. The grant store
+     * is legacy compatibility state, not a prerequisite for this path. */
+    device_gate_set_default_allow(require_grants ? 0 : 1);
 
 #ifdef NEXTUI_DEVSERV_BACKEND_NONE
     /* Host gate tests build this file without the LED stack. Production uses
@@ -702,7 +716,10 @@ int main(int argc, char* argv[])
     if (listener < 0) return 1;
 
     printf("devserv: listening on %s\n", socket_path);
-    printf("devserv: grants %s\n", grants_path);
+    printf("devserv: grants %s\n",
+           grants_path[0] != '\0' ? grants_path : "(none; legacy store unused)");
+    printf("devserv: policy %s\n",
+           device_gate_default_allow() ? "default-allow" : "legacy-grants");
     printf("devserv: backend %s\n", backend->name);
     printf("devserv: session %s\n", session_ops != NULL ? session_ops->name : "none");
     fflush(stdout);

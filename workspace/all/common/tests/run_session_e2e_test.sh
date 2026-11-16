@@ -5,6 +5,8 @@
 # the full authorized-call -> dirty mark -> stop restore loop is observable.
 # It also covers partial field restores, LED retry, launcher and service death,
 # stale-stop isolation, the cleaned flag, and overlong identity rejection.
+# This test uses --require-grants so its unauthorized-call expectations stay
+# covered; devserv production defaults to installed-app allow.
 #
 # No device, ADB, LED hardware, sleep or power action is used.
 set -euo pipefail
@@ -39,7 +41,7 @@ start_devserv() {
     REVIEW_WRITES="$WLOG" \
     REVIEW_BRIGHTNESS_FAILS="${REVIEW_BRIGHTNESS_FAILS:-0}" \
     REVIEW_LED_FAILS="${REVIEW_LED_FAILS:-0}" \
-    "$BUILD_DIR/devserv" --socket "$SOCKET" --grants "$GRANTS" > "$WORK_DIR/devserv.log" 2>&1 &
+    "$BUILD_DIR/devserv" --require-grants --socket "$SOCKET" --grants "$GRANTS" > "$WORK_DIR/devserv.log" 2>&1 &
     PID=$!
     for _ in $(seq 1 100); do
         [[ -S "$SOCKET" ]] && return 0

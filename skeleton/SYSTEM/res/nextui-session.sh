@@ -2,10 +2,11 @@
 # C3 shared launch-time device session helper.
 #
 # Sourced by skeleton/SYSTEM/*/paks/MinUI.pak/launch.sh. It starts devserv once
-# with an explicit persistent grants path, opens a session after the pre-launch
-# hooks, runs the app under a bounded C4 supervisor, closes the session after
-# the app command, and closes it again from the EXIT trap. It never rewrites
-# /tmp/next, never removes /tmp/nextui_exec, and never kills devserv.
+# with an explicit legacy grants path (default-allow does not read it; no grant
+# file needs to exist), opens a session after the pre-launch hooks, runs the app
+# under a bounded C4 supervisor, closes the session after the app command, and
+# closes it again from the EXIT trap. It never rewrites /tmp/next, never removes
+# /tmp/nextui_exec, and never kills devserv.
 #
 # C4 ownership: devserv records an exit request only for the active session and
 # rejects a delayed request that predates it. This helper is the app's parent,

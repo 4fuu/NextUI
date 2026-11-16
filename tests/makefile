@@ -29,6 +29,7 @@ test-app-capabilities:
 test-device:
 	../workspace/all/common/tests/run_device_gate_test.sh
 	../workspace/all/common/tests/run_devserv_test.sh
+	../workspace/all/common/tests/run_devserv_default_allow_test.sh
 
 test-keymon:
 	../workspace/all/common/tests/run_keymon_fn_forward_test.sh

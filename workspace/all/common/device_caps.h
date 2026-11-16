@@ -8,12 +8,13 @@ extern "C" {
 #endif
 
 /*
- * Device capability registry for the cooperative device service (plan C1).
+ * Device capability registry for the device service (plan C1).
  *
- * A capability name is a stable protocol identifier. "grant_required" is 0
- * only for read-only values that the plan exposes without a user grant
- * (battery.read, power.info, display.get). Everything else is denied until the
- * user has granted that exact capability to the exact app installation.
+ * A capability name is a stable protocol identifier. The `grant_required` bit
+ * remains as legacy gate metadata: devserv's default-allow policy ignores it
+ * and permits every known, implemented capability. With
+ * device_gate_set_default_allow(0), the old gate treats nonzero entries as
+ * requiring a grant. The bit is not a product permission decision.
  *
  * This table says what the system understands, not what the hardware can do.
  * Availability is answered by the backend for every request.

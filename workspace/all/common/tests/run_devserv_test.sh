@@ -4,7 +4,8 @@
 # created through device_gate_grant (the settings-layer API), so the test also
 # exercises pak content fingerprints. This build forces the C1 "none" backend,
 # so a granted hardware call must report unavailable rather than success.
-# Production devserv uses the C2 LED backend instead.
+# Production devserv uses the C2 LED backend and default-allow; this test starts
+# it with --require-grants so the legacy gate/identity contract stays covered.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -270,9 +271,9 @@ EOF
 PAK="$(cd "$WORK_DIR/Declared.pak" && pwd -P)"
 LEGACY="$(cd "$WORK_DIR/Legacy.pak" && pwd -P)"
 
-# No implicit /tmp grant store: refusing to start is the production policy.
+# Legacy gate mode still requires an explicit persistent grant store.
 set +e
-env -u SHARED_USERDATA_PATH -u NEXTUI_DEVICE_GRANTS "$DEVSERV" \
+env -u SHARED_USERDATA_PATH -u NEXTUI_DEVICE_GRANTS "$DEVSERV" --require-grants \
     --socket "$WORK_DIR/no-grants.sock" > "$WORK_DIR/no-grants.log" 2>&1
 NO_GRANTS_STATUS=$?
 set -e
@@ -280,13 +281,13 @@ if [[ "$NO_GRANTS_STATUS" -eq 0 ]]; then
     echo "FAIL: devserv started without a configured grant store" >&2
     exit 1
 fi
-grep -Fq "grants path is not configured" "$WORK_DIR/no-grants.log"
+grep -Fq -- "--require-grants needs" "$WORK_DIR/no-grants.log"
 if [[ -e "$WORK_DIR/no-grants.sock" ]]; then
     echo "FAIL: devserv bound a socket before refusing the grant configuration" >&2
     exit 1
 fi
 
-"$DEVSERV" --socket "$SOCKET" --grants "$GRANTS" > "$WORK_DIR/devserv.log" 2>&1 &
+"$DEVSERV" --require-grants --socket "$SOCKET" --grants "$GRANTS" > "$WORK_DIR/devserv.log" 2>&1 &
 PID=$!
 
 for _ in $(seq 1 100); do
@@ -301,7 +302,7 @@ fi
 
 # A second instance must not silently steal the live socket.
 set +e
-"$DEVSERV" --socket "$SOCKET" --grants "$GRANTS" > "$WORK_DIR/second.log" 2>&1
+"$DEVSERV" --require-grants --socket "$SOCKET" --grants "$GRANTS" > "$WORK_DIR/second.log" 2>&1
 SECOND_STATUS=$?
 set -e
 if [[ "$SECOND_STATUS" -eq 0 ]]; then
