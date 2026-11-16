@@ -1,7 +1,8 @@
 # Simplified Chinese values of the settings-app i18n table, verbatim, one per
 # line. Snapshot of workspace/all/common/i18n.c at the Assignments (FN button)
-# page chunk (A4 follow-up, 2026-11-16). The A3 fixture a3-zh-2026-11-15.txt
-# stays for audit; point the verifier at this file:
+# page chunk (A4 follow-up, 2026-11-16), extended with the System Update page
+# chunk. The A3 fixture a3-zh-2026-11-15.txt stays for audit; point the verifier
+# at this file:
 #
 #   scripts/fonts/verify-noto-sans-sc-subset.py --a3-values \
 #     scripts/fonts/charsets/a4-settings-zh-2026-11-16.txt --a3-i18n \
@@ -11,7 +12,7 @@
 # here, so no rebuild is needed; regenerate this file only after a wording
 # change and report any new character before shipping.
 
-# ---- values (241) ----
+# ---- values (276) ----
 最近游玩
 最近
 收藏
@@ -106,6 +107,7 @@ NextUI 版本
 原厂系统版本
 BusyBox 版本
 未找到 BusyBox 版本。
+未知
 确定
 退出
 回车
@@ -253,3 +255,37 @@ Retroarch（未压缩）
 十字键
 摇杆
 两者
+系统更新
+检查、下载并安装系统更新
+当前版本
+状态
+就绪
+检查更新
+下载更新
+安装更新
+查找更新的已签名系统更新。
+下载并验证更新到暂存区。
+安装已下载的更新，然后重启完成。
+正在检查更新...
+正在下载更新...
+正在安装更新...
+有未完成的更新，将在下次重启时处理。
+有可用更新
+系统已是最新。
+可安装
+更新已安装，重启后生效。
+该更新已安装。
+未配置更新源。
+无法连接更新源。
+此更新需要更高的系统版本。
+更新验证失败，未安装任何内容。
+另一操作正在进行。
+下载的更新比当前系统旧。
+空间不足，无法下载更新。
+系统更新工具不可用。
+请先下载更新。
+此更新不适用于本设备。
+无法确定当前系统版本。
+系统安装缺失。
+此包不是系统更新。
+更新失败。
