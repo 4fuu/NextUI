@@ -43,7 +43,11 @@ history; its top section mirrors the current schedule in this file.
 - Superseded product decisions (see the last section): the permission settings
   UI is stopped and is no longer a goal; installation grants default highest
   permission; a manifest capability declaration only states support and never
-  authorizes anything.
+  authorizes anything; and no application store is a goal -- the pre-existing
+  third-party Pak Store download and launcher entry belong to the original
+  project, not to this round, and they stay unchanged unless the owner answers
+  the Space's single open question about removing them (asked there, not
+  repeated in threads).
 - Standing authorization (2026-11-16, owner 4fuu): use CI and workflows;
   develop on branches; push feature branches promptly and open pull requests;
   merge only after real CI and review pass. The sole CI and merge owner is
@@ -766,7 +770,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   check against a signed manifest, `fetch` download into verify into the
   existing staging, staged reuse and `--replace`, failure cleanup, exit 15 when
   unconfigured; the packaging cleanup removes the default third-party updater
-  pak and the undefined `latest.txt`; the app-store source is unchanged. Local
+  pak and the undefined `latest.txt`. The application store is not a goal of
+  this schedule (owner decision, 2026-11-16), so its source is not tracked as
+  an unfinished goal here. Local
   evidence: full test suite pass, SANITIZE updater 177 + feed 49 +
   boot-recovery 56, desktop build clean.
 - Scope: this repo's own feed, update check, and download into the existing
@@ -779,8 +785,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   must honestly show unavailable while unconfigured; no fabricated online
   releases, no production key creation, no treating an unsigned SHA-256 as a
   signature, no automatic install to a real root, no publish/deploy/ADB/device
-  install; the application store source is the user's choice and is not chosen
-  here; interrupted downloads must not leave a usable staged package;
+  install; interrupted downloads must not leave a usable staged package;
   language/version/platform/`min_system` and error feedback stay consistent.
   The `.tmp_update` refresh (tracked as U7; PR #24 is open with CI in progress
   and review pending, not merged) and the install UI remain undelivered.
@@ -1269,7 +1274,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   not change stored values.
 - Next: F4/F5 when authorized.
 
-#### F6 — Application install closed loop (stage exists, install refused, store source absent)
+#### F6 — Application install closed loop (stage exists, install refused; no app store is a goal)
 - Owner threads: the read-only audit thread
   https://ampcode.com/threads/T-01a1e497-08ae-779b-8d8f-868a46c184ee
   (findings delivered 2026-11-16 at HEAD `3a0b048`; no files changed, no branch,
@@ -1289,7 +1294,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   probe install of a signed app package exits 3 with zero target-tree change,
   and `test_updater.py:854-876` locks that refusal -- so "application install
   is delivered" does not hold. (3) Store source selection does not exist at
-  all: the only "store" is a build-time third-party download
+  all, and it is no longer a goal (owner decision, 2026-11-16): the only
+  "store" is a build-time third-party download
   (`makefile:36-42`, UncleJunVIP/nextui-pak-store to `nextui.pak_store.pakz`,
   `curl -Ls` without `-f`, so a failed download would ship the error page as a
   package), the launcher only shows a quick entry when
@@ -1372,31 +1378,51 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   a real product preference pauses the corresponding part.
 - Out of this round's scope (recorded so the audit's suggestions are not all
   read as this round's acceptance): uninstall (removing only that application
-  directory and restoring it from backup), any UI surface, and store source
-  selection. Uninstall belongs to a later task, not to F6's acceptance.
+  directory and restoring it from backup) and any UI surface. Uninstall belongs
+  to a later task, not to F6's acceptance. Store source selection is not a goal
+  at all (owner decision, 2026-11-16), so it is neither in scope nor a
+  deferred acceptance item; the pre-existing third-party store download and
+  entry stay unchanged until the owner answers the Space's removal question.
 - Product choices that stay open, all currently status quo and none blocking
   the local CLI closed loop: whether the production source key is provisioned
   and whether app signing may reuse the system production key (U5 key custody
-  is still undecided); whether the boot `unzip -o` path is eventually replaced
-  by the verified install; and whether the third-party Pak Store build-time
-  download changes before the owner authorizes a fork and index. The app root,
-  the app id to directory mapping, and downgrade protection are engineering
-  contracts to verify against the existing code, not items to block on a user
-  decision.
+  is still undecided); and whether the boot `unzip -o` path is eventually
+  replaced by the verified install. The app root, the app id to directory
+  mapping, and downgrade protection are engineering contracts to verify
+  against the existing code, not items to block on a user decision. The app
+  store is not a goal at all, so no store item is listed here; the only
+  store-related open question is the Space's already-asked, unanswered one
+  about removing the original entry and build-time download, and nothing is
+  removed before that answer.
 - Audit evidence at HEAD `3a0b048`: updater 355 items all pass (177 + 55 + 67
   + 56, including "ok install rejects app package"); pak_manifest 550,
   app_state 937, app_capabilities 178, device_gate 1229, and the devserv
   end-to-end and default-allow suites all pass;
   `make setup && make common PLATFORM=desktop` exits 0; `git status` clean.
 
-#### F4 — Pak Store single-sourcing
-- Owner: unassigned; blocked on owner repository authorization.
-- Status: not started; the store pak still comes from a third-party source.
-- Depends on: owner authorization to fork/create the store and index
-  repositories; U4 feed format.
-- Delivery/verification: store pak built from this owner's account, index
-  source switched, install verifies the SHA-256 manifest family.
-- Next: F5.
+#### F4 — Pak Store single-sourcing (cancelled by the owner; no app store is a goal)
+- Owner: owner decision (4fuu), 2026-11-16.
+- Status: cancelled, not completed. The owner asked whether the app store was
+  even needed and whether it was original functionality; the Space answered
+  from the audit evidence that the original project already carries the
+  third-party Pak Store download logic and the launcher entry, and that this
+  round did not add it. A removed requirement is a scope change, never
+  development completion: building an own store, switching the store index
+  source, and authorizing own store repositories are no longer goals and are
+  not listed as unfinished work.
+- What stays: the pre-existing third-party build-time download
+  (`makefile:36-42`, UncleJunVIP/nextui-pak-store to `nextui.pak_store.pakz`)
+  and the launcher quick entry shown when `Tools/<platform>/Pak Store.pak`
+  exists (`nextui.c:544-552`, `727-729`) remain untouched unless the owner
+  answers the Space's single open question -- whether to remove the original
+  store entry and the build-time download as well. That question is already
+  asked in the Space and is unanswered, so nothing is removed unilaterally and
+  the question is not repeated in threads.
+- Depends on: nothing further; local application install (F6) proceeds
+  separately from any store.
+- Delivery/verification: none; recorded so the store is not mistaken for an
+  unfinished goal.
+- Next: none, unless the owner answers the removal question.
 
 #### F5 — Application release pipeline
 - Owner: unassigned; blocked on owner repository authorization and U5 keys.
