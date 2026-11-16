@@ -1118,34 +1118,32 @@ static int rollback_precommit(const UpdPaths* paths, TxnRecord* record, int requ
         if (!restore_live_from_backup(paths, record, error)) return 0;
         backup_exists = 0;
     }
-    if (!remove_tree(paths->candidate, 0, error)) return 0;
+    snprintf(record->state, sizeof record->state, "%s", TXN_STATE_ROLLED_BACK);
+    if (!write_txn(paths, record, error)) return 0;
+    set_result(result, "recovered_rollback", record->state, record->previous_version, NULL);
+
+    /* The live tree is coherent at this point. Cleanup is best effort so a
+     * leftover candidate or evicted backup cannot turn a completed rollback
+     * back into an ambiguous state. */
+    remove_tree_quiet(paths->candidate);
     state = path_is_directory(paths->previous, &previous_exists);
     if (state < 0)
     {
-        upd_error_set(error, UPD_E_STATE, "state_invalid", "%s is not a plain directory",
-                      paths->previous);
-        return 0;
+        remove_tree_quiet(paths->previous);
+        previous_exists = 0;
     }
     if (previous_exists)
     {
         if (!backup_exists)
         {
-            if (rename(paths->previous, paths->backup) != 0)
-            {
-                upd_error_set(error, UPD_E_IO, "io_error", "cannot restore %s: %s",
-                              paths->backup, strerror(errno));
-                return 0;
-            }
-            if (!sync_root_and_state(paths, error)) return 0;
+            if (rename(paths->previous, paths->backup) == 0)
+                (void)sync_root_and_state(paths, error);
         }
         else
         {
             remove_tree_quiet(paths->previous);
         }
     }
-    snprintf(record->state, sizeof record->state, "%s", TXN_STATE_ROLLED_BACK);
-    if (!write_txn(paths, record, error)) return 0;
-    set_result(result, "recovered_rollback", record->state, record->previous_version, NULL);
     return 1;
 }
 
@@ -1192,6 +1190,18 @@ static int finalize_commit(const UpdPaths* paths, TxnRecord* record,
         test_crash_phase("committed");
     }
     set_result(result, outcome, record->state, record->version, record->previous_version);
+    return 1;
+}
+
+static int mark_rolled_back(const UpdPaths* paths, TxnRecord* record,
+                            UpdTransactionResult* result, UpdError* error)
+{
+    snprintf(record->state, sizeof record->state, "%s", TXN_STATE_ROLLED_BACK);
+    if (!write_txn(paths, record, error)) return 0;
+    set_result(result, "recovered_rollback", record->state, record->previous_version, NULL);
+    remove_tree_quiet(paths->candidate);
+    remove_tree_quiet(paths->previous);
+    remove_tree_quiet(paths->failed);
     return 1;
 }
 
@@ -1297,10 +1307,23 @@ static int rollback_installed(const UpdPaths* paths, TxnRecord* record,
         int present = 0;
         int matches = 0;
         if (!read_marker(paths->live, record->txn_id, &present, &matches, error)) return 0;
-        if (!present || !matches)
+        if (present && !matches)
         {
             upd_error_set(error, UPD_E_STATE, "state_ambiguous",
-                          "installed system does not carry this transaction marker");
+                          "installed system carries a different transaction marker");
+            return 0;
+        }
+        if (!present)
+        {
+            char live_version[UPD_MAX_VERSION + 1];
+            if (!read_directory_version(paths->live, live_version, sizeof live_version,
+                                        "state_ambiguous", error))
+                return 0;
+            if (strcmp(live_version, record->previous_version) == 0)
+                return mark_rolled_back(paths, record, result, error);
+            upd_error_set(error, UPD_E_STATE, "state_ambiguous",
+                          "installed system has neither the transaction marker nor the "
+                          "previous version");
             return 0;
         }
     }
@@ -1403,7 +1426,33 @@ static int recover_internal(const char* root, int force_rollback,
             return 0;
         }
         if (!live_exists) return rollback_precommit(&paths, &record, 0, result, error);
-        return finalize_commit(&paths, &record, result, error);
+        {
+            int present = 0;
+            int matches = 0;
+            if (!read_marker(paths.live, record.txn_id, &present, &matches, error)) return 0;
+            if (present)
+            {
+                if (!matches)
+                {
+                    upd_error_set(error, UPD_E_STATE, "state_ambiguous",
+                                  "live system carries a different transaction marker");
+                    return 0;
+                }
+                return finalize_commit(&paths, &record, result, error);
+            }
+            {
+                char live_version[UPD_MAX_VERSION + 1];
+                if (!read_directory_version(paths.live, live_version,
+                                            sizeof live_version, "state_ambiguous", error))
+                    return 0;
+                if (strcmp(live_version, record.previous_version) == 0)
+                    return mark_rolled_back(&paths, &record, result, error);
+            }
+            upd_error_set(error, UPD_E_STATE, "state_ambiguous",
+                          "live system has neither the transaction marker nor the previous "
+                          "version");
+            return 0;
+        }
     }
     if (strcmp(record.state, TXN_STATE_INSTALLED) == 0
         || strcmp(record.state, TXN_STATE_COMMITTED) == 0)

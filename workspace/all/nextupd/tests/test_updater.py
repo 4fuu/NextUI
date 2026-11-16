@@ -1090,6 +1090,28 @@ def test_install_missing_marker_refuses(key_der):
     expect_unchanged("ambiguous recovery writes nothing", target, before)
 
 
+def test_install_restored_live_without_state(key_der):
+    staged = build_stage("install-restored-live-stage")
+    target = make_target("install-restored-live")
+    proc = run(install_args(staged, target),
+               env={"NEXTUPD_TEST_CRASH_PHASE": "installing"})
+    if proc.returncode != 70:
+        fail("install restored live setup", "expected exit 70", proc)
+        return
+    os.rename(os.path.join(target, ".system.bak"), os.path.join(target, ".system"))
+    proc = run(recover_args(target))
+    value = expect_json("recover restored live", proc)
+    if value and value.get("outcome") != "recovered_rollback":
+        fail("recover restored live", f"unexpected result: {value}", proc)
+    else:
+        ok("recover restored live rolls back")
+    assert_live_system("recover restored live coherent", target, "v6.15.0", OLD_ELF)
+    if read_txn(target).get("state") != "rolled_back":
+        fail("recover restored live state", "not rolled back")
+    else:
+        ok("recover restored live state")
+
+
 def test_install_missing_live_before_backup_refuses(key_der):
     staged = build_stage("install-missing-live-stage")
     target = make_target("install-missing-live")
@@ -1178,6 +1200,7 @@ def main():
     test_install_backup_corruption(key_der)
     test_install_rollback_crash(key_der)
     test_install_missing_marker_refuses(key_der)
+    test_install_restored_live_without_state(key_der)
     test_install_missing_live_before_backup_refuses(key_der)
     test_install_corrupt_transaction_record(key_der)
     test_install_backup_retention(key_der)
