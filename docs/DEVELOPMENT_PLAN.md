@@ -22,8 +22,9 @@ history; its top section mirrors the current schedule in this file.
   (schedule file, `3380fe4`), PR #20 (settings About/hints i18n, `6a98573`),
   PR #17 (U4 update feed, `4699226`), PR #21 (schedule file, `c9230cf`), PR #22
   (schedule file, `6594dce`), and PR #23 (settings Network/Bluetooth i18n,
-  `5698908`); `de69781` is an ancestor of all of them. Later updates branch
-  from `origin/main`.
+  `5698908`); the latest main tip `07bdf4c` (merge of PR #25) is docs-only and
+  does not move this baseline. `de69781` is an ancestor of all of them. Later
+  updates branch from `origin/main`.
 - Maintenance rule (2026-11-16, owner 4fuu): this schedule's baseline is the
   real functional code version; the file is committed only when a feature, fix,
   requirement, acceptance, or owner dependency actually changes. A docs-only
@@ -102,10 +103,15 @@ Rules:
   (PR #17, `4699226`).
 - Host-done, unpushed: none. Open at the last check: PR #24 (U7 `.tmp_update`
   payload sync, head `beae0cf`, CI green on that head per gh with the source
-  reporting six checks, review pending, not merged) and this schedule file's
-  own update (PR #25). PR #23 (I4 settings Network/Bluetooth translation, head
-  `bd2a40c`) merged into main as `5698908b44e8a0b09275440d5ff8bb7483e12239`.
-  This schedule file's updates merged into main as
+  reporting six checks, review pending, not merged), PR #26 (I4 settings
+  Assignments translation, head `303c9ed`, CI green on that head per gh, open),
+  PR #27 (U8 transactional update package build, head `3b406c6`, CI green on
+  that head per gh with the source reporting six of six, open), and this
+  schedule file's own update. PR #23 (I4 settings Network/Bluetooth
+  translation, head `bd2a40c`) merged into main as
+  `5698908b44e8a0b09275440d5ff8bb7483e12239`; this schedule file's update
+  PR #25 merged as `07bdf4c` (docs-only). This schedule file's updates merged
+  into main as
   PR #12 `3ae1ddf`, PR #16 `0385b21`, PR #18 `471de2c`, PR #19 `3380fe4`, PR #21
   `c9230cf`, and PR #22 `6594dce`. The runtime line (I1) merged into main as
   `3a50fe8`; the updater
@@ -248,11 +254,14 @@ Rules:
 - Depends on: baseline; I5 coordination.
 - Next: the remaining settings pages continue in follow-up slices. The
   Network/Bluetooth slice is merged as PR #23 (head `bd2a40c`, independent
-  review PASS), and Assignments is released as the remaining page. The second
-  block (About plus the shared menu/keyboard hints) is delivered as PR #20. Per
-  the owner's decision the In-Game menu is gone with PR #13, so it is not a
-  translation gap; the Notifications and RetroAchievements submenus went with
-  the In-Game menu and are not listed as gaps either.
+  review PASS). The Assignments slice is open as PR #26 (branch
+  `i18n/settings-assignments`, head `303c9ed` "Translate the settings
+  Assignments page into Simplified Chinese"), with CI green on that head per
+  gh and not merged at the last check. The second block (About plus the shared
+  menu/keyboard hints) is delivered as PR #20. Per the owner's decision the
+  In-Game menu is gone with PR #13, so it is not a translation gap; the
+  Notifications and RetroAchievements submenus went with the In-Game menu and
+  are not listed as gaps either.
 
 ### I5 — LedControl and boot text i18n
 - Owner thread: https://ampcode.com/threads/T-01a1e2c4-ed1c-779c-965c-e559b98248b0
@@ -653,7 +662,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   the transactional update package thread
   https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa (the
   precise contract was handed over; T-01a1e307 is no longer the only owner);
-  no production feed/key, release, device, ADB, or install UI.
+  that thread's packaging slice is delivered as PR #27 (see U8). No production
+  feed/key, release, device, ADB, or install UI.
 - Scope: signed-package-driven, interruptible-recovery payload synchronization
   and the packaging contract, so the `.tmp_update` area (today refreshed only
   by the legacy MinUI.zip/bootstrap path) can be refreshed by this repo's own
@@ -671,6 +681,42 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   verification.
 - Next: the install UI (a separate slice); production feed/signing key custody
   stays with the owner decision (U5).
+
+#### U8 — Transactional system update package build (packaging side of U7)
+- Owner thread: https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa
+  (transactional update package; the packaging side of U7's scope).
+- Status: delivered and pushed; not merged. PR #27
+  (https://github.com/4fuu/NextUI/pull/27, branch `feature/updater-update-package`),
+  head `3b406c6da2becb1379199944bdb9ec50520d70e2`, base `origin/main` `6594dcec`;
+  OPEN and mergeable per gh. CI at that head is six of six green per the source
+  (Host tests push and PR, build-linux, build-macos, tg5040 target build push
+  and PR); gh shows Feature checks (push and pull_request) and
+  Development/Desktop success on that head.
+- Delivered: `make update-package PLATFORM=... UPDATE_VERSION=...` plus
+  `scripts/package-update.sh`, packaging exactly `.system/` and the optional
+  `.tmp_update/` boot payload into `nextui-system-<platform>.zip` with its
+  `nextui-update-v1` manifest and detached signature;
+  `tests/update_package_test.py` wired into `make -C tests test` (target
+  `test-update-package`); `UPDATE-PACKAGING.md` documents the contract. The
+  bootstrap `MinUI.zip` built by `make package` is unchanged and still carries
+  `Tools/`.
+- Evidence (host only, no device): `make -C tests test` green (177 + 55 + 56
+  pre-existing checks; the new suite 50 passed, 0 failed, 1 skipped); the new
+  suite against the updater's `feature/boot-payload-sync` head `27c95475`: 56
+  passed, 0 failed, 0 skipped, including the `.tmp_update` install lifecycle on
+  the packaged archive; under ASan/UBSan: 50 passed, 0 failed, 1 skipped; the
+  old bootstrap shape passes `check` and is refused by `install` with
+  `unexpected_path` and zero writes on both binaries.
+- Dependency: the `.tmp_update` install lifecycle end to end is skipped on main
+  and activates automatically once the updater's boot payload sync (PR #24)
+  merges; the test detects support from `check`'s `boot_payload` field. The
+  tg5040 package-content CI job is proposed to the CI owner and is not yet in
+  any workflow.
+- Not delivered: production release source, feed configuration, production
+  signing key, any device install or release publication.
+- Next: organization review plus CI and merge of PR #27; the `UPDATES.md`
+  cross-reference is left to the updater thread to avoid a conflict with its
+  in-flight edit.
 
 ### I9 — Settings abnormal-data fault tolerance
 - Owner thread: https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
@@ -839,6 +885,7 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e3be-7fde-7279-a1e2-fb05fa7752d0
 - Transactional update package thread (release artifact root set):
   https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa
+  (packaging slice delivered as PR #27, branch `feature/updater-update-package`)
 - Settings abnormal-data fault tolerance thread:
   https://ampcode.com/threads/T-01a1e3c1-c100-75ba-91f8-7c4f2feabe09
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
@@ -858,17 +905,15 @@ as they happen; nothing is reported as passing without a run.
 
 - This file is on `main`: PR #2 merged as `59a63e6`, updated by PR #9
   (`3ecefd5`), PR #10 (`b28b126`), PR #12 (`3ae1ddf`), PR #16 (`0385b21`), PR #18
-  (`471de2c`), PR #19 (`3380fe4`), PR #21 (`c9230cf`), and PR #22 (`6594dce`).
-  Later schedule updates branch from `origin/main` and open a pull request into
-  `main`; the CI/merge owner merges after checks pass. This thread performs no
-  merges itself.
+  (`471de2c`), PR #19 (`3380fe4`), PR #21 (`c9230cf`), PR #22 (`6594dce`), and
+  PR #25 (`07bdf4c`). Later schedule updates branch from `origin/main` and open
+  a pull request into `main`; the CI/merge owner merges after checks pass. This
+  thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
-  because real tasks changed (U7's head advanced with the boot-payload ordering
-  hardening, the transactional package and review owners were named, and the
-  settings fault-tolerance task was dispatched), not because a docs head moved.
-  It continues on branch `docs/schedule-update-9` and folds into the still-open
-  PR #25; no new pull request is opened for it.
-- The current update travels on branch `docs/schedule-update-9` (cut from
-  `origin/main` @ `6594dce`), delivered through PR #25; earlier schedule
-  branches merged as `3ae1ddf`, `0385b21`, `471de2c`, `3380fe4`, `c9230cf`,
-  and `6594dce`.
+  because real tasks changed (the transactional update packaging slice
+  delivered as PR #27 and the settings Assignments slice opened as PR #26), not
+  because a docs head moved. The previous schedule pull request (PR #25) is
+  merged, so this update travels on a new branch.
+- The current update travels on a new branch cut from `origin/main` @
+  `07bdf4c` (earlier schedule branches merged as `3ae1ddf`, `0385b21`,
+  `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, and `07bdf4c`).
