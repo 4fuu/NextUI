@@ -16,14 +16,19 @@ extern "C"
 {
 #include "api.h"
 #include "defines.h"
+#include "config.h"
+// Defined in api.c (the CFG_init font callback) but not in api.h.
+int GFX_loadSystemFont(const char *fontPath);
 }
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 
 #include <cstdio>
+#include <cstring>
 #include <thread>
 #include <chrono>
+#include <string>
 
 static int failures = 0;
 
@@ -106,6 +111,72 @@ static void runFreezeRegression()
     printf("freeze regression: %s\n", failures == 0 ? "ok" : "FAIL");
 }
 
+// Render the real System Update page in Simplified Chinese through the top-level
+// menu and save two frames: the page chrome, and the page after a check whose
+// unconfigured feed drives a live status string. This is the actual-render
+// evidence that the new zh strings have glyphs and lay out (companion to the
+// charset fixture and the width test).
+static void runZhScreenshots(const char *outDir)
+{
+    CFG_setLanguage("zh");
+    // The font is a separate setting from the language; the zh UI is meant to be
+    // paired with the CJK font (font3, the language default). Load it so the
+    // render matches a real zh device rather than the Latin default.
+    {
+        char font3[512];
+        snprintf(font3, sizeof(font3), "%s/font3.ttf", RES_PATH);
+        GFX_loadSystemFont(font3);
+    }
+    int quit = 0;
+    int dirty = 0;
+
+    SysUpdate::Config config;
+    config.platform = "tg5040";
+    config.system_version = "v6.16.0";
+    config.feed = ""; // unconfigured -> the check reports "Update source is not configured."
+    config.target_root = "/tmp/sysupdate-zh-no-txn";
+
+    SysUpdate::Controller controller(config);
+    SysUpdate::Menu *sysMenu = new SysUpdate::Menu(quit, dirty, controller);
+    MenuItem *entry =
+        new MenuItem(ListItemType::Generic, "System Update", "", DeferToSubmenu, sysMenu);
+    MenuList top(MenuItemType::List, "Main", {entry});
+    SDL_Rect rect = {SCALE1(PADDING), SCALE1(PILL_SIZE), screen->w - SCALE1(PADDING * 2),
+                     screen->h - SCALE1(PADDING * 2)};
+    top.performLayout(rect);
+
+    auto draw = [&](const char *name) {
+        SDL_FillRect(screen, NULL,
+                     SDL_MapRGB(screen->format, 0x1e, 0x23, 0x29)); // app-like dark background
+        SDL_Rect titleRect = {SCALE1(PADDING), SCALE1(PADDING),
+                              screen->w - SCALE1(PADDING * 2), SCALE1(PILL_SIZE)};
+        top.draw(screen, rect, titleRect);
+        std::string path = std::string(outDir) + "/" + name;
+        if (SDL_SaveBMP(screen, path.c_str()) == 0)
+            printf("saved %s\n", path.c_str());
+        else
+            printf("FAIL: could not save %s: %s\n", path.c_str(), SDL_GetError());
+    };
+
+    pumpFrame(top, BTN_A, 0); // defer into the page
+    draw("sysupdate-zh-01-page.bmp");
+
+    pumpFrame(top, 0, BTN_DOWN);
+    pumpFrame(top, 0, BTN_DOWN); // move to "Check for updates"
+    pumpFrame(top, BTN_A, 0);    // start the check
+    std::string busy = sysMenu->statusText();
+    for (int i = 0; i < 500 && sysMenu->statusText() == busy; i++)
+    {
+        pumpFrame(top, 0, 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    draw("sysupdate-zh-02-status.bmp");
+    printf("zh status row now: [%s]\n", sysMenu->statusText().c_str());
+
+    delete sysMenu;
+    CFG_setLanguage("en");
+}
+
 static long countLitPixels(SDL_Surface *surface)
 {
     long lit = 0;
@@ -126,7 +197,7 @@ static long countLitPixels(SDL_Surface *surface)
     return lit;
 }
 
-int main()
+int main(int argc, char **argv)
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
@@ -140,6 +211,14 @@ int main()
         return 1;
     }
     SDL_SetSurfaceBlendMode(screen, SDL_BLENDMODE_BLEND);
+
+    // Optional: render the page in Simplified Chinese and save frames to a
+    // directory (the actual-render evidence for the new zh strings).
+    if (argc >= 3 && strcmp(argv[1], "--zh-screenshot") == 0)
+    {
+        runZhScreenshots(argv[2]);
+        return failures == 0 ? 0 : 1;
+    }
 
     int quit = 0;
     int dirty = 0;
