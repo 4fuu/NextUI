@@ -63,11 +63,11 @@ Rules:
   devserv/nextdev permission core (C1); LED app-profile lease (C2); session
   snapshot/restore (C3).
 - Host-done, unpushed: none. `runtime-fn-actions` @
-  `be88c2018196d5249e8819adba07bcd4e7fc7a4c` (app exit path C4, Clock reference
+  `be88c2028196d5249e8819adba07bcd4e7fc7a4c` (app exit path C4, Clock reference
   wiring B6, default-allow policy) is pushed as draft PR #1; the i18n branches
   (I4/I5) and `feature/updater-manifest` (I6) remain local for now.
 - Target compile: tg5040 passes on batch7; the runtime branch
-  (`be88c2018196d5249e8819adba07bcd4e7fc7a4c`) has a formal PASS from the
+  (`be88c2028196d5249e8819adba07bcd4e7fc7a4c`) has a formal PASS from the
   toolchain thread (own verification, not cloud CI); `feature/updater-manifest`
   tg5040 build was completed by its own thread; the i18n branches are pending;
   tg5050/h700 have no batch7 build evidence.
@@ -80,14 +80,19 @@ Rules:
 
 ### I1 — Runtime FN actions, app exit, Clock adapter, default-allow policy
 - Owner thread: https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
-- State: pushed to origin. Branch `runtime-fn-actions`, commit
-  `be88c2018196d5249e8819adba07bcd4e7fc7a4c` (6 commits, based on `de69781`),
-  delivered as draft PR #1 (https://github.com/4fuu/NextUI/pull/1) into
-  `integration/batch7` @ `de69781`; PR state OPEN and mergeable. Source-thread
-  host self-test reported green; the toolchain thread confirmed the same tree
-  with a formal PASS (I2). Review (I3) is in progress with no conclusion yet.
-  Not merged; the merge decision belongs to the CI/merge owner after real CI
-  and review pass. No status is upgraded without executed evidence.
+- State: pushed to origin. Branch `runtime-fn-actions`; remote HEAD (verified
+  against origin and PR #1 headRefOid, 2026-11-16) is
+  `b46227ac47591b9f3650b9f455d84a66996d9710` "Keep librt out of macOS desktop
+  links" (7 commits, based on `de69781`), which sits on top of
+  `be88c2028196d5249e8819adba07bcd4e7fc7a4c` "Allow installed apps to use
+  implemented capabilities by default" (6 commits; the commit the toolchain
+  PASS in I2 covers). Delivered as draft PR #1
+  (https://github.com/4fuu/NextUI/pull/1) into `integration/batch7` @
+  `de69781`; PR state OPEN and mergeable. Source-thread host self-test reported
+  green; the toolchain thread confirmed the `be88c2028...` tree with a formal
+  PASS (I2). Review (I3) is in progress with no conclusion yet. Not merged; the
+  merge decision belongs to the CI/merge owner after real CI and review pass.
+  No status is upgraded without executed evidence.
 - Covers: C4 exit/force-exit path (never removes `/tmp/nextui_exec`), B6 Clock
   as the reference adapted pak, and the install-default-highest-permission
   policy (legacy grant store only behind `--require-grants`).
@@ -102,19 +107,21 @@ Rules:
   PID accepted; no killing of new sessions, other apps, or the desktop. Formal
   PASS reports from I2/I3 are outstanding.
 - Next: PR #1 CI to finish and I3 to conclude; then the CI/merge owner decides
-  the merge. CI status on PR #1 (2026-11-16): the Development/Desktop run
-  completed with failure — `build-macos` fails linking `devserv.elf` with
-  `ld: library 'rt' not found` (`build-linux` succeeds); the baseline
-  `workspace/all/devserv/makefile` does not link `-lrt`, so the runtime branch
-  introduced it, and the fix belongs to the runtime source thread. The CI
-  device run is still in progress (prepare and core-matrix pass; many
-  `build-core` jobs pass, some pending). The HOME gap is handled as I7 on a
-  separate increment.
+  the merge. CI status on PR #1 (2026-11-16): the Development/Desktop run on
+  `be88c2028...` completed with failure — `build-macos` fails linking
+  `devserv.elf` with `ld: library 'rt' not found` (`build-linux` succeeds); the
+  baseline `workspace/all/devserv/makefile` does not link `-lrt`, so the runtime
+  branch introduced it. The source thread pushed fix `b46227ac` "Keep librt out
+  of macOS desktop links", which is now the PR head and has fresh CI runs
+  triggered (Development/Desktop in_progress, CI queued as of this write); the
+  `be88c2028...` device CI run is still in progress (prepare and core-matrix
+  pass; many `build-core` jobs pass, some pending). Each increment is verified
+  on its own; the HOME gap is handled as I7 on a separate increment.
 
 ### I2 — Toolchain target compile of the runtime branch
 - Owner: retained toolchain-target thread (tg5040 cross-build).
 - State: formal PASS received (2026-11-16). The thread verified runtime commit
-  `be88c2018196d5249e8819adba07bcd4e7fc7a4c` (short `be88c20`), tree
+  `be88c2028196d5249e8819adba07bcd4e7fc7a4c` (short `be88c20`), tree
   `58ede42bb5e1d2b129e15a4910f3fe38aabbac47`: host tests PASS, tg5040 actual
   cross-compile/link/package PASS, and keymon standalone cross-compile exit 0.
   Candidate package `NextUI-20261116-integration-runtime-fn-actions-0` (550
