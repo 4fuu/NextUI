@@ -70,14 +70,17 @@ Menu::~Menu()
     cv.notify_one();
     if (worker.joinable())
         worker.join();
-    // The modal overlay only exists during an operation; clear it if we are torn
-    // down so it never outlives this page.
-    hideOverlay();
 }
 
 InputReactionHint Menu::handleInput(int &dirty, int &quit)
 {
+    // Always collect first. This page is a deferred submenu reached only through
+    // the top-level menu's dispatch, and a visible global overlay would make that
+    // dispatch bail out early and starve this call, so progress is shown with the
+    // Status row (statusText_) and an input lock (running_) instead of an overlay.
     collectResult(dirty);
+    if (running_)
+        return InputReactionHint::NoOp; // input locked while an operation runs
     return MenuList::handleInput(dirty, quit);
 }
 
@@ -85,15 +88,15 @@ void Menu::request(const std::string &op, const std::string &busyMessage)
 {
     {
         std::lock_guard<std::mutex> lock(mtx);
-        // One operation at a time. The modal overlay also swallows input while an
-        // operation runs, and the tool takes its own target lock, so this is the
-        // first of three layers that keep a double tap from installing twice.
+        // One operation at a time. The running_ input lock plus the tool's own
+        // target lock keep a double tap from starting a second install.
         if (!pendingOp.empty() || resultReady)
             return;
         pendingOp = op;
     }
+    running_ = true;
+    statusText_ = busyMessage;
     cv.notify_one();
-    showOverlay(busyMessage, OverlayDismissMode::None);
     globalDirty = 1;
 }
 
@@ -139,7 +142,7 @@ void Menu::collectResult(int &dirty)
     if (got)
     {
         applyResult(result);
-        hideOverlay();
+        running_ = false; // operation finished; unlock input
         dirty = 1;
     }
 }
@@ -188,6 +191,15 @@ std::string Menu::describe(const Result &result) const
     default:
         if (result.reason == "nothing_staged")
             return TR("Download an update first.");
+        if (result.reason == "platform_mismatch" || result.reason == "platform_not_in_feed" ||
+            result.reason == "platform_missing" || result.reason == "invalid_platform")
+            return TR("This update is not for this device.");
+        if (result.reason == "system_version_missing" || result.reason == "invalid_system_version")
+            return TR("Cannot determine the current system version.");
+        if (result.reason == "target_missing" || result.reason == "target_root_missing")
+            return TR("The system installation is missing.");
+        if (result.reason == "unsupported_kind")
+            return TR("This package is not a system update.");
         return TR("Update failed.");
     }
 }

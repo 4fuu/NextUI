@@ -242,12 +242,14 @@ bool Controller::parseResultJson(const std::string& text, std::map<std::string, 
     return cursor.p == cursor.end;
 }
 
-// Map an ok:false outcome to a State. Reason strings are matched first, then the
-// documented exit codes, so a new reason still lands in a sane bucket.
+// Map an ok:false outcome to a State. Reachable failures are matched by reason
+// first and given a specific meaning, then the documented exit codes cover the
+// rest. A wrong-device package, an unreadable running version, or a missing
+// install target are genuine failures, not "system too old", "unconfigured", or
+// "recoverable"; describe() turns the Failed reason into specific text.
 State Controller::mapError(const std::string& reason, int code)
 {
-    if (reason == "feed_unconfigured" || reason == "trusted_key_missing" ||
-        reason == "system_version_missing")
+    if (reason == "feed_unconfigured" || reason == "trusted_key_missing")
         return State::Unconfigured;
     if (reason == "transport_unavailable" || reason == "download_failed" ||
         reason == "download_timeout" || reason == "download_truncated" ||
@@ -273,10 +275,18 @@ State Controller::mapError(const std::string& reason, int code)
         reason == "invalid_digest" || reason == "invalid_hash" ||
         reason == "staged_dir_missing" || reason == "invalid_staged_layout")
         return State::VerificationFailed;
-    if (reason == "target_missing" || reason == "state_ambiguous" ||
-        reason == "backup_corrupt" || reason == "backup_missing" ||
-        reason == "transaction_corrupt" || reason == "state_invalid")
+    if (reason == "state_ambiguous" || reason == "backup_corrupt" ||
+        reason == "backup_missing" || reason == "transaction_corrupt" ||
+        reason == "state_invalid")
         return State::Recoverable;
+    // Reachable failures that must read as a concrete failure, not a mislabeled
+    // state. describe() gives each a specific message from its reason.
+    if (reason == "platform_mismatch" || reason == "platform_not_in_feed" ||
+        reason == "platform_missing" || reason == "invalid_platform" ||
+        reason == "system_version_missing" || reason == "invalid_system_version" ||
+        reason == "target_missing" || reason == "target_root_missing" ||
+        reason == "unsupported_kind" || reason == "system_payload_missing")
+        return State::Failed;
 
     switch (code)
     {
@@ -292,8 +302,6 @@ State Controller::mapError(const std::string& reason, int code)
         return State::Unconfigured;
     case 9:
         return State::InsufficientSpace;
-    case 4:
-        return State::SystemTooOld;
     default:
         return State::Failed;
     }
@@ -315,7 +323,7 @@ Result Controller::interpret(const std::string& stdout_text, int exit_code)
         }
         else if (exit_code == 64)
         {
-            result.state = State::Unconfigured;
+            result.state = State::Failed;
             result.reason = "usage";
         }
         else

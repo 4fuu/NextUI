@@ -16,8 +16,8 @@
  * - The controller spawns nextupd as a child with an explicit argv (posix_spawn,
  *   no shell); the child performs the swap and the parent waits on a pipe. During
  *   the swap settings opens no .system file: fonts and surfaces are preloaded at
- *   init and the "Installing..." overlay draws from memory, so settings never
- *   reads a half-replaced .system.
+ *   init and progress is shown by the page's Status row (a preloaded string), so
+ *   settings never reads a half-replaced .system.
  * - install re-runs the full manifest/signature/hash verification against the
  *   staged bytes before it writes anything, so the pre-install re-check is the
  *   tool's, not a UI promise.

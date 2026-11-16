@@ -1,9 +1,10 @@
-// Head-side render smoke test for the System Update settings page. It builds the
-// real SysUpdate::Menu over a real SysUpdate::Controller and drives the real
-// MenuList::draw() path with the dummy SDL video driver and GFX_initAttached(),
-// so the page's version / status / action rows are proven to render without a
-// crash (the same draw path the settings crash fixes hardened). No operation is
-// started, so it never spawns nextupd or touches a device.
+// Head-side tests for the System Update settings page. The render smoke test
+// builds the real SysUpdate::Menu over a real SysUpdate::Controller and drives the
+// real MenuList::draw() path with the dummy SDL video driver and GFX_initAttached().
+// The freeze regression drives the real top-level menu (defer -> navigate -> start
+// an operation) and pumps its frames, proving a finished operation is consumed and
+// input unlocks instead of freezing behind a stuck overlay. The regression uses an
+// unconfigured feed, so the operation returns immediately without spawning nextupd.
 //
 // Build and run from the repository root after `make setup`:
 //   workspace/all/settings/tests/run_sysupdate_menu_test.sh
@@ -21,10 +22,89 @@ extern "C"
 #include <SDL2/SDL_ttf.h>
 
 #include <cstdio>
+#include <thread>
+#include <chrono>
 
 static int failures = 0;
 
 static SDL_Surface *screen = nullptr;
+
+// Drive one frame of the real top-level menu with injected input, then clear it,
+// so a press is a single-frame tap (the real PAD_poll clears just_* each frame).
+static void pumpFrame(MenuList &top, int pressed, int repeated)
+{
+    pad.just_pressed = pressed;
+    pad.just_repeated = repeated;
+    int dirty = 0;
+    int quit = 0;
+    top.handleInput(dirty, quit);
+    pad.just_pressed = 0;
+    pad.just_repeated = 0;
+}
+
+// Freeze regression. The page is a deferred submenu reached only through the
+// top-level menu's dispatch; a visible non-dismissible global overlay made that
+// dispatch bail out early, starving collectResult and freezing input forever.
+// This drives the real top-level menu and pumps its frames, asserting the result
+// is consumed, no overlay sticks, and input unlocks afterwards.
+static void runFreezeRegression()
+{
+    int quit = 0;
+    int dirty = 0;
+
+    SysUpdate::Config config;
+    config.platform = "tg5040";
+    config.system_version = "v6.0.0";
+    config.feed = ""; // unconfigured: the check returns immediately, no nextupd spawn
+    config.target_root = "/tmp/sysupdate-freeze-no-txn";
+
+    SysUpdate::Controller controller(config);
+    SysUpdate::Menu *sysMenu = new SysUpdate::Menu(quit, dirty, controller);
+    MenuItem *entry =
+        new MenuItem(ListItemType::Generic, "System Update", "", DeferToSubmenu, sysMenu);
+    MenuList top(MenuItemType::List, "Main", {entry});
+    SDL_Rect rect = {SCALE1(PADDING), SCALE1(PILL_SIZE), screen->w - SCALE1(PADDING * 2),
+                     screen->h - SCALE1(PADDING * 2)};
+    top.performLayout(rect);
+
+    // Defer into the page, move to the "Check for updates" row (index 2), start it.
+    pumpFrame(top, BTN_A, 0);
+    pumpFrame(top, 0, BTN_DOWN);
+    pumpFrame(top, 0, BTN_DOWN);
+    pumpFrame(top, BTN_A, 0);
+
+    // Pump the top-level menu until the operation's result is consumed. Sleep a
+    // frame between pumps so the worker thread is actually scheduled, matching the
+    // real main loop which yields between frames (vsync).
+    std::string busy = sysMenu->statusText();
+    for (int i = 0; i < 500 && sysMenu->statusText() == busy; i++)
+    {
+        pumpFrame(top, 0, 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    if (MenuList::isOverlayVisible())
+    {
+        printf("FAIL: freeze: a global overlay is still visible (input would be dead)\n");
+        failures++;
+    }
+    if (sysMenu->statusText() == busy)
+    {
+        printf("FAIL: freeze: result never consumed via the top-level dispatch (got [%s])\n",
+               sysMenu->statusText().c_str());
+        failures++;
+    }
+    // Input is unlocked again: B now closes the submenu.
+    pumpFrame(top, BTN_B, 0);
+    if (entry->isDeferred())
+    {
+        printf("FAIL: freeze: input still locked after the operation finished\n");
+        failures++;
+    }
+
+    delete sysMenu; // joins the worker before controller goes out of scope
+    printf("freeze regression: %s\n", failures == 0 ? "ok" : "FAIL");
+}
 
 static long countLitPixels(SDL_Surface *surface)
 {
@@ -90,6 +170,8 @@ int main()
         menu.handleInput(dirty, quit);
     } // Menu destroyed here: its worker thread is joined.
 
-    printf("sysupdate menu render: %s\n", failures == 0 ? "ok" : "FAIL");
+    runFreezeRegression();
+
+    printf("sysupdate menu tests: %s\n", failures == 0 ? "ok" : "FAIL");
     return failures == 0 ? 0 : 1;
 }

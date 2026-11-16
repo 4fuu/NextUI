@@ -441,6 +441,40 @@ static void testToolPathMatchesPackage()
           (int)r2.state, r2.reason.c_str());
 }
 
+// A wrong-device / missing-platform entry is a concrete failure, not "system too
+// old" (exit 4 used to fall through to SystemTooOld).
+static void testPlatformNotInFeed()
+{
+    std::string base = freshBase();
+    std::string target = makeTarget(base, "v6.0.0");
+    std::string feed = buildFeed(base);
+    Config cfg = baseConfig(base, feed, target, "v6.0.0");
+    cfg.platform = "tg5050"; // the feed only carries tg5040
+    Controller controller(cfg);
+    Result r = controller.checkForUpdates();
+    CHECK(r.state == State::Failed,
+          "platform: state %d reason %s (must be Failed, not SystemTooOld)", (int)r.state,
+          r.reason.c_str());
+    CHECK(r.reason == "platform_not_in_feed", "platform: reason %s", r.reason.c_str());
+}
+
+// A missing install target is a concrete failure, not a "recoverable" transaction
+// (exit 13 with reason target_missing used to fall through to Recoverable).
+static void testTargetMissing()
+{
+    std::string base = freshBase();
+    std::string feed = buildFeed(base);
+    std::string empty = base + "/empty"; // no .system here
+    mkdirs(empty);
+    Controller controller(baseConfig(base, feed, empty, "v6.0.0"));
+    CHECK(controller.downloadToStaging().state == State::Staged, "target_missing: staged");
+    Result r = controller.install();
+    CHECK(r.state == State::Failed,
+          "target_missing: state %d reason %s (must be Failed, not Recoverable)", (int)r.state,
+          r.reason.c_str());
+    CHECK(r.reason == "target_missing", "target_missing: reason %s", r.reason.c_str());
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -466,6 +500,8 @@ int main(int argc, char **argv)
     testPendingRecoveryReported();
     testFeedCannotRedirectTarget();
     testToolPathMatchesPackage();
+    testPlatformNotInFeed();
+    testTargetMissing();
 
     printf("sysupdate controller: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

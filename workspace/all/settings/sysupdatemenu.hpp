@@ -32,6 +32,7 @@ class Menu : public MenuList
     bool resultReady = false;
     Result pendingResult;
     std::string statusText_;
+    bool running_ = false; // input lock while an operation is in flight (main thread only)
     bool quit = false;
 
 public:
