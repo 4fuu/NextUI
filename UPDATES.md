@@ -1,14 +1,15 @@
-# Update package manifests and safe staging
+# Update package manifests, safe staging, and offline system installs
 
-Status: first implementation slice of the update work. It verifies and stages
-packages but never installs, extracts over the live system, switches the updater
-source, publishes a feed, or rolls back. Those remain separate tasks (D1/D2/D5
-in the plan). `nextupd` is not wired into `boot.sh`, `launch.sh`, keymon, or
-devserv.
+Status: manifest verification, safe staging, and the offline install transaction
+are implemented. Installation only happens inside an explicitly supplied target
+root; there is no default root, no automatic activation, and no edit to
+`boot.sh`, `launch.sh`, keymon, devserv, or the release feed. Updater source
+switching and boot wiring remain separate tasks (D1/D2 and the activation
+integration).
 
 The code lives in `workspace/all/nextupd/`. Host tests cover the manifest,
-signature, ZIP, corrupt-package, path/link, disk-space, interruption, and
-power-loss cases.
+signature, ZIP, corrupt-package, path/link, disk-space, interruption,
+transaction-phase crash, re-entry, rollback, and backup-corruption cases.
 
 ## Package identity
 
@@ -154,15 +155,84 @@ Staging layout:
     staged.json          # written last, after every other file is fsynced
 ```
 
-`staged.json` is an advisory descriptor for the later installation task. It is
-not signed; installation must re-run `nextupd check` against the staged archive,
-manifest, signature, and trusted key. No code in this task consumes it.
+`staged.json` is an advisory descriptor. It is not signed, so `install` re-runs
+the full check against the staged archive, manifest, signature, and trusted key,
+then cross-checks every descriptor field and both descriptor hashes against that
+verified manifest. A modified descriptor fails before any target write.
 
 Disk space is checked before any package bytes are written. If a stage is
 interrupted, `.part` files may remain, but there is no `staged.json`; the next
 stage cleans stale parts. A power loss after the archive copy but before the
 marker leaves no ready package. Replacing an existing stage requires
 `--replace`.
+
+## Installing a staged system
+
+`install` applies a verified system package to an explicit target root:
+
+```sh
+nextupd install --staged-dir "$STAGE" --target-root "$TEST_ROOT" \
+  --trusted-key nextui-release.pub --platform tg5040 \
+  --system-version v6.16.0
+```
+
+The target root must already exist and contain a real `.system` directory with
+`version.txt`. There is no `SDCARD_PATH` fallback and no current-directory
+default. The environment running the installer is never used as a target.
+
+Policy:
+
+- Only `kind: system` is installed. Every archive path must be under
+  `.system/`; `.system/version.txt` must be present in the package and equal the
+  signed manifest `version`.
+- The package version must be strictly newer than
+  `<target>/.system/version.txt`. An equal version returns `already_installed`
+  without writing. An older version exits 14 with `downgrade_refused`.
+- `platform` must match the target exactly, and `min_system` is checked against
+  `--system-version`, the version running the installer.
+- One previous system is retained as `<target>/.system.bak`. An older backup is
+  evicted only after the new candidate is complete and verified; it is restored
+  if the transaction rolls back before commit.
+
+Transaction layout:
+
+```text
+<target-root>/
+  .system/                  live tree, real directory
+  .system.bak/              one previous system after a successful commit
+  .nextupd-txn/
+    txn.json                durable phase record
+    new/                    complete candidate before commit
+    previous.bak/           older backup being evicted
+    failed/                 tree being discarded during rollback
+```
+
+The candidate carries a `.nextupd-install-txn` marker with the transaction id.
+The marker is removed only after the `installed` record is durable. This makes
+the window between the two directory renames recoverable without guessing
+whether `.system` is the old or new tree.
+
+| State | Meaning | `recover` action |
+| --- | --- | --- |
+| `preparing` | record written; candidate partial | discard candidate, keep live |
+| `prepared` | candidate complete; live untouched | discard candidate, keep live |
+| `backing_up` | backup being evicted; live about to move | keep or restore live |
+| `installing` | live moved to backup; candidate about to move | matching marker: finish commit; missing live: restore backup; live without marker: refuse |
+| `installed` | new tree live; marker still present | finish commit |
+| `committed` | transaction complete | clean residual files |
+| `rolling_back` | rollback in progress | finish restore |
+| `rolled_back` | rollback complete | clean residual files |
+
+`nextupd recover --target-root <dir>` is the offline arbitration entry point. It
+reads only the target root and never touches staging, the network, or the
+running system. It is not called automatically: a later activation task must
+call it before anything uses `.system`. `recover --rollback` explicitly returns
+a committed or installed tree to its recorded previous version when
+`.system.bak` exists.
+
+A missing or version-mismatched `.system.bak` fails with `backup_corrupt` before
+anything is moved. A live tree without the matching marker in `installing`
+fails with `state_ambiguous`. Neither case is guessed through.
 
 ## Exit codes
 
@@ -180,6 +250,8 @@ marker leaves no ready package. Replacing an existing stage requires
 | 10 | interrupted staging |
 | 11 | already staged without `--replace` |
 | 12 | another stage holds the lock |
+| 13 | transaction state, target, or backup is invalid |
+| 14 | version policy refused the package |
 | 64 | usage |
 
 ## Tests
@@ -200,11 +272,16 @@ key and must never be used to sign a release.
 
 - ZIP64 is rejected; the current release archives are below 4 GiB.
 - No symlinks are accepted in this version.
+- Only system packages are installed. Application `.pakz` packages can be
+  verified and staged but are rejected by `install` with `unsupported_kind`.
 - The module is built standalone and is not yet copied into the system image.
-- No install, startup arbitration, rollback, feed, updater source switch, or
-  release-pipeline change is included.
+- `recover` is an offline CLI entry point. It is deliberately not wired into
+  `boot.sh` or `launch.sh`; that activation integration is a separate task.
+- No feed, updater source switch, or release-pipeline change is included.
 - The download layer is not part of this task. "Disconnect" is represented by a
   truncated archive; staging takes a local package file.
-- A valid signature proves that a manifest was signed; it does not by itself
-  prevent replay of an older signed package. Version policy, downgrade rules,
-  and startup arbitration belong to the later install task.
+- Version policy trusts the target's `.system/version.txt`. There is no signed,
+  monotonic anti-rollback counter; replaying an older signed package is refused
+  while the live version file is newer, but an attacker who can rewrite that
+  file is outside this threat model.
+- The target `.system` and `.system.bak` must be real directories, not symlinks.
