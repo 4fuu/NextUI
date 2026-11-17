@@ -64,9 +64,30 @@ static const I18nEntry zhTable[] = {
     {"LR Reactive", "LR 感应"},
     {"Unknown", "未知"},
 
+    // Colour-picker names. These are keys the picker passes through TR() for
+    // the highlighted swatch; the hex values themselves are never shown.
+    {"Red", "红色"},
+    {"Orange", "橙色"},
+    {"Yellow", "黄色"},
+    {"Light green", "浅绿"},
+    {"Green", "绿色"},
+    {"Cyan", "青色"},
+    {"Light cyan", "浅青"},
+    {"Azure", "天蓝"},
+    {"Blue", "蓝色"},
+    {"Lavender", "淡紫"},
+    {"Purple", "紫色"},
+    {"Magenta", "洋红"},
+    {"Pink", "粉色"},
+    {"Warm white", "暖白"},
+    {"Ice blue", "冰蓝"},
+    {"White", "白色"},
+
     // Buttons and messages.
     {"BACK", "返回"},
     {"Select light", "选择灯光"},
+    {"Move", "移动"},
+    {"Confirm", "确定"},
     {"This device has no RGB lights.", "此设备没有 RGB 灯。"},
 };
 
