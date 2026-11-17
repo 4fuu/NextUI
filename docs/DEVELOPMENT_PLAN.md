@@ -959,18 +959,24 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   SANITIZE) pass, and mutation checks prove the new tests have teeth. Not
   merged; awaiting the merge owner's independent review, so nothing is written
   as accepted and a source self-test is not acceptance.
-- Custody side (an infrastructure blocker, not a product choice): an orb
-  cannot write the Amp secrets facility without the private key transiting a
-  transcript, which the custody rules forbid, so the production Ed25519 key
-  pair is not generated and the public sidecar is not committed.
-  Consequently no release exists yet (the repo has no tags), no feed URL is
-  live, `feed`/`fetch` still report `feed_unconfigured`, and the client's
-  `NEXTUI_UPDATE_FEED` / `NEXTUI_UPDATE_TRUSTED_KEY` are not provisioned. The
-  owner step is documented in RELEASE-SOURCE.md and runs on the owner's own
-  machine: keygen on a trusted host, store the private key in the Amp secrets
-  facility, and commit the public sidecar; after that the first signed release
-  publishes the feed and the CI owner can wire the workflow. This round
-  performed no release, deploy, device, or SD action.
+- Custody side (an infrastructure constraint, not a product choice, and not a
+  closed scope): an orb cannot write the Amp secrets facility without the
+  private key transiting a transcript, which the custody rules forbid, so the
+  production Ed25519 key pair is not generated and the public sidecar is not
+  committed. That single constraint is not extrapolated to "all secure
+  channels are unavailable": the holding thread continues to verify existing
+  authorized non-echo persistent secure channels, and only if none exists will
+  it specifically request an owner private operation. The implementation scope
+  is NOT closed -- the production-source thread keeps holding the workflow
+  preparation and configuration validation that do not depend on the
+  production key, and unless the merge owner explicitly takes that over, "the
+  CI owner wires the workflow" is not recorded as a completed handoff. The
+  custody procedure in RELEASE-SOURCE.md is a plan, not an executed step, and
+  it does not block completing the workflow first; publishing is not a
+  precondition for wiring. Consequently no release exists yet (the repo has no
+  tags), no feed URL is live, `feed`/`fetch` still report `feed_unconfigured`,
+  and the client's `NEXTUI_UPDATE_FEED` / `NEXTUI_UPDATE_TRUSTED_KEY` are not
+  provisioned. This round performed no release, deploy, device, or SD action.
 - Depends on: nothing owner-side anymore; the remaining work is
   implementation. This decision blocks only U5 and F5; it does not block
   U1-U4.
@@ -1415,11 +1421,26 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Next: the bootstrap version policy is decided (2026-11-16, owner-delegated,
   Option 1): future bootstrap and transaction packages carry a unified
   authoritative semver, the date is only a build identifier, and no version
-  mapping is fabricated for old cards. It had blocked only the first
-  transactional update onto an already-bootstrapped card, not other desktop
-  work; the thread
+  mapping is fabricated for old cards. The thread
   https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652 continues
   the version and SHA implementation under that decision.
+- Implementation delivered as PR #44
+  (https://github.com/4fuu/NextUI/pull/44, branch
+  `feature/authoritative-version-source`, "Authoritative VERSION source
+  (Option 1); harden forced NEXTUI_SHA256"): the first head was `f758ece`
+  (delivered per the Space relay), and the merge owner's 2026-11-17 03:44
+  direct report records that it was NOT merged, with four real blockers -- the
+  old documentation still describes the bootstrap date format, the
+  `UPDATE_VERSION` default documentation does not match, there is no actual
+  `make package` version assertion, and the root `VERSION` is not validated for
+  a bare `X.Y.Z`. The fixes were handed back to the source. The current head
+  is now `8634991` (it advanced past `f758ece`; gh shows OPEN, MERGEABLE and
+  CLEAN, with CI green at the exact head -- Feature checks push and
+  pull_request with Host tests at 655 passed / 0 failed per the run log and
+  the tg5040 target build; Development/Desktop with build-linux and
+  build-macos). No independent review result has been reported for `8634991`,
+  so nothing is written as accepted and the old head's blockers are not
+  treated as resolved until a review says so.
 - Minor follow-up noted for the next packaging or version change (not
   scheduled separately): harden `NEXTUI_SHA256` so a forced-but-missing backend
   fails instead of writing an empty-hash marker.
@@ -2014,7 +2035,21 @@ coordinates the root makefile with PR #38.
   https://ampcode.com/threads/T-01a1e778-210d-7545-b37f-88a77b9c62c4; the
   decision is recorded with its dispatch, not as implementation completion,
   and delivery goes through the sole merge owner's independent review and
-  serial merge.
+  serial merge. Implementation delivered as PR #45
+  (https://github.com/4fuu/NextUI/pull/45, branch
+  `feature/boot-install-verified-txn`, "Close the arbitrary *.pakz boot install
+  backdoor"), first head `b3a2da9914f656e2fda31dcb84cae75de46fbde7` (delivered
+  per the Space relay): the merge owner's 2026-11-17 03:44 direct report
+  records that it was NOT merged, with three real blockers -- an unsigned
+  `MinUI.zip` can still overwrite an already-installed `.system`, the h700
+  shim can still unpack `.tmp_update`, and the first-install tests do not
+  cover that branch. The fixes were handed back to the source. The head is
+  still `b3a2da9` per gh (OPEN, MERGEABLE and CLEAN, with CI green at the
+  exact head -- Feature checks push and pull_request with Host tests at 652
+  passed / 0 failed per the run log and the tg5040 target build;
+  Development/Desktop with build-linux and build-macos). No independent review
+  result has been reported for it, so nothing is written as accepted and the
+  blockers are not treated as resolved until a review says so.
 - B2 User directories such as `Roms`: I8 kept them, `launch.sh` creates them
   on every boot, and the third-party dependence is unknown; they stay.
 
@@ -2028,8 +2063,12 @@ coordinates the root makefile with PR #38.
   section are the three non-blocking follow-ups listed above. How much the
   third-party paks depend on the `Roms` layout is still unknown.
 - Next: B1 is decided (2026-11-16, owner-delegated; held by thread
-  T-01a1e778-210d) and the version policy is decided (Option 1; held by thread
-  T-01a1e484), so neither waits on the user anymore; the A-class debt is
+  T-01a1e778-210d, whose first head is PR #45 `b3a2da9` -- not merged, three
+  blockers per the merge owner's 2026-11-17 03:44 report) and the version
+  policy is decided (Option 1; held by thread T-01a1e484, whose current head
+  is PR #44 `8634991` -- the first head `f758ece` was not merged, four
+  blockers per the same report), so neither waits on the user anymore; the
+  A-class debt is
   closed except for the recorded follow-ups, which ride the next real change
   in the same files instead of a separate schedule pull request.
 
@@ -2170,7 +2209,13 @@ as they happen; nothing is reported as passing without a run.
   review), with the key-custody half recorded as an infrastructure blocker --
   an orb cannot write the Amp secrets facility without the private key
   transiting a transcript -- awaiting the owner's one-step keygen-and-store
-  procedure),
+  procedure; the version/SHA implementation delivered PR #44 (first head
+  `f758ece` not merged with four blockers per the merge owner's 2026-11-17
+  03:44 report; current head `8634991`, exact-head CI green, review pending)
+  and the boot-path convergence delivered PR #45 (head `b3a2da9`, not merged
+  with three blockers per the same report), and the U5 implementation scope is
+  recorded as not closed -- the production-source thread keeps holding the
+  key-independent workflow preparation and configuration validation),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
