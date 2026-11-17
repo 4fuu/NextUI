@@ -56,8 +56,10 @@ scripts/generate-feed.py \
     --out nextui-feed.json
 ```
 
-For the **first** release there is no previous feed: omit `--previous` (or pass
-a URL that 404s) and the feed starts with this release's rows only.
+For the **first** release there is no previous feed: omit `--previous` and the
+feed starts with this release's rows only. (A URL that 404s is refused, not
+treated as absent; the release-workflow preparation decides when a previous
+feed exists.)
 
 - Every entry field comes from the signed manifest, and the archive bytes are
   hashed here, so the feed cannot advertise a file the release does not
@@ -81,8 +83,8 @@ a URL that 404s) and the feed starts with this release's rows only.
 - The generator reads no private key of any kind. It publishes nothing; the
   release workflow uploads what it writes.
 
-The wiring into `ci.yaml`/`release.yaml` belongs to the CI owner and is not
-part of this page.
+The wiring into `ci.yaml`/`release.yaml` is release-workflow preparation and
+a separate follow-up; it is not part of this page.
 
 ## The signing trust chain
 
@@ -173,9 +175,10 @@ nextupd check --package releases/nextui-system-tg5040.zip \
     --platform tg5040 | grep 'signature: verified'
 ```
 
-`scripts/prepare-release-update-assets.sh` runs exactly this check for every
-platform and refuses to publish the set when it fails, so a release signed
-with a key the client does not trust never reaches the release page.
+The release-workflow preparation (a separate follow-up, not part of this
+page) runs exactly this check for every platform and refuses to publish the
+set when it fails, so a release signed with a key the client does not trust
+never reaches the release page.
 
 Signing after packaging, as above, leaves the packaging script's
 `<base>.manifest.set` marker recording the unsigned publish. The marker is an
@@ -215,8 +218,9 @@ Honest boundaries, so nothing here reads as more ready than it is:
 - **No client provisioning.** `NEXTUI_UPDATE_FEED` and
   `NEXTUI_UPDATE_TRUSTED_KEY` are not set anywhere in this repository.
 - **No release workflow wiring.** `ci.yaml`/`release.yaml` do not yet build
-  the update package, sign it, generate the feed, or upload assets; that
-  belongs to the CI owner and needs the key procedure above first.
+  the update package, sign it, generate the feed, or upload assets. The
+  release-workflow preparation is a separate follow-up in this thread's
+  scope and needs the key procedure above first.
 - **No store.** There is no store source, fork, or index, and none is planned.
 
 ## Tests
