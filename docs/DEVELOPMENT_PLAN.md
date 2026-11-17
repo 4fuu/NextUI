@@ -6,8 +6,10 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `9d2ce41` (merge of PR #43, the R3 rumble backend through
-  `PLAT_setRumble`, gh 2026-11-17T05:30:36Z; below it PR #46, the release-source
+  rule): `6feb6cc` (merge of PR #48, the release-workflow wiring for the signed
+  update source, gh 2026-11-17T05:58:53Z; below it PR #47, the release update
+  asset preparation, `e314ea9` at 05:43:10Z; PR #43, the R3 rumble backend
+  through `PLAT_setRumble`, `9d2ce41` at 05:30:36Z; PR #46, the release-source
   feed generator and
   key-env signing, `44018eb`; PR #45, the boot-path
   convergence to the verified
@@ -427,21 +429,25 @@ Rules:
   tg5040 target build and Development/Desktop; the merge owner's explicit
   independent verdict for `5387631d` is recorded (see the R3 entry) and
   post-merge on `9d2ce41` all three workflows are success per gh, with the
-  rumble suites re-run on main. Still open: PR #47
-  (branch `feature/release-workflow-prep`, the release-workflow preparation
-  layer of U5, head `55e7e21fd61a121740b8e5504c28097da7b166f0`, OPEN,
-  MERGEABLE/CLEAN per gh, exact-head CI green per gh; the source reports the
-  independent review's two findings (the previous-feed probe not following
-  redirects; the key staying in the environment for the whole run) fixed and
-  covered by tests, and reports handing it to the merge owner for serial merge,
-  but no independent review result is reported for this head, so it is not
-  written as accepted) and PR #48
-  (branch `feature/release-workflow-wiring`, the release-workflow wiring layer
-  of U5, head `0cfab52c308eef0c737565641275fcbef38692ec`, OPEN,
-  MERGEABLE/CLEAN per gh, exact-head CI green per gh; stacked on #47's earlier
-  head and to be rebased normally onto the new main once #47 lands; no
-  independent review result is reported, so it is not written as accepted), and
-  this schedule's own PR #31.
+  rumble suites re-run on main. The two U5 layers then merged as well: PR #47
+  (branch `feature/release-workflow-prep`) merged into main as
+  `e314ea9aa90c691fafb8c4235372b98d2e4da36a` (gh 2026-11-17T05:43:10Z, merged
+  by 4fuu) at final head `55e7e21fd61a121740b8e5504c28097da7b166f0`, and PR #48
+  (branch `feature/release-workflow-wiring`) merged into main as
+  `6feb6ccba34612659313611db67c941c3b512efe` (gh 2026-11-17T05:58:53Z, merged
+  by 4fuu) at final head `17a6e1f2f8734792dda5b91893c8c89d7b86ab8d` "Make the
+  first release reachable and the release attach layout-independent", on top of
+  `3d62684` (a normal merge of `origin/main` `e314ea9`) and `0cfab52c`, so the
+  earlier `0cfab52c` head is superseded rather than rewritten. Post-merge on
+  `e314ea9` all three workflows are success per gh; post-merge on `6feb6cc`,
+  Development/Desktop is success while Feature checks and CI are still in
+  progress per gh, so that CI is recorded as in progress and not written as
+  passing. The source reports the merge owner's independent review at each
+  exact head and 63 + 40 + 30 checks green on the merged tree (63 for the feed
+  generator, 40 for the preparation script, 30 for the wiring); those counts
+  are the source's report, and the review verdicts are recorded as the source's
+  relay of the merge owner's result rather than as an owner message to this
+  thread. Still open: only this schedule's own PR #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -1160,24 +1166,22 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   accept a garbage signature while the same call refuses it once the public
   key is supplied; the schedule does not claim signature verification where
   only integrity was checked.
-  Still open inside U5 (so the item is not recorded as closed): the release
-  workflow continues on the production-source thread's stacked branch. The
+  Still open inside U5 (so the item is not recorded as closed): only the custody
+  and publication layers. The implementation layers are all merged now. The
   source now reports that round in four layers: (1) the completed tooling,
-  merged as PR #46 above; (2) the release-workflow preparation, open as PR #47
+  merged as PR #46 above; (2) the release-workflow preparation, merged as PR #47
   (https://github.com/4fuu/NextUI/pull/47, branch
   `feature/release-workflow-prep`, "Prepare the signed release update assets
-  off the release path"), head `55e7e21fd61a121740b8e5504c28097da7b166f0`
+  off the release path"), final head `55e7e21fd61a121740b8e5504c28097da7b166f0`
   (on top of `3fb794682367b23548fe5a6ab9c2fd40c62768f2` it adds `14a1f158`
   "Follow redirects when probing the previous feed, and drop the key early"
   and a normal merge of `origin/main` `9d2ce41`; the earlier history is
   `8ac4f532` preparing the signed release update assets off the release path,
   `a740a4ac` merging `feature/release-source-feed`, `26824615` a normal merge
   of `origin/main`, and `3fb79468` hardening the key lookup and the version
-  source), base main, OPEN, MERGEABLE/CLEAN per gh, not a draft; exact-head CI
-  green per gh (Feature checks push and pull_request, Development/Desktop); no
-  independent review result is reported, so it is not written as accepted and a
-  source self-test is not acceptance. Per the source, that layer adds
-  `scripts/prepare-release-update-assets.sh` and 40 checks -- the real script
+  source), merged into main as `e314ea9aa90c691fafb8c4235372b98d2e4da36a` (gh
+  2026-11-17T05:43:10Z, merged by 4fuu); the source reports the merge owner's
+  independent review at that exact head and 40 checks -- the real script
   over a synthetic tree, the real client path (`nextupd feed` -> `fetch` ->
   `stage` -> `install`), and every fail-closed gate -- and the independent
   review's two findings are fixed and covered by tests: the previous-feed probe
@@ -1213,19 +1217,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   63/63, and mutation checks proving that reverting the `--key-env` validation
   to the acceptance glob fails the suite; the injection repro
   (`--key-env 'A-};touch marker;#'`) exits 64 with no marker and no output
-  directory.
-  (2b) The workflow wiring is a separate open layer: PR #48
-  (https://github.com/4fuu/NextUI/pull/48, branch
+  directory. Post-merge on `e314ea9` all three workflows are success per gh.
+  (2b) merged: PR #48 (https://github.com/4fuu/NextUI/pull/48, branch
   `feature/release-workflow-wiring`, "Wire the signed update source into the
-  release workflow"), head `0cfab52c308eef0c737565641275fcbef38692ec`, base
-  main, OPEN, MERGEABLE/CLEAN per gh, not a draft; it is stacked on #47's
-  earlier head `3fb79468` (its history is `8ac4f532`, `a740a4ac`, `26824615`,
-  `3fb79468`, `14a1f158`, `0cfab52c`) and will be rebased normally onto the new
-  main once #47 lands, per the source. Exact-head CI green per gh (Feature
-  checks push and pull_request, Development/Desktop); no independent review
-  result is reported, so it is not written as accepted. Per the source and the
-  PR body, it makes `release.yaml` produce the GitHub Releases update source as
-  part of the release and fail closed without a production key: a guard step
+  release workflow") merged into main as
+  `6feb6ccba34612659313611db67c941c3b512efe` (gh 2026-11-17T05:58:53Z, merged by
+  4fuu) at final head `17a6e1f2f8734792dda5b91893c8c89d7b86ab8d` "Make the first
+  release reachable and the release attach layout-independent", which sits on
+  `3d62684` (a normal merge of `origin/main` `e314ea9`) and `0cfab52c`; the
+  earlier `0cfab52c` head is superseded rather than rewritten. The source
+  reports the merge owner's independent review at that exact head and 30 wiring
+  checks. Post-merge on `6feb6cc`: Development/Desktop is success while Feature
+  checks and CI are still in progress per gh, so that CI is recorded as in
+  progress and not written as passing. The wiring's recorded behavior: it makes
+  `release.yaml` produce the GitHub Releases update source as
+  part of the release and fail closed without a production key -- a guard step
   before any build work fails with a precise message when
   `NEXTUI_RELEASE_SIGNING_KEY` is absent (a release without a signed update
   source is refused rather than published, with no `continue-on-error`, no
@@ -1242,9 +1248,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   environment's copy comes from a one-time masked bridge on the owner's machine
   (`amp --no-tui --amp-env` into `gh secret set`), after which the workflow
   reads only the variable name and passes it to `--key-env`. Local evidence per
-  the source: `make -C tests test-release-workflow` at 20 passed / 0 failed --
-  the wiring's invariants (guard, step order, secret, base-URL derivation,
-  conditional previous feed, upload, attestation) plus the wired command
+  the source: `make -C tests test-release-workflow` green -- the wiring's
+  invariants (guard, step order, secret, base-URL derivation, conditional
+  previous feed, upload, attestation) plus the wired command
   executed with the committed test-only key over a synthetic three-platform
   build tree, where it writes the uploadable set, the real `nextupd feed`
   accepts the feed it wrote, and with the key variable empty the same command
@@ -2572,13 +2578,21 @@ as they happen; nothing is reported as passing without a run.
   across 9 suites plus the tg5040 target build and Development/Desktop), with
   the merge owner's explicit independent verdict for `5387631d` recorded, and
   the post-merge workflows on `9d2ce41` all success per gh with the rumble
-  suites re-run on main. The U5 production-source round also advanced: PR #47's
-  head moved to `55e7e21fd61a121740b8e5504c28097da7b166f0` (the independent
-  review's two findings fixed and covered by tests) and the release-workflow
-  wiring opened as PR #48 at head
-  `0cfab52c308eef0c737565641275fcbef38692ec`; both are OPEN with green
-  exact-head CI and no independent review result reported, so neither is written
-  as accepted. The previous
+  suites re-run on main. The U5 production-source round then closed its
+  implementation layers: PR #47 merged into main as
+  `e314ea9aa90c691fafb8c4235372b98d2e4da36a` (gh 2026-11-17T05:43:10Z, merged by
+  4fuu, final head `55e7e21fd61a121740b8e5504c28097da7b166f0`) and PR #48 merged
+  into main as `6feb6ccba34612659313611db67c941c3b512efe` (gh
+  2026-11-17T05:58:53Z, merged by 4fuu, final head
+  `17a6e1f2f8734792dda5b91893c8c89d7b86ab8d`, which supersedes the earlier
+  `0cfab52c308eef0c737565641275fcbef38692ec` head); post-merge on `e314ea9` all
+  three workflows are success per gh, while post-merge on `6feb6cc` has
+  Development/Desktop success with Feature checks and CI still in progress per
+  gh, so that CI is not written as passing. The source reports the merge
+  owner's independent review at each exact head and 63 + 40 + 30 checks green
+  on the merged tree; those verdicts are recorded as the source's relay of the
+  merge owner's result. Only the custody and publication layers of U5 remain
+  open. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
 - Branch identity evidence (2026-11-16, verified against the remote, because a
@@ -2633,6 +2647,7 @@ as they happen; nothing is reported as passing without a run.
   the same branch. The schedule baseline moved to `4c5398f` with the PR #37
   merge (PR #38 merged just below it at `1f737c9`), then to `5b66d70` with the
   PR #42 merge, then to `5fed2b3` with the PR #44 merge, then to `008ffde`
-  with the PR #45 merge, then to `44018eb` with the PR #46 merge, and now to
-  `9d2ce41` with the PR #43 merge
+  with the PR #45 merge, then to `44018eb` with the PR #46 merge, then to
+  `9d2ce41` with the PR #43 merge, then to `e314ea9` with the PR #47 merge, and
+  now to `6feb6cc` with the PR #48 merge
   (2026-11-17 per gh).
