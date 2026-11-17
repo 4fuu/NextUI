@@ -6,9 +6,11 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `5b66d70` (merge of PR #42, the expected-kind check on the tool;
-  below it PR #41 the local-file app install settings page `cb622fa`, PR #40
-  the RetroAchievements dead-cluster
+  rule): `008ffde` (merge of PR #45, the boot-path convergence to the verified
+  transaction; below it PR #44 the authoritative VERSION source and the
+  hardened forced NEXTUI_SHA256 `5fed2b3`, PR #42 the expected-kind check on
+  the tool `5b66d70`, PR #41 the local-file app install settings page
+  `cb622fa`, PR #40 the RetroAchievements dead-cluster
   cleanup `1b73667`, PR #39 the gametime/stale-package cleanup `d72565a`, PR
   #37 the local signed app install/update/recovery backend `4c5398f`, PR #38
   the third-party Pak Store removal `1f737c9`, then PR #36 the atomic
@@ -156,7 +158,9 @@ Rules:
   `1f737c9`); the gametime/stale-package cleanup (PR #39, `d72565a`); the
   RetroAchievements dead-cluster cleanup (PR #40, `1b73667`); the local-file
   app install settings page (PR #41, `cb622fa`); the expected-kind check on
-  the tool (PR #42, `5b66d70`);
+  the tool (PR #42, `5b66d70`); the authoritative VERSION source and hardened
+  forced NEXTUI_SHA256 (PR #44, `5fed2b3`); the boot-path convergence to the
+  verified transaction (PR #45, `008ffde`);
   this schedule file (PR #28,
   `8e4f744`, docs-only); and the U4 update
   feed block (PR #17, `4699226`).
@@ -377,6 +381,26 @@ Rules:
   reported at 2026-11-16 20:19 that Feature checks, Development/Desktop, and
   the full CI run are all success, so the earlier in-progress record is now
   all green. Open at this check: only this schedule's own PR #31.
+- Open at the next check (2026-11-17, after the PR #44 and PR #45 merges):
+  PR #44 (branch `feature/authoritative-version-source`) merged into main as
+  `5fed2b3` (2026-11-17T04:05:33Z per gh), final head `8634991`, with the
+  merge owner's final report confirming the independent review and the six
+  exact-head checks; post-merge on `5fed2b3` all three workflows are success
+  per gh. PR #45 (branch `feature/boot-install-verified-txn`) merged into main
+  as `008ffde` (2026-11-17T04:26:27Z per gh), final head
+  `58cc0e375faf380c2feb10eb93d3e5eaacaf06eb` (base `5fed2b3`), with the merge
+  owner's final report recording the six checks green at the final head, 17
+  boot tests and the full host suite passing locally, and the installed-system
+  MinUI.zip overwrite blocked on tg5040, tg5050, and h700 as well as at the
+  h700 shim; the report gives no post-merge final all-green and gh shows the
+  post-merge runs on `008ffde` still in progress, so that CI is recorded as in
+  progress. The explicit BlueZ pak is still unsigned and device behavior is
+  unverified, so no complete boot-path certification is claimed. Still open:
+  PR #46 (branch `feature/release-source-feed`, head `f7ccf2c` after the
+  `--key-env` command-injection fix at `1ec6903` and the normal merge of
+  `008ffde`; exact-head CI green per gh; the B2/B3 documentation and
+  write-read contract issues remain open, awaiting a new exact head plus CI
+  plus the merge owner's re-review) and this schedule's own PR #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -958,7 +982,20 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   the real signer; the full host suite and the nextupd suites (plain and
   SANITIZE) pass, and mutation checks prove the new tests have teeth. Not
   merged; awaiting the merge owner's independent review, so nothing is written
-  as accepted and a source self-test is not acceptance.
+  as accepted and a source self-test is not acceptance. Since that record the
+  merge owner independently found and reproduced a `--key-env` name command
+  injection in the delivered tooling; the source fixed it at `1ec6903`
+  ("Validate the --key-env name by rejection, never by eval", with 50 generator
+  checks green locally per the source) and then normally merged
+  `origin/main` `008ffde` into the branch, so the current exact head is now
+  `f7ccf2c` per gh (OPEN, MERGEABLE and CLEAN; CI green at the exact head --
+  Feature checks push and pull_request with Host tests at 691 passed / 0
+  failed per the run log and the tg5040 target build; Development/Desktop with
+  build-linux and build-macos). The B2/B3 documentation and write-read contract
+  issues from the review remain open, so the pull request still needs a new
+  exact head plus CI plus the merge owner's re-review; no independent review
+  result has been reported for the current head, and nothing is written as
+  accepted.
 - Custody side (an infrastructure constraint, not a product choice, and not a
   closed scope): an orb cannot write the Amp secrets facility without the
   private key transiting a transcript, which the custody rules forbid, so the
@@ -1424,26 +1461,26 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   mapping is fabricated for old cards. The thread
   https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652 continues
   the version and SHA implementation under that decision.
-- Implementation delivered as PR #44
+- Implementation delivered and merged: PR #44
   (https://github.com/4fuu/NextUI/pull/44, branch
   `feature/authoritative-version-source`, "Authoritative VERSION source
-  (Option 1); harden forced NEXTUI_SHA256"): the first head was `f758ece`
-  (delivered per the Space relay), and the merge owner's 2026-11-17 03:44
-  direct report records that it was NOT merged, with four real blockers -- the
-  old documentation still describes the bootstrap date format, the
-  `UPDATE_VERSION` default documentation does not match, there is no actual
-  `make package` version assertion, and the root `VERSION` is not validated for
-  a bare `X.Y.Z`. The fixes were handed back to the source. The current head
-  is now `8634991` (it advanced past `f758ece`; gh shows OPEN, MERGEABLE and
-  CLEAN, with CI green at the exact head -- Feature checks push and
-  pull_request with Host tests at 655 passed / 0 failed per the run log and
-  the tg5040 target build; Development/Desktop with build-linux and
-  build-macos). No independent review result has been reported for `8634991`,
-  so nothing is written as accepted and the old head's blockers are not
-  treated as resolved until a review says so.
-- Minor follow-up noted for the next packaging or version change (not
-  scheduled separately): harden `NEXTUI_SHA256` so a forced-but-missing backend
-  fails instead of writing an empty-hash marker.
+  (Option 1); harden forced NEXTUI_SHA256") merged into main as
+  `5fed2b3` (2026-11-17T04:05:33Z per gh), final head
+  `8634991` ("Address review: bootstrap-version test, VERSION validation, doc
+  fixes", above `f758ece` and `31013d0`). The merge owner's 2026-11-17 03:44
+  direct report had recorded the first head `f758ece` as NOT merged with four
+  real blockers -- the old documentation still described the bootstrap date
+  format, the `UPDATE_VERSION` default documentation did not match, there was
+  no actual `make package` version assertion, and the root `VERSION` was not
+  validated for a bare `X.Y.Z`; those were fixed at `8634991` (bootstrap-version
+  test, VERSION validation, doc fixes). The merge owner's final report
+  (relayed 2026-11-17) confirms the independent review and the six exact-head
+  checks passed for `8634991`; post-merge on `5fed2b3`, Feature checks,
+  Development/Desktop, and the full CI run are all success per gh.
+- Minor follow-up now delivered and merged: the `NEXTUI_SHA256` hardening (a
+  forced-but-missing backend fails instead of writing an empty-hash marker)
+  shipped inside PR #44 and is on main at `5fed2b3`; no separate schedule item
+  remains for it.
 
 #### I10 — Local application install UI (settings surface) — see F6b
 - Alias record: this entry came from PR #41's own copy of the file and landed
@@ -2038,25 +2075,33 @@ coordinates the root makefile with PR #38.
   serial merge. Implementation delivered as PR #45
   (https://github.com/4fuu/NextUI/pull/45, branch
   `feature/boot-install-verified-txn`, "Close the arbitrary *.pakz boot install
-  backdoor") with two commits: `b3a2da9914f656e2fda31dcb84cae75de46fbde7`
-  "Close the arbitrary *.pakz boot install backdoor" and
-  `96143a74` "Gate the MinUI.zip boot install on first install". The merge
+  backdoor"), now with four commits: `b3a2da9914f656e2fda31dcb84cae75de46fbde7`
+  "Close the arbitrary *.pakz boot install backdoor",
+  `96143a74` "Gate the MinUI.zip boot install on first install",
+  `6af9dd4` "Address review: h700-shim gate test, dash guard, accurate BlueZ
+  wording", and `58cc0e375faf380c2feb10eb93d3e5eaacaf06eb`, a normal merge of
+  `origin/main` `5fed2b3` (PR #44). The merge
   owner's 2026-11-17 03:44 direct report recorded the first head as NOT
   merged, with three real blockers -- an unsigned `MinUI.zip` can still
   overwrite an already-installed `.system`, the h700 shim can still unpack
   `.tmp_update`, and the first-install tests do not cover that branch. The
-  second commit answers the first blocker from the review boundary that
-  everyday system updates must go through the signed transaction while the old
-  boot path keeps only first install plus the tg5040 BlueZ bootstrap: the
-  MinUI.zip boot install is now gated on first install, so a dropped unsigned
-  `MinUI.zip` can no longer overwrite an installed `.system`. The current head
-  is `96143a74` per gh (OPEN, MERGEABLE and CLEAN; CI green at the exact head
-  -- Feature checks push and pull_request with Host tests at 652 passed / 0
-  failed per the run log and the tg5040 target build; Development/Desktop with
-  build-linux and build-macos). The source has handed `96143a74` to the merge
-  owner T-01a1e2e1 for re-review and serial merge; no independent review
-  result has been reported, so nothing is written as accepted and the
-  remaining blockers are not treated as resolved until a review says so.
+  second commit gates the MinUI.zip boot install on first install from the
+  review boundary that everyday system updates must go through the signed
+  transaction while the old boot path keeps only first install plus the tg5040
+  BlueZ bootstrap, so a dropped unsigned `MinUI.zip` can no longer overwrite an
+  installed `.system`; the third adds the h700-shim gate behavioral test, a
+  dash-guard portability fix, and an accuracy reword of the tg5040 BlueZ
+  residual. PR #45 merged into main as
+  `008ffde` (2026-11-17T04:26:27Z per gh), final head
+  `58cc0e375faf380c2feb10eb93d3e5eaacaf06eb` (base `5fed2b3`). The merge
+  owner's final report (relayed 2026-11-17) records the six checks green at
+  the final head, 17 boot tests and the full host suite passing locally, and
+  the installed-system MinUI.zip overwrite blocked on tg5040, tg5050, and h700
+  as well as at the h700 shim. The report does not give #45's post-merge final
+  all-green, and gh shows the post-merge runs on `008ffde` still in progress,
+  so the post-merge CI is recorded as in progress and not written as passing.
+  The explicit BlueZ pak is still unsigned and device behavior is unverified,
+  so no complete boot-path certification is claimed.
 - B2 User directories such as `Roms`: I8 kept them, `launch.sh` creates them
   on every boot, and the third-party dependence is unknown; they stay.
 
@@ -2070,12 +2115,15 @@ coordinates the root makefile with PR #38.
   section are the three non-blocking follow-ups listed above. How much the
   third-party paks depend on the `Roms` layout is still unknown.
 - Next: B1 is decided (2026-11-16, owner-delegated; held by thread
-  T-01a1e778-210d, whose PR #45 head advanced to `96143a74` -- `b3a2da9` plus
-  the first-install gate for `MinUI.zip` -- not merged, awaiting the merge
-  owner's re-review after the 03:44 blockers) and the version
-  policy is decided (Option 1; held by thread T-01a1e484, whose current head
-  is PR #44 `8634991` -- the first head `f758ece` was not merged, four
-  blockers per the same report), so neither waits on the user anymore; the
+  T-01a1e778-210d, whose PR #45 merged into main as `008ffde` with final head
+  `58cc0e37` -- the installed-system MinUI.zip overwrite is blocked on
+  tg5040, tg5050, and h700 as well as at the h700 shim per the merge owner's
+  final report; the post-merge CI is still in progress and the explicit BlueZ
+  pak is unsigned, so no complete boot-path certification is claimed) and the
+  version policy is decided (Option 1; held by thread T-01a1e484, whose PR #44
+  merged into main as `5fed2b3` with final head `8634991` and the merge
+  owner's final report confirming the independent review and six exact-head
+  checks), so neither waits on the user anymore; the
   A-class debt is
   closed except for the recorded follow-ups, which ride the next real change
   in the same files instead of a separate schedule pull request.
@@ -2220,12 +2268,20 @@ as they happen; nothing is reported as passing without a run.
   procedure; the version/SHA implementation delivered PR #44 (first head
   `f758ece` not merged with four blockers per the merge owner's 2026-11-17
   03:44 report; current head `8634991`, exact-head CI green, review pending)
-  and the boot-path convergence delivered PR #45 (head `b3a2da9`, not merged
-  with three blockers per the same report; the head then advanced to
-  `96143a74`, which gates the MinUI.zip boot install on first install and
-  awaits the merge owner's re-review), and the U5 implementation scope is
+  -- both have since merged: PR #44 into main as `5fed2b3` (final head
+  `8634991`, the merge owner's final report confirming the independent review
+  and the six exact-head checks; post-merge all success per gh) and PR #45
+  into main as `008ffde` (final head `58cc0e37`, six checks green, 17 boot
+  tests and the full host suite local pass, the installed-system MinUI.zip
+  overwrite blocked on tg5040/tg5050/h700 and the h700 shim per the merge
+  owner's final report; the post-merge CI is still in progress and the
+  explicit BlueZ pak is unsigned, so no complete boot-path certification is
+  claimed), and the U5 implementation scope is
   recorded as not closed -- the production-source thread keeps holding the
-  key-independent workflow preparation and configuration validation),
+  key-independent workflow preparation and configuration validation, and PR
+  #46's head advanced to `f7ccf2c` after the merge owner independently found
+  and reproduced a `--key-env` name command injection (fixed at `1ec6903`),
+  with the B2/B3 documentation and write-read contract issues still open),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
