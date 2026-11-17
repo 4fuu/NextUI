@@ -24,7 +24,7 @@ jobs:
   prepare:
     runs-on: ubuntu-24.04
     outputs:
-      next-tag: ${{ steps.next-tag.outputs.version }}
+      next-tag: ${{ steps.release-tag.outputs.version }}
       release-name: ${{ steps.release-name.outputs.RELEASE_NAME }}
       latest-tag: ${{ steps.latest-tag.outputs.GIT_LATEST_TAG }}
     steps:
@@ -38,17 +38,50 @@ jobs:
         run: |
           echo "RELEASE_NAME=$(make name)" >> "$GITHUB_OUTPUT"
 
+      # No tags is the first-release case: `git describe` would fail here and
+      # block the release before the signing-key guard can run, so the empty
+      # result is explicit and the first version comes from the authoritative
+      # version source below.
       - name: Get Latest Tag
         id: latest-tag
         run: |
-          echo GIT_LATEST_TAG="$(git describe --tags "$(git rev-list --tags --max-count=1)")" >>"$GITHUB_OUTPUT"
+          if git rev-list --tags --max-count=1 | grep -q .; then
+            echo "GIT_LATEST_TAG=$(git describe --tags "$(git rev-list --tags --max-count=1)")" >>"$GITHUB_OUTPUT"
+          else
+            echo "GIT_LATEST_TAG=" >>"$GITHUB_OUTPUT"
+            echo "::notice title=First release::No tags exist yet; the first version comes from the VERSION file."
+          fi
 
       - name: Compute Next Tag
         id: next-tag
+        if: steps.latest-tag.outputs.GIT_LATEST_TAG != ''
         uses: docker://ghcr.io/dokku/semver-generator:latest
         with:
           bump: ${{ github.event.inputs.release_type }}
           input: ${{ steps.latest-tag.outputs.GIT_LATEST_TAG }}
+
+      # The first release is named by the authoritative version source; no
+      # date-to-version mapping is invented and the version policy is
+      # unchanged.
+      - name: First Release Tag
+        id: first-tag
+        if: steps.latest-tag.outputs.GIT_LATEST_TAG == ''
+        run: |
+          echo "version=v$(tr -d ' \t\r\n' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      # The manifest, the tag and the feed all carry vX.Y.Z, so the computed
+      # version is normalized to that form here instead of assumed.
+      - name: Normalize the Tag
+        id: release-tag
+        env:
+          COMPUTED: ${{ steps.next-tag.outputs.version || steps.first-tag.outputs.version }}
+        run: |
+          tag="$COMPUTED"
+          case "$tag" in
+            v*) ;;
+            *) tag="v$tag" ;;
+          esac
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -157,10 +190,11 @@ jobs:
           name: ${{ env.RELEASE_NAME }}-extras.zip
           path: releases/${{ env.RELEASE_NAME }}-extras.zip
 
-      # The signed update assets: the per-platform sets and the feed. The
-      # release job's existing download pattern (NextUI-*) picks this artifact
-      # up and attaches its contents to the release beside the bootstrap
-      # archives.
+      # The signed update assets: the per-platform sets and the feed.
+      # upload-artifact roots a single-directory artifact at that directory,
+      # so the artifact holds these files at its root and the release job's
+      # download places them directly under releases/ (the flatten step there
+      # makes the release attach them under either layout).
       - name: Upload Update Assets
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -203,6 +237,19 @@ jobs:
           path: releases/
           pattern: NextUI-*
           merge-multiple: true
+
+      # upload-artifact roots a single-directory artifact at that directory, so
+      # the update assets arrive directly under releases/. This step makes the
+      # outcome independent of that layout: if a future action version
+      # preserves the update/ directory, its contents are moved up, so the
+      # release step's `files: releases/*` can never silently miss the feed or
+      # the signed sets.
+      - name: Flatten the update assets
+        run: |
+          if [ -d releases/update ]; then
+            mv releases/update/* releases/
+            rmdir releases/update
+          fi
 
       - name: Create and Push Tag
         run: |

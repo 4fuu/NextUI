@@ -207,6 +207,19 @@ previous release can install this one; an older card updates through the
 previous release's row, which the merged feed keeps). A first release uses its
 own version as the floor.
 
+**The first release.** With no tags in the repository, the workflow's
+`Get Latest Tag` step reports an empty previous tag, the bump step is skipped,
+and the first tag comes from the authoritative `VERSION` file (`vX.Y.Z`); the
+computed tag is normalized to that form either way, so the manifest, the tag
+and the feed always agree. No date-to-version mapping is invented and the
+version policy is unchanged.
+
+**The artifact layout.** The signed sets and the feed are uploaded as one
+directory artifact and downloaded into the release job's `releases/`
+directory, where the release step attaches everything with `files: releases/*`.
+A flatten step makes the outcome independent of the artifact layout, so the
+feed and the signed sets can never be silently missed.
+
 Signing after packaging, as above, leaves the packaging script's
 `<base>.manifest.set` marker recording the unsigned publish. The marker is an
 operator completeness record that the client never reads — `nextupd check` is

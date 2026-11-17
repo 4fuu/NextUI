@@ -19,6 +19,7 @@ is touched. The production key is never involved: the test injects the
 committed test-only seed the same way the workflow injects the secret.
 """
 
+import glob
 import http.server
 import json
 import os
@@ -26,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import zipfile
 
 REPO = os.path.abspath(sys.argv[1])
 WORK = os.path.abspath(sys.argv[2])
@@ -216,6 +218,41 @@ def main():
               in text,
               "the prepare job does not expose latest-tag, so the feed cannot "
               "merge the previous release")
+        check("the release tag comes from the normalized step",
+              "next-tag: ${{ steps.release-tag.outputs.version }}" in text,
+              "the tag is not the normalized vX.Y.Z form")
+
+        # The first release has no tags: `git describe` would fail the job
+        # before the guard can run, so the no-tag case is explicit and the
+        # first version comes from the authoritative version source.
+        latest = step_run_block(text, "Get Latest Tag")
+        check("the latest-tag step handles a repository with no tags",
+              latest is not None and "grep -q ." in latest
+              and "GIT_LATEST_TAG=" in latest,
+              "the no-tag case is not handled")
+        check("the first release tag comes from the version source",
+              "First Release Tag" in text
+              and "v$(tr -d ' \\t\\r\\n' < VERSION)" in text,
+              "the first release does not derive its version from VERSION")
+        check("the bump runs only when a previous tag exists",
+              "if: steps.latest-tag.outputs.GIT_LATEST_TAG != ''" in text
+              and "if: steps.latest-tag.outputs.GIT_LATEST_TAG == ''" in text,
+              "the bump and first-release steps are not mutually exclusive")
+        check("the computed tag is normalized to vX.Y.Z",
+              "Normalize the Tag" in text and 'tag="v$tag"' in text,
+              "the tag is not normalized to the vX.Y.Z form")
+        # The first-release tag must satisfy the prepare script's contract.
+        with open(os.path.join(REPO, "VERSION"), "r", encoding="ascii") as handle:
+            first_tag = "v" + handle.read().strip()
+        proc = subprocess.run(
+            [os.path.join(REPO, "scripts", "prepare-release-update-assets.sh"),
+             "--version", first_tag, "--key-env", "NEXTUI_NEVER_SET",
+             "--public-key", FIXTURE_PUB, "--base-url", "https://example.invalid/x",
+             "--platforms", "tg5040"],
+            capture_output=True, text=True)
+        check("the first-release tag satisfies the manifest contract",
+              "must be vX.Y.Z" not in proc.stdout + proc.stderr,
+              f"the first-release tag was refused: {proc.stderr.strip()[:200]}")
 
         guard = step_run_block(text, "Check the signing key is configured")
         check("the signing-key guard exists", guard is not None,
@@ -273,6 +310,52 @@ def main():
         check("the release attaches every artifact",
               "files: releases/*" in text,
               "the release step does not attach the downloaded artifacts")
+
+        # ---- The artifact layout, simulated the way the actions document it.
+        # upload-artifact roots a single-directory artifact at that directory,
+        # so the files sit at the artifact root; download-artifact with
+        # merge-multiple extracts them into the target directory. The flatten
+        # step must make the release's `files: releases/*` glob match the feed
+        # and every signed asset under either layout.
+        layout_root = os.path.join(WORK, "layout")
+        update_dir = os.path.join(layout_root, "releases", "update")
+        os.makedirs(update_dir, exist_ok=True)
+        asset_names = ["nextui-feed.json"] + [
+            "nextui-system-%s.%s" % (platform, suffix)
+            for platform in ("h700", "tg5040", "tg5050")
+            for suffix in ("zip", "manifest.json", "manifest.sig")]
+        for name in asset_names:
+            with open(os.path.join(update_dir, name), "wb") as handle:
+                handle.write(name.encode("ascii"))
+        for layout in ("root", "nested"):
+            staged = os.path.join(WORK, "layout-" + layout)
+            shutil.rmtree(staged, ignore_errors=True)
+            os.makedirs(os.path.join(staged, "releases"), exist_ok=True)
+            artifact = os.path.join(staged, "update-assets.zip")
+            with zipfile.ZipFile(artifact, "w") as archive:
+                for name in asset_names:
+                    if layout == "root":
+                        # The verified behavior: the artifact root is the
+                        # uploaded directory, so names carry no prefix.
+                        archive.write(os.path.join(update_dir, name), name)
+                    else:
+                        # The defensive case: a layout that preserves the
+                        # directory.
+                        archive.write(os.path.join(update_dir, name),
+                                      os.path.join("update", name))
+            with zipfile.ZipFile(artifact) as archive:
+                archive.extractall(os.path.join(staged, "releases"))
+            flatten = step_run_block(text, "Flatten the update assets")
+            check("the flatten step exists", flatten is not None,
+                  "no layout-independent flatten step before the release")
+            if flatten is not None:
+                subprocess.run(["sh", "-c", flatten], cwd=staged, check=True)
+            attached = sorted(
+                os.path.relpath(path, os.path.join(staged, "releases"))
+                for path in glob.glob(os.path.join(staged, "releases", "*"))
+                if os.path.isfile(path))
+            check("the release attaches the update assets (%s layout)" % layout,
+                  attached == sorted(asset_names), f"{attached}")
 
         # ---- The wired command, executed with the test-only key. The
         # environment-specific values (the release's asset addresses, the
