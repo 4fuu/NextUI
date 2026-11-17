@@ -1,0 +1,8 @@
+{
+  "id": "nextui.battery",
+  "name": "Battery",
+  "version": "v1.0.0",
+  "capabilities": [
+    "overlay"
+  ]
+}

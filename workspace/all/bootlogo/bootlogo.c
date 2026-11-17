@@ -11,9 +11,37 @@
 
 #include "defines.h"
 #include "api.h"
+#include "config.h"
+#include "fn_bridge.h"
+#include "i18n.h"
 #include "utils.h"
 
 static bool quit = false;
+
+// First-batch Tools wiring: FN3/HOME opens the shared overlay in this process
+// and FN2 asks the app to leave its main loop normally.
+static int bootlogo_request_exit(void* user)
+{
+    if (user) *(bool*)user = true;
+    return 1;
+}
+
+static void bootlogo_reset_input(void* user)
+{
+    (void)user;
+    PAD_reset();
+}
+
+// Desktop preview has no physical FN keys; these are the same host stand-ins
+// the Clock reference uses. Device builds keep the platform macros.
+static const FnBridgeButtons* bootlogo_fn_buttons(void)
+{
+    static const FnBridgeButtons host = {BTN_NONE, BTN_START, BTN_MENU};
+    const char* platform = getenv("PLATFORM");
+
+    if (platform && strcmp(platform, "desktop") == 0) return &host;
+    return NULL;
+}
 
 static void sigHandler(int sig)
 {
@@ -135,6 +163,21 @@ int main(int argc, char *argv[])
     PAD_init();
     PWR_init();
 
+    UIOverlayStrings overlay_strings = I18N_overlayStrings();
+    OverlayAppHooks overlay_hooks = {0};
+    overlay_hooks.user = &quit;
+    overlay_hooks.capabilities = UI_OVERLAY_CAP_EXIT;
+    overlay_hooks.app_name = TR("Bootlogo");
+    overlay_hooks.exit_to_desktop = bootlogo_request_exit;
+    overlay_hooks.input_reset = bootlogo_reset_input;
+
+    FnBridgeConfig bridge_config = {0};
+    bridge_config.user = &quit;
+    bridge_config.exit_to_home = bootlogo_request_exit;
+    bridge_config.overlay_hooks = &overlay_hooks;
+    bridge_config.overlay_strings = &overlay_strings;
+    FnBridge* fn_bridge = FnBridge_create(&bridge_config);
+
     signal(SIGINT, sigHandler);
     signal(SIGTERM, sigHandler);
 
@@ -142,6 +185,7 @@ int main(int argc, char *argv[])
 
     int dirty = 1;
     int show_setting = 0;
+    int overlay_was_open = 0;
     int was_online = PWR_isOnline();
     int had_bt = PLAT_btIsConnected();
     while (!quit)
@@ -149,7 +193,16 @@ int main(int argc, char *argv[])
         GFX_startFrame();
         PAD_poll();
 
+        FnBridgeActions fn_actions = {
+            CFG_getFnAction(0), CFG_getFnAction(1), CFG_getFnAction(2),
+        };
+        int system_input = FnBridge_poll(fn_bridge, &fn_actions, bootlogo_fn_buttons());
+        int overlay_open = FnBridge_overlayOpen(fn_bridge);
+        if (overlay_open != overlay_was_open)
+            dirty = 1;
+
         // This might be too harsh, but ignore all combos with MENU (most likely a shortcut for someone else)
+        if (!system_input) {
         if (PAD_justPressed(BTN_MENU))
         {
             // ?
@@ -205,6 +258,7 @@ int main(int argc, char *argv[])
                 quit = 1;
             }
         }
+        }
 
         PWR_update(&dirty, NULL, NULL, NULL);
 
@@ -218,7 +272,7 @@ int main(int argc, char *argv[])
             dirty = 1;
         had_bt = has_bt;
 
-        if (dirty)
+        if (dirty || overlay_open)
         {
             GFX_clear(screen);
 
@@ -252,19 +306,23 @@ int main(int argc, char *argv[])
             else {
                 // surface the reason on-screen so it can be diagnosed without pulling logs
                 char msg[MAX_PATH + 32];
-                snprintf(msg, sizeof(msg), "No presets found in\n%s", basepath);
+                snprintf(msg, sizeof(msg), TR("No presets found in\n%s"), basepath);
                 GFX_blitMessage(font.small, msg, screen, NULL);
             }
 
-            GFX_blitButtonGroup((char *[]){"L/R", "SCROLL", NULL}, 0, screen, 0);
-            GFX_blitButtonGroup((char *[]){"A", "SET", "B", "BACK", NULL}, 1, screen, 1);
+            GFX_blitButtonGroup((char *[]){"L/R", (char*)TR("SCROLL"), NULL}, 0, screen, 0);
+            GFX_blitButtonGroup((char *[]){"A", (char*)TR("SET"), "B", (char*)TR("BACK"), NULL}, 1, screen, 1);
 
+            FnBridge_draw(fn_bridge, screen);
             GFX_flip(screen);
             dirty = 0;
         }
         else
             GFX_sync();
+        overlay_was_open = overlay_open;
     }
+
+    FnBridge_destroy(fn_bridge);
 
     unloadImages();
 

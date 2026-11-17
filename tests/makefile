@@ -269,5 +269,27 @@ test: test-boot-install-path
 test-boot-install-path:
 	./run_boot_install_path_test.sh
 
+# First-batch built-in Tools: the skeleton manifests, the launcher's Chinese
+# labels, the tools' i18n call sites and the real Input-test FnBridge/overlay
+# path. Declared on its own lines rather than added to the .PHONY and test
+# lists above, so this hunk never collides with another thread editing those
+# lines.
+.PHONY: test-builtin-tools test-builtin-paks test-builtin-names test-builtin-i18n test-minput
+test: test-builtin-tools test-minput
+
+test-builtin-tools: test-builtin-paks test-builtin-names test-builtin-i18n
+
+test-builtin-paks:
+	../workspace/all/common/tests/run_builtin_tool_paks_test.sh
+
+test-builtin-names:
+	../workspace/all/nextui/tests/run_builtin_names_test.sh
+
+test-builtin-i18n:
+	../workspace/all/common/tests/run_tool_i18n_test.sh
+
+test-minput:
+	../workspace/all/minput/tests/run_minput_fn_test.sh
+
 clean:
 	rm -f $(TEST_BIN)

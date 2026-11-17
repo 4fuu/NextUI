@@ -1,5 +1,6 @@
 // heavily modified from the Onion original: https://github.com/OnionUI/Onion/tree/main/src/batteryMonitorUI
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
 #include <signal.h>
@@ -7,6 +8,9 @@
 
 #include "defines.h"
 #include "api.h"
+#include "config.h"
+#include "fn_bridge.h"
+#include "i18n.h"
 #include "utils.h"
 
 #include <sqlite3.h>
@@ -110,6 +114,31 @@ static char session_duration[10];
 static char current_percentage[10];
 static char session_left[12] = "calculating";
 static char session_best[10];
+
+// First-batch Tools wiring: FN3/HOME opens the shared overlay in this process
+// and FN2 asks the app to leave its main loop normally.
+static int battery_request_exit(void* user)
+{
+    if (user) *(bool*)user = true;
+    return 1;
+}
+
+static void battery_reset_input(void* user)
+{
+    (void)user;
+    PAD_reset();
+}
+
+// Desktop preview has no physical FN keys; these are the same host stand-ins
+// the Clock reference uses. Device builds keep the platform macros.
+static const FnBridgeButtons* battery_fn_buttons(void)
+{
+    static const FnBridgeButtons host = {BTN_NONE, BTN_START, BTN_MENU};
+    const char* platform = getenv("PLATFORM");
+
+    if (platform && strcmp(platform, "desktop") == 0) return &host;
+    return NULL;
+}
 
 static void sigHandler(int sig)
 {
@@ -465,16 +494,17 @@ void renderPage()
     drawBatteryIcon(0, (SDL_Rect){graph.layout.icon_x, graph.layout.icon4_y});
 
     char text_line[255];
-    sprintf(text_line, "Since Charge: %s", session_duration);
+    sprintf(text_line, TR("Since Charge: %s"), session_duration);
     renderText(text_line, font.medium, COLOR_WHITE, &(SDL_Rect){graph.layout.label_session_x, graph.layout.label_session_y, graph.layout.label_size_x, graph.layout.label_size_y});
 
-    sprintf(text_line, "Current: %s", current_percentage);
+    sprintf(text_line, TR("Current: %s"), current_percentage);
     renderText(text_line, font.medium, COLOR_WHITE, &(SDL_Rect){graph.layout.label_current_x, graph.layout.label_current_y, graph.layout.label_size_x, graph.layout.label_size_y});
 
-    sprintf(text_line, "Remaining: %s", session_left);
+    const char* remaining = strcmp(session_left, "calculating") == 0 ? TR("calculating") : session_left;
+    sprintf(text_line, TR("Remaining: %s"), remaining);
     renderTextAlignRight(text_line, font.medium, COLOR_WHITE, &(SDL_Rect){graph.layout.label_left_x, graph.layout.label_left_y, graph.layout.label_size_x, graph.layout.label_size_y});
 
-    sprintf(text_line, "Longest: %s", session_best);
+    sprintf(text_line, TR("Longest: %s"), session_best);
     renderTextAlignRight(text_line, font.medium, COLOR_WHITE, &(SDL_Rect){graph.layout.label_best_x, graph.layout.label_best_y, graph.layout.label_size_x, graph.layout.label_size_y});
 
     int half_line_width = (int)(GRAPH_LINE_WIDTH) / 2;
@@ -644,6 +674,21 @@ int main(int argc, char *argv[])
     PAD_init();
     PWR_init();
 
+    UIOverlayStrings overlay_strings = I18N_overlayStrings();
+    OverlayAppHooks overlay_hooks = {0};
+    overlay_hooks.user = &quit;
+    overlay_hooks.capabilities = UI_OVERLAY_CAP_EXIT;
+    overlay_hooks.app_name = TR("Battery");
+    overlay_hooks.exit_to_desktop = battery_request_exit;
+    overlay_hooks.input_reset = battery_reset_input;
+
+    FnBridgeConfig bridge_config = {0};
+    bridge_config.user = &quit;
+    bridge_config.exit_to_home = battery_request_exit;
+    bridge_config.overlay_hooks = &overlay_hooks;
+    bridge_config.overlay_strings = &overlay_strings;
+    FnBridge* fn_bridge = FnBridge_create(&bridge_config);
+
     signal(SIGINT, sigHandler);
     signal(SIGTERM, sigHandler);
 
@@ -653,6 +698,7 @@ int main(int argc, char *argv[])
 
     int dirty = 1;
     int show_setting = 0;
+    int overlay_was_open = 0;
     int was_online = PWR_isOnline();
     int had_bt = PLAT_btIsConnected();
     while (!quit)
@@ -660,7 +706,16 @@ int main(int argc, char *argv[])
         GFX_startFrame();
         PAD_poll();
 
+        FnBridgeActions fn_actions = {
+            CFG_getFnAction(0), CFG_getFnAction(1), CFG_getFnAction(2),
+        };
+        int system_input = FnBridge_poll(fn_bridge, &fn_actions, battery_fn_buttons());
+        int overlay_open = FnBridge_overlayOpen(fn_bridge);
+        if (overlay_open != overlay_was_open)
+            dirty = 1;
+
         // This might be too harsh, but ignore all combos with MENU (most likely a shortcut for someone else)
+        if (!system_input) {
         if (PAD_justPressed(BTN_MENU))
         {
             // ?
@@ -705,6 +760,7 @@ int main(int argc, char *argv[])
                 }
             }
         }
+        }
 
         PWR_update(&dirty, &show_setting, NULL, NULL);
 
@@ -718,7 +774,7 @@ int main(int argc, char *argv[])
             dirty = 1;
         had_bt = has_bt;
 
-        if (dirty)
+        if (dirty || overlay_open)
         {
             GFX_clear(screen);
 
@@ -732,16 +788,16 @@ int main(int argc, char *argv[])
                 switch (current_zoom)
                 {
                 case 0:
-                    sprintf(display_name, "Battery usage: Last %s", "16 hours");
+                    sprintf(display_name, TR("Battery usage: Last %s"), TR("16 hours"));
                     break;
                 case 1:
-                    sprintf(display_name, "Battery usage: Last %s", "8 hours");
+                    sprintf(display_name, TR("Battery usage: Last %s"), TR("8 hours"));
                     break;
                 case 2:
-                    sprintf(display_name, "Battery usage: Last %s", "4 hours");
+                    sprintf(display_name, TR("Battery usage: Last %s"), TR("4 hours"));
                     break;
                 default:
-                    sprintf(display_name, "Battery usage: Last %s", "8 hours");
+                    sprintf(display_name, TR("Battery usage: Last %s"), TR("8 hours"));
                     break;
                 }
 
@@ -762,16 +818,20 @@ int main(int argc, char *argv[])
             if (show_setting)
                 GFX_blitHardwareHints(screen, show_setting);
             else
-                GFX_blitButtonGroup((char *[]){"L/R", "SCROLL", "L1/R1", "ZOOM", NULL}, 0, screen, 0);
+                GFX_blitButtonGroup((char *[]){"L/R", (char*)TR("SCROLL"), "L1/R1", (char*)TR("ZOOM"), NULL}, 0, screen, 0);
 
-            GFX_blitButtonGroup((char *[]){"B", "BACK", NULL}, 1, screen, 1);
+            GFX_blitButtonGroup((char *[]){"B", (char*)TR("BACK"), NULL}, 1, screen, 1);
 
+            FnBridge_draw(fn_bridge, screen);
             GFX_flip(screen);
             dirty = 0;
         }
         else
             GFX_sync();
+        overlay_was_open = overlay_open;
     }
+
+    FnBridge_destroy(fn_bridge);
 
     QuitSettings();
     PWR_quit();

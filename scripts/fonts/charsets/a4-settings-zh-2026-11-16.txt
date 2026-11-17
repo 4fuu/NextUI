@@ -17,7 +17,7 @@
 # removed together with the RetroAchievements dead cluster. a3-zh is left as the
 # frozen audit snapshot and still lists those characters.
 
-# ---- values (295) ----
+# ---- values (330) ----
 最近游玩
 最近
 收藏
@@ -313,3 +313,38 @@ USB 连接时保持唤醒
 色温
 亮度
 色温
+时钟
+设置
+灯光控制
+电池
+按键测试
+开机画面
+文件
+移除加载画面
+12 小时制
+24 小时制
+取消
+设定
+电池用量：最近 %s
+16 小时
+8 小时
+4 小时
+本次充电：%s
+当前：%s
+预计剩余：%s
+最长续航：%s
+计算中
+滚动
+缩放
+退出
+继续
+保存进度
+关闭
+选择
+无存档
+无更改
+不可用
+未连接
+已保存
+已继续
+失败
