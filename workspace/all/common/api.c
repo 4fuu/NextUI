@@ -19,6 +19,7 @@
 
 #include "utils.h"
 #include "config.h"
+#include "i18n.h"
 
 #include <pthread.h>
 
@@ -2991,15 +2992,24 @@ int GFX_blitHardwareGroup(SDL_Surface *dst, int show_setting)
 
 	return ow;
 }
+
+// The shared Chinese table lives in common/i18n.c, which only the launcher and
+// the settings app link. Every other binary that compiles this file (the Tools
+// paks, batmon, devserv, ...) would fail to link without a definition, so this
+// uses the same weak-fallback idiom as the PLAT_* stubs in this file: a strong
+// I18N_translate in i18n.c overrides this one, and without it a hint keeps its
+// English key exactly as before.
+FALLBACK_IMPLEMENTATION const char* I18N_translate(const char* key) { return key; }
+
 void GFX_blitHardwareHints(SDL_Surface *dst, int show_setting)
 {
 
 	if (show_setting == 1)
-		GFX_blitButtonGroup((char *[]){BRIGHTNESS_BUTTON_LABEL, "BRIGHTNESS", NULL}, 0, dst, 0);
+		GFX_blitButtonGroup((char *[]){BRIGHTNESS_BUTTON_LABEL, (char *)TR("BRIGHTNESS"), NULL}, 0, dst, 0);
 	else if (show_setting == 3)
-		GFX_blitButtonGroup((char *[]){BRIGHTNESS_BUTTON_LABEL, "COLOR TEMP", NULL}, 0, dst, 0);
+		GFX_blitButtonGroup((char *[]){BRIGHTNESS_BUTTON_LABEL, (char *)TR("COLOR TEMP"), NULL}, 0, dst, 0);
 	else
-		GFX_blitButtonGroup((char *[]){"MNU", "BRGHT", "SEL", "CLTMP", NULL}, 0, dst, 0);
+		GFX_blitButtonGroup((char *[]){"MNU", (char *)TR("BRGHT"), "SEL", (char *)TR("CLTMP"), NULL}, 0, dst, 0);
 }
 
 int GFX_blitButtonGroup(char **pairs, int primary, SDL_Surface *dst, int align_right)

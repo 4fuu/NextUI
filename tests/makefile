@@ -173,6 +173,28 @@ test-led-i18n:
 test-boot-strings:
 	../workspace/all/show2/tests/run_boot_strings_test.sh
 
+# Shared hardware overlay hints (common/api.c GFX_blitHardwareHints) and their
+# TR() wiring: the English pixel baseline, the Chinese render, and the weak
+# fallback link path for binaries that compile api.c without common/i18n.c.
+# Needs the desktop SDL dependencies and prepares its own fake SD root.
+# Declared on its own lines rather than added to the .PHONY and test lists
+# above, so this hunk never collides with another thread editing those lines.
+.PHONY: test-hardware-hints
+test: test-hardware-hints
+
+test-hardware-hints:
+	../workspace/all/common/tests/run_hardware_hints_i18n_test.sh
+
+# Remove Loading pak splash text: the localized "Done" wiring, driven with
+# stubbed show2.elf and sed against a throwaway SD root. Declared on its own
+# lines rather than added to the .PHONY and test lists above, so this hunk
+# never collides with another thread editing those lines.
+.PHONY: test-remove-loading
+test: test-remove-loading
+
+test-remove-loading:
+	../workspace/all/show2/tests/run_remove_loading_strings_test.sh
+
 # Settings crash regressions: the About version text (missing file, trailing
 # newline) and the menu row renderers (empty value, empty option list). The
 # menu part needs the desktop SDL/msettings build dependencies and prepares
