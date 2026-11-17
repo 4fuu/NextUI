@@ -18,10 +18,10 @@ C3 adds launch-scoped device session snapshots/restore; C4 adds a
 session-scoped app-exit request fed by keymon and enforced by the launch parent.
 The settings authorization UI is not part of this build. The host test backend
 is `none`; production devserv composes the C2 LED backend with the R1/R2
-display/audio backend. Display/audio report `unavailable` when the platform or
-msettings path cannot implement them, never fake success. Other hardware
-capabilities remain `unavailable` until a later task plugs in the existing
-NextUI device paths.
+display/audio backend and the R3 rumble backend. Display/audio report
+`unavailable` when the platform or msettings path cannot implement them, never
+fake success. Other hardware capabilities remain `unavailable` until a later
+task plugs in the existing NextUI device paths.
 
 ## Session lifecycle
 
@@ -112,7 +112,7 @@ the optional `device` object:
 | `net.wifi` | allowed | backend-dependent |
 | `net.bluetooth` | allowed | backend-dependent |
 | `power.sleep` | allowed | session semantics are C3 |
-| `input.rumble` | allowed | backend-dependent |
+| `input.rumble` | allowed | strength 0..65535, see R3 |
 | `time.set` | allowed | backend-dependent |
 
 Names are exact; there are no aliases. A capability the system does not know is
@@ -393,6 +393,16 @@ reports display/audio `unavailable`, because its libmsettings setters are
 no-ops. This avoids faking success for the desktop platform and avoids
 duplicating hardware control.
 
+R3 adds `device_backend_rumble()` and composes it last:
+
+```c
+backend = device_backend_display_audio_compose(device_backend_leds());
+backend = device_backend_rumble_compose(backend);
+```
+
+A capability the previous layer already reports available keeps it; otherwise
+`input.rumble` goes to the rumble backend and everything else falls through.
+
 ## LED app lease (C2)
 
 `led.control` is backed by `LIGHT_PROFILE_APP`, a copy of `lightsDefault` on the
@@ -547,17 +557,117 @@ write failure, unsupported platforms, h700's mute shape, dirty marking, normal
 exit restore, partial restore and backend composition. That is host-only and
 does not prove any hardware effect.
 
+## Rumble backend (R3)
+
+`input.rumble` is served through `PLAT_setRumble()`, the same call the desktop's
+`VIB_` thread makes. The backend adds no voltage, no driver level and no timing
+of its own: the strength domain is the existing `0..0xFFFF`, and the
+strength-to-voltage map stays in each platform's `platform.c`, including the
+Brick Pro 2.5 V ceiling.
+
+### Actions
+
+| Capability | Action | Args | Result value |
+| --- | --- | --- | --- |
+| `input.rumble` | `get` (default) | none | `{"strength":S,"applied":bool,"enabled":bool,"level":N\|null,"level_unit":"uv"\|"level"\|null,"min":0,"max":65535,"hardware_ack":false}` |
+| `input.rumble` | `set` | `{"value":0..65535}` | the same shape plus `{"previous":P,"readback":true}` |
+
+- `set` accepts a single-key object. Missing, extra, non-integer or
+  out-of-range values are rejected before any platform write; no clamp is
+  silently applied.
+- `strength` is the strength **this service** last wrote, and `applied` says
+  whether that happened. The nodes report on/off and a raw level, never the
+  strength that produced them, so a `strength` of 0 with `applied:false` means
+  "the service has not written", not "the motor is off".
+- `enabled` and `level` are node read-backs. `level` is the raw node value:
+  microvolts on tg5040 (`level_unit:"uv"`), the raw strength on tg5050
+  (`level_unit:"level"`), and `null` on a platform with no level node.
+- `readback:true` means the enable node agrees with the request. A node that
+  disagrees turns the call into `backend_error`; it is never reported as
+  success. `hardware_ack` is always false: the motor itself is unobservable.
+- `VIB_singlePulse`/`VIB_doublePulse`/`VIB_triplePulse` are **not** exposed.
+  They block their caller and belong to the process that ran `VIB_init`; the
+  service has no pulse action, so no app can make devserv sleep.
+
+### Availability
+
+| Platform | tg5040 | tg5050 | h700 | desktop |
+| --- | --- | --- | --- | --- |
+| `input.rumble` | enable + voltage nodes present and writable, and `DEVICE` names a supported model | enable + level nodes present and writable | unavailable | unavailable |
+
+- h700's `PLAT_setRumble` switches the motor on and off and drops the strength,
+  so advertising a strength there would fake a write. It reports `unavailable`
+  with that reason, exactly like h700's mute switch in R2.
+- The desktop preview's `PLAT_setRumble` is empty, so it reports `unavailable`.
+- `available` also requires the enable node to be **readable**: it is both the
+  write target and the only read-back source, and a write that cannot be
+  verified must not be reported as a success.
+- On tg5040 the ceiling depends on the model, and the platform derives the model
+  from `$DEVICE` alone. `input.rumble` therefore also requires `DEVICE` to name
+  one of the models tg5040's `launch.sh` exports (`brick`, `brickpro`,
+  `smartpro`). With it absent, empty or naming anything else the model is
+  unidentified, so the capability reports `unavailable` and the write path
+  refuses before touching `PLAT_setRumble`: an unidentified model would
+  otherwise fall through to the 3.3 V ceiling on hardware that may be a Brick
+  Pro. The refusal writes nothing and clamps nothing; a recognized model keeps
+  exactly the voltage `platform.c` chooses for it. A tg5040 build that gains a
+  new model must add its name here, or rumble stays honestly unavailable on it.
+
+### Honest limits
+
+- `PLAT_setRumble` returns void and ignores a failed `fopen`, so the nodes are
+  the only evidence a write landed. The backend reads them back and fails on a
+  mismatch; it cannot observe a write error that leaves the nodes looking
+  right.
+- The motor is shared hardware. The desktop's `VIB_` thread writes the same
+  nodes from the app process, and this service does not coordinate with it: two
+  writers can overwrite each other. `strength` is this service's record, not a
+  global motor state.
+- The service writes through `PLAT_setRumble` directly, without the `VIB_`
+  thread's off-deferral that exists to reduce motor vacillation. An app that
+  links `api.c` should keep using `VIB_*` in-process for pulse patterns.
+- devserv never runs `GFX_init()`, which is where `api.c` calls
+  `PLAT_initPlatform()`. The backend runs that detection before its first
+  write, because without it `PLAT_setRumble` would apply the non-Brick-Pro
+  3.3 V ceiling on a Brick Pro. The detection reads `$DEVICE`, which
+  `MinUI.pak/launch.sh` exports and `nextui_devserv_start` therefore passes on;
+  a `devserv` started by hand outside that environment does not detect a Brick
+  Pro, so on tg5040 the backend refuses to serve rumble at all there instead of
+  writing at an unverified ceiling.
+- A rumble call never marks the C3 session haptics field dirty: that field is
+  the user's haptics on/off preference owned by the config store, not the motor
+  strength, so no snapshot/restore of it happens here.
+
+### Verification
+
+`workspace/all/common/tests/run_rumble_backend_test.sh` runs two host-only
+binaries. The first compiles the adapter with fake ops and covers argument and
+range rejection without a write, default-allow dispatch without any grant, the
+legacy grant path, read-back mismatch, write and read failures, unsupported
+platforms, session independence and composition. The second compiles the
+production platform ops against an isolated sysfs tree (a temporary directory,
+never `/sys`) for every model tg5040's `launch.sh` exports — `brickpro`,
+`brick`, `smartpro` — plus the desktop and h700 shapes, and asserts the nodes,
+the read-back, the missing/unreadable node refusals, and that no strength maps
+the Brick Pro driver above 2.5 V. It also runs the unidentified-model cases
+(`DEVICE` unset, empty, and unknown values such as `brick-pro`, `BRICKPRO`,
+`brickpro ` with a trailing space, `tg5040`, `unknown`) and proves that each one
+reports unavailable, performs no platform write at all and leaves the nodes byte
+for byte unchanged. That is host-only: it proves no hardware effect, and the
+real strength-to-voltage map and the real motor remain device work.
+
 ## Not in C1
 
 - Settings authorization UI, per-item prompts, and translations. Installed apps
   use the default-allow path; the old grant store is compatibility-only.
 - Device session internals, snapshots and launch hooks — C3 (see
   [SESSION-API.md](SESSION-API.md)); C4 app exit is implemented on top of C3.
-- Real hardware backends for network, rumble, power and time; display/audio
-  are R1/R2 above.
+- Real hardware backends for network, power and time; display/audio are R1/R2
+  above and rumble is R3 above.
 - Service supervision/autostart is launch.sh's job; it starts `devserv` in C3.
   Until then it can be started manually or by a package.
 
 C2 adds the LED app lease and the `nextui-leds` backend. C3 adds session-end
-release; C4 adds the bounded app-exit path described above. Device behavior of
-both remains unverified until the physical-key/device batch.
+release; C4 adds the bounded app-exit path described above. R3 adds the
+`nextui-rumble` backend. Device behavior of all of them remains unverified
+until the physical-key/device batch.

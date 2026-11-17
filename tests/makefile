@@ -63,8 +63,18 @@ test-led:
 	../workspace/all/common/tests/run_led_lease_test.sh
 	../workspace/all/common/tests/run_led_backend_test.sh
 
+.PHONY: test-rumble
+test: test-rumble
+
 test-display-audio:
 	../workspace/all/common/tests/run_display_audio_backend_test.sh
+
+# R3 rumble backend: the adapter with fake ops, plus the production platform
+# ops against an isolated sysfs tree. Declared on its own lines rather than
+# added to the .PHONY and test lists above, so this hunk never collides with
+# another thread editing those lines.
+test-rumble:
+	../workspace/all/common/tests/run_rumble_backend_test.sh
 
 # Needs the desktop SDL/msettings build dependencies.
 test-led-refresh:

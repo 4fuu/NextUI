@@ -26,6 +26,8 @@ SOURCE = $(TARGET).c \
 	../common/device_backend_display_audio_platform.c \
 	../common/device_backend_leds.c \
 	../common/device_backend_leds_platform.c \
+	../common/device_backend_rumble.c \
+	../common/device_backend_rumble_platform.c \
 	../common/device_caps.c \
 	../common/device_gate.c \
 	../common/device_grants.c \
