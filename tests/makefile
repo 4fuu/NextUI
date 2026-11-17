@@ -114,6 +114,18 @@ test: test-update-package-atomic
 test-update-package-atomic:
 	./run_update_package_atomic_test.sh
 
+# Release-source feed generator: the nextui-feed-v1 document it writes must be
+# accepted by the real nextupd feed command, and every refusal must keep an
+# unusable set out of a feed. Also covers sign-manifest.sh --key-env, the
+# confidential-store input path for the release signer. Declared on its own
+# lines rather than added to the .PHONY and test lists above, so this hunk
+# never collides with another thread editing those lines.
+.PHONY: test-generate-feed
+test: test-generate-feed
+
+test-generate-feed:
+	./run_generate_feed_test.sh
+
 # Removal of the built-in third-party Pak Store: the build must not download or
 # preinstall it, the base package must carry no .pakz, the launcher must keep
 # only generic Tools discovery, and an existing user-installed store pak must
@@ -200,6 +212,18 @@ test-app-install-menu:
 
 test-app-install-launch:
 	../workspace/all/common/tests/run_app_install_launch_test.sh
+
+# Old boot install-path convergence: the arbitrary *.pakz install backdoor is
+# closed, the tg5040 Bluetooth upgrade and the MinUI.zip first install are
+# preserved, and no pak installs on tg5050. Static checks plus real runs of the
+# boot scripts against throwaway roots. Declared on its own lines rather than
+# added to the .PHONY and test lists above, so this hunk never collides with
+# another thread editing those lines.
+.PHONY: test-boot-install-path
+test: test-boot-install-path
+
+test-boot-install-path:
+	./run_boot_install_path_test.sh
 
 clean:
 	rm -f $(TEST_BIN)

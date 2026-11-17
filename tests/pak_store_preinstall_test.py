@@ -160,14 +160,21 @@ def test_makefile_ships_bluetooth_pak():
     ok("the base package ships the Bluetooth upgrade pak explicitly")
 
 
-def test_boot_unzip_path_kept():
-    # The generic boot path that extracts a user-dropped .pakz stays; only the
-    # preinstalled store download is gone.
-    path = os.path.join(REPO, "workspace", "tg5050", "install", "boot.sh")
-    if "pakz" not in read(path):
-        fail("the boot .pakz extraction path was lost", path)
+def test_boot_pakz_glob_closed():
+    # The boot installer must not glob *.pakz either, so a store pak cannot ride
+    # in behind the boot path the way it once rode in behind the base-package
+    # glob. Only the explicitly named tg5040 Bluetooth upgrade pak installs.
+    problems = []
+    for platform in ("tg5040", "tg5050", "h700"):
+        path = os.path.join(REPO, "workspace", platform, "install", "boot.sh")
+        body = "\n".join(line for line in read(path).splitlines()
+                         if line.strip() and not line.strip().startswith("#"))
+        if "*.pakz" in body or "PAKZ_PATH" in body or "for pakz" in body:
+            problems.append("%s install boot script still globs *.pakz" % platform)
+    if problems:
+        fail("no boot install script globs *.pakz", "; ".join(problems))
     else:
-        ok("the boot .pakz extraction path was kept")
+        ok("no boot install script globs *.pakz")
 
 
 def build_sandbox(work):
@@ -177,6 +184,14 @@ def build_sandbox(work):
     shutil.copy(os.path.join(REPO, "makefile"), os.path.join(repo, "makefile"))
     shutil.copy(os.path.join(REPO, "commits.sh"), os.path.join(repo, "commits.sh"))
     os.chmod(os.path.join(repo, "commits.sh"), 0o755)
+    # `make package` writes .system/version.txt from the authoritative VERSION
+    # file, so the sandbox repo needs one (the real repo's, or a stub).
+    version_src = os.path.join(REPO, "VERSION")
+    if os.path.isfile(version_src):
+        shutil.copy(version_src, os.path.join(repo, "VERSION"))
+    else:
+        with open(os.path.join(repo, "VERSION"), "w") as handle:
+            handle.write("6.16.0\n")
 
     base = os.path.join(repo, "build", "BASE")
     # Shaders and em_ui.sh used to be stubbed here because the base zip
@@ -329,6 +344,76 @@ def test_package_downloads_nothing():
         shutil.rmtree(work, ignore_errors=True)
 
 
+def test_bootstrap_version_matches_VERSION():
+    """The bootstrap MinUI.zip carries .system/version.txt == v$(VERSION).
+
+    Option 1's payoff, asserted on a real `make package`: a card installed from
+    a current bootstrap has the machine-readable version nextupd reads, not a
+    date string, so the first transactional update onto it is not refused.
+    """
+    work = tempfile.mkdtemp(prefix="nextui-bootstrap-version.")
+    try:
+        repo, bindir, _ = build_sandbox(work)
+        env = dict(os.environ)
+        env["PATH"] = bindir + os.pathsep + env["PATH"]
+        proc = subprocess.run(["make", "-f", "makefile", "package"],
+                              cwd=repo, env=env, capture_output=True, text=True)
+        if proc.returncode != 0:
+            fail("bootstrap version: make package",
+                 "exit %d: %s" % (proc.returncode,
+                                  (proc.stderr or proc.stdout).strip()[-400:]))
+            return
+        authoritative = "v" + read(os.path.join(repo, "VERSION")).strip()
+        minui = os.path.join(repo, "build", "BASE", "MinUI.zip")
+        if not os.path.isfile(minui):
+            fail("bootstrap version", "the bootstrap MinUI.zip was not produced")
+            return
+        with zipfile.ZipFile(minui) as handle:
+            if ".system/version.txt" not in handle.namelist():
+                fail("bootstrap version", "MinUI.zip has no .system/version.txt")
+                return
+            shipped = handle.read(".system/version.txt").decode("ascii").strip()
+        if shipped != authoritative:
+            fail("bootstrap version",
+                 "MinUI.zip .system/version.txt is %r, expected %r"
+                 % (shipped, authoritative))
+            return
+        ok("bootstrap version: MinUI.zip .system/version.txt == %s" % authoritative)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def test_malformed_VERSION_fails_package():
+    """A VERSION that is not bare X.Y.Z fails `make package`.
+
+    No `vv6.16.0` and no date string: a typo cannot ship a bootstrap whose
+    .system/version.txt nextupd cannot parse. No date mapping is invented and no
+    value is coerced to v0.
+    """
+    for bad in ("v6.16.0", "20261116-0", "6.16", "NextUI-20261116-0", ""):
+        work = tempfile.mkdtemp(prefix="nextui-bootstrap-badver.")
+        try:
+            repo, bindir, _ = build_sandbox(work)
+            with open(os.path.join(repo, "VERSION"), "w") as handle:
+                handle.write(bad + "\n")
+            env = dict(os.environ)
+            env["PATH"] = bindir + os.pathsep + env["PATH"]
+            proc = subprocess.run(["make", "-f", "makefile", "package"],
+                                  cwd=repo, env=env, capture_output=True, text=True)
+            label = "malformed VERSION %r" % bad
+            if proc.returncode == 0:
+                fail(label, "make package succeeded; it must fail on a bad VERSION")
+                continue
+            combined = (proc.stdout or "") + (proc.stderr or "")
+            if "X.Y.Z" not in combined:
+                fail(label, "the failure did not state the X.Y.Z requirement: %s"
+                     % combined.strip()[-200:])
+                continue
+            ok("%s: make package fails clearly" % label)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+
 def main():
     if not os.path.isdir(REPO):
         print("FAIL: no repository at %s" % REPO, file=sys.stderr)
@@ -337,8 +422,10 @@ def main():
     test_makefile_has_no_download()
     test_makefile_ships_bluetooth_pak()
     test_launcher_has_no_store_special_case()
-    test_boot_unzip_path_kept()
+    test_boot_pakz_glob_closed()
     test_package_downloads_nothing()
+    test_bootstrap_version_matches_VERSION()
+    test_malformed_VERSION_fails_package()
     if FAIL:
         print("%d check(s) failed" % FAIL, file=sys.stderr)
         return 1

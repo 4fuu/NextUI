@@ -2,9 +2,14 @@
 # NOTE: becomes .tmp_update/tg5040.sh
 
 PLATFORM="tg5040"
-SDCARD_PATH="/mnt/SDCARD"
+# BOOT_TEST_SDCARD lets a host test point the install at a throwaway root; on the
+# device it is unset and the real card is used, exactly as before.
+SDCARD_PATH="${BOOT_TEST_SDCARD:-/mnt/SDCARD}"
 UPDATE_PATH="$SDCARD_PATH/MinUI.zip"
-PAKZ_PATH="$SDCARD_PATH/*.pakz"
+# The only pak the boot installer extracts is the tg5040 Bluetooth upgrade pak
+# the base package ships, named explicitly so no dropped *.pakz rides in behind
+# a glob. App installs go through the signed "Install from file" transaction.
+BLUEZ_PAKZ="$SDCARD_PATH/nextui.upgrade_bluez.tg5040.pakz"
 SYSTEM_PATH="$SDCARD_PATH/.system"
 SCRIPT_DIR="$(dirname "$0")"
 INSTALL_LOG="$SDCARD_PATH/.userdata/$PLATFORM/logs/install.txt"
@@ -19,17 +24,10 @@ elif [ "$TRIMUI_MODEL" = "Trimui Brick Pro" ]; then
 	DEVICE="brickpro"
 fi
 
-# only show splash if either UPDATE_PATH or pakz files exist
+# only show splash if the update zip or the Bluetooth upgrade pak exists
 SHOW_SPLASH="no"
-if [ -f "$UPDATE_PATH" ]; then
+if [ -f "$UPDATE_PATH" ] || [ -e "$BLUEZ_PAKZ" ]; then
 	SHOW_SPLASH="yes"
-else
-	for pakz in $PAKZ_PATH; do
-		if [ -e "$pakz" ]; then
-			SHOW_SPLASH="yes"
-			break
-		fi
-	done
 fi
 LOGO_PATH="logo.png"
 # If the user put a custom logo under /mnt/SDCARD/.media/splash_logo.png, use that instead
@@ -45,7 +43,6 @@ fi
 : "${BOOT_TEXT_INSTALLING:=Installing...}"
 : "${BOOT_TEXT_EXTRACTING:=Extracting}"
 : "${BOOT_TEXT_INSTALLING_PAK:=Installing}"
-: "${BOOT_TEXT_UPDATING:=Updating NextUI}"
 : "${BOOT_TEXT_INSTALLING_NEXTUI:=Installing NextUI}"
 
 if [ "$SHOW_SPLASH" = "yes" ] ; then
@@ -93,41 +90,37 @@ fi
 # leds_off
 echo 0 > /sys/class/led_anim/max_scale
 
-# generic NextUI package install
-for pakz in $PAKZ_PATH; do
-	if [ ! -e "$pakz" ]; then continue; fi
-	echo "TEXT:$BOOT_TEXT_EXTRACTING $pakz" > /tmp/show2.fifo
+# Device-compat bootstrap: extract only the tg5040 Bluetooth upgrade pak the
+# base package ships. A dropped *.pakz is no longer an install path; apps go
+# through the signed "Install from file" transaction instead.
+if [ -e "$BLUEZ_PAKZ" ]; then
+	echo "TEXT:$BOOT_TEXT_EXTRACTING $BLUEZ_PAKZ" > /tmp/show2.fifo
 	cd $(dirname "$0")/$PLATFORM
 
-	./unzip -o -d "$SDCARD_PATH" "$pakz" # >> $pakz.txt
-	rm -f "$pakz"
+	./unzip -o -d "$SDCARD_PATH" "$BLUEZ_PAKZ" # >> $pakz.txt
+	rm -f "$BLUEZ_PAKZ"
 
 	# run postinstall if present
 	if [ -f $SDCARD_PATH/post_install.sh ]; then
-		echo "TEXT:$BOOT_TEXT_INSTALLING_PAK $pakz" > /tmp/show2.fifo
+		echo "TEXT:$BOOT_TEXT_INSTALLING_PAK $BLUEZ_PAKZ" > /tmp/show2.fifo
 		$SDCARD_PATH/post_install.sh # > $pakz_post.txt
 		rm -f $SDCARD_PATH/post_install.sh
 	fi
-done
+fi
 
-# install/update
-if [ -f "$UPDATE_PATH" ]; then 
+# First install only. The bootstrap MinUI.zip is unpacked onto a stock or empty
+# card. An already-installed .system/<platform> is never overwritten here:
+# everyday system updates and repairs go through the signed nextupd
+# transaction, so a dropped MinUI.zip is left untouched and the installed
+# system boots.
+if [ -f "$UPDATE_PATH" ] && [ ! -d "$SYSTEM_PATH/$PLATFORM" ]; then
 	cd $(dirname "$0")/$PLATFORM
-	if [ -d "$SYSTEM_PATH" ]; then
-		echo "TEXT:$BOOT_TEXT_UPDATING" > /tmp/show2.fifo
-	else
-		echo "TEXT:$BOOT_TEXT_INSTALLING_NEXTUI" > /tmp/show2.fifo
-	fi
-
-	# clean replacement for core paths
-	rm -rf $SYSTEM_PATH/$PLATFORM/bin
-	rm -rf $SYSTEM_PATH/$PLATFORM/lib
-	rm -rf $SYSTEM_PATH/$PLATFORM/paks/MinUI.pak
+	echo "TEXT:$BOOT_TEXT_INSTALLING_NEXTUI" > /tmp/show2.fifo
 
 	./unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH" # &> /mnt/SDCARD/unzip.txt
 	rm -f "$UPDATE_PATH"
 
-	# the updated system finishes the install/update
+	# the installed system finishes the install
 	if [ -f $SYSTEM_PATH/$PLATFORM/bin/install.sh ]; then
 		$SYSTEM_PATH/$PLATFORM/bin/install.sh # &> $SDCARD_PATH/log.txt
 	fi
