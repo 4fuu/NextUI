@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Host-only replay of the real Brick Pro KEY_HOMEPAGE capture. This exercises
 # the shared PAD edge detector and the real FnBridge/UIOverlay path; it does not
-# read evdev and is not physical-key verification.
+# read evdev and is not physical-key verification. The launcher overlay test
+# also renders through the real GFX/ttf stack and asserts the row text shares
+# the row center, in English and Chinese, without opening a window.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -32,6 +34,21 @@ else
     SDL_CFLAGS=()
     SDL_LIBS=(-lSDL2 -lSDL2_image -lSDL2_ttf)
 fi
+
+# UIOverlay_draw needs the real font and asset atlas even though the overlay
+# test never opens a window. Fill in anything the host fixture is missing;
+# existing files (for example a developer's custom theme) are left alone. The
+# desktop platform's SDCARD_PATH is fixed, so do not derive it from PREFIX_LOCAL.
+RES_DIR="/var/tmp/nextui/sdcard/.system/res"
+mkdir -p "$RES_DIR"
+for src in "$ROOT"/skeleton/SYSTEM/res/font1.ttf \
+           "$ROOT"/skeleton/SYSTEM/res/font2.ttf \
+           "$ROOT"/skeleton/SYSTEM/res/font3.ttf \
+           "$ROOT"/skeleton/SYSTEM/res/assets@*x.png \
+           "$ROOT"/skeleton/SYSTEM/res/inputs@*x.png; do
+    dest="$RES_DIR/$(basename "$src")"
+    [[ -f "$dest" ]] || cp "$src" "$dest"
+done
 
 "${CROSS_COMPILE}gcc" \
     "${CFLAGS[@]}" "${SDL_CFLAGS[@]}" \
@@ -94,4 +111,6 @@ echo "tg5040 HOME mapping: JOY_MENU_ALT is JOY_NA; BTN_FN3 is BTN_HOME"
     -L"$PREFIX_LOCAL/lib" -Wl,-rpath,"$PREFIX_LOCAL/lib" \
     "${SDL_LIBS[@]}" -lmsettings -lsamplerate -lGL -lm -lz -lpthread -ldl
 
-"$OUT/home_overlay_test"
+"$OUT/home_overlay_test" \
+    "$ROOT/skeleton/SYSTEM/res/font1.ttf" \
+    "$ROOT/skeleton/SYSTEM/res/font3.ttf"

@@ -418,6 +418,17 @@ static void ensure_dim(UIOverlay* overlay, SDL_Surface* screen)
 	SDL_SetSurfaceBlendMode(overlay->dim, SDL_BLENDMODE_BLEND);
 }
 
+/* SDL_ttf renders a whole line box: the surface is TTF_FontHeight tall, which is
+ * larger than the size the font was opened with (and larger still for the CJK
+ * font). Center on that measured height rather than the nominal FONT_* value,
+ * so text shares the same vertical center as the equally centered icon. */
+static int text_height(TTF_Font* font, const char* text)
+{
+	int height = 0;
+	if (font && text && text[0]) TTF_SizeUTF8(font, text, NULL, &height);
+	return height;
+}
+
 static void blit_text(TTF_Font* font, const char* text, SDL_Color color, SDL_Surface* dst,
 					  int x, int y, SDL_Rect* clip)
 {
@@ -473,7 +484,7 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 	GFX_blitAssetColor(ASSET_SETTINGS, NULL, screen, &(SDL_Rect){settings_x, settings_y, 0, 0}, THEME_COLOR6);
 
 	int title_x = header_x + settings_rect.w + SCALE1(6);
-	int title_y = header_y + (header_height - SCALE1(FONT_LARGE)) / 2;
+	int title_y = header_y + (header_height - text_height(font.large, overlay->strings.title)) / 2;
 	SDL_Rect title_clip = {title_x, header_y, panel_width - (title_x - panel_x) - padding, header_height};
 	blit_text(font.large, overlay->strings.title, uintToColour(THEME_COLOR4_255), screen, title_x, title_y,
 			  &title_clip);
@@ -485,7 +496,7 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 		int name_x = panel_x + panel_width - padding - name_width;
 		if (name_x < title_x + SCALE1(8)) name_x = title_x + SCALE1(8);
 		SDL_Rect name_clip = {name_x, header_y, panel_x + panel_width - padding - name_x, header_height};
-		int name_y = header_y + (header_height - SCALE1(FONT_SMALL)) / 2;
+		int name_y = header_y + (header_height - text_height(font.small, overlay->hooks.app_name)) / 2;
 		blit_text(font.small, overlay->hooks.app_name, uintToColour(THEME_COLOR6_255), screen, name_x, name_y,
 				  &name_clip);
 	}
@@ -520,7 +531,7 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 			GFX_blitAssetColor(icon, NULL, screen, &(SDL_Rect){icon_x, icon_y, 0, 0}, icon_color);
 		}
 
-		int label_y = row.y + (row.h - SCALE1(FONT_MEDIUM)) / 2;
+		int label_y = row.y + (row.h - text_height(font.medium, item->label)) / 2;
 
 		int status_width = 0;
 		if (item->status && item->status[0])
@@ -532,7 +543,7 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 
 		if (item->status && item->status[0])
 		{
-			int status_y = row.y + (row.h - SCALE1(FONT_SMALL)) / 2;
+			int status_y = row.y + (row.h - text_height(font.small, item->status)) / 2;
 			SDL_Rect status_clip = {status_x, row.y, row.x + row.w - SCALE1(8) - status_x, row.h};
 			blit_text(font.small, item->status, text_color, screen, status_x, status_y, &status_clip);
 		}
