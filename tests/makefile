@@ -302,5 +302,16 @@ test-builtin-i18n:
 test-minput:
 	../workspace/all/minput/tests/run_minput_fn_test.sh
 
+# WiFi SSID presentation: wpa_cli's escaped scan text decoded to real bytes,
+# then rendered through the real NetworkItem path with the bundled CJK font,
+# including an invalid UTF-8 fallback. Declared on its own lines rather than
+# added to the .PHONY and test lists above, so this hunk never collides with
+# another thread editing those lines.
+.PHONY: test-wifi-ssid
+test: test-wifi-ssid
+
+test-wifi-ssid:
+	../workspace/all/settings/tests/run_wifi_ssid_test.sh
+
 clean:
 	rm -f $(TEST_BIN)
