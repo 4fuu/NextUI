@@ -6,8 +6,9 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `6feb6cc` (merge of PR #48, the release-workflow wiring for the signed
-  update source, gh 2026-11-17T05:58:53Z; below it PR #47, the release update
+  rule): `9846fa2` (merge of PR #49, the release entry points, gh
+  2026-11-17T06:20:05Z; below it PR #48, the release-workflow wiring for the
+  signed update source, `6feb6cc` at 05:58:53Z; PR #47, the release update
   asset preparation, `e314ea9` at 05:43:10Z; PR #43, the R3 rumble backend
   through `PLAT_setRumble`, `9d2ce41` at 05:30:36Z; PR #46, the release-source
   feed generator and
@@ -71,6 +72,23 @@ history; its top section mirrors the current schedule in this file.
   the batch7 baseline, and branch dependencies/conflicts/merges). Not included:
   releases, deployments, force operations, and device operations. No other
   thread merges main concurrently.
+- Scope correction (2026-11-17, owner's words: "谁告诉你需要首批应用了？你先把系统弄好。"):
+  the earlier first-batch application plan was a schedule extension mistaken for
+  a user requirement, so it is withdrawn from this round. The must-do scope is
+  now: the system desktop, settings and Chinese UI, generic application run and
+  install support, the system update chain, the hardware backends, and the ADB
+  real-machine integration. Existing application support capability stays; no
+  application product, first-batch list, or external application repository is
+  added this round. F1, F2, F3 and F5 are recorded as deferred (not done, not
+  cancelled, and no longer owner questions); their sources are stopped and
+  archived, the Clock test sample stays for system verification only, and real
+  system defect fixes continue. U6 (the small own-side system entry) and the A5
+  residual prompts continue as non-blocking items, and optional document or
+  fixture fidelity work is no longer a required-completion item. The 18-item and
+  16-item totals used earlier counted those extensions and are not reused; the
+  remainder is stated against this system scope instead. The safety gates are
+  unchanged and still stop work: boot install, user data, signature
+  verification, and hardware safety.
 - Owner-delegated decisions (2026-11-16, Space post
   https://ampcode.com/threads/T-01a1da7b-3aa8-70d6-860d-b71ab8e1cb68/M-034yvWThfeib6rCuqFIZtH;
   the owner said "这个都你自己决定，都授权给你" for these scopes, so they are no
@@ -448,7 +466,13 @@ Rules:
   generator, 40 for the preparation script, 30 for the wiring); those counts
   are the source's report, and the review verdicts are recorded as the source's
   relay of the merge owner's result rather than as an owner message to this
-  thread. Still open: only this schedule's own PR #31.
+  thread. Still open: only this schedule's own PR #31. PR #49 (U6, the release
+  entry points) merged into main as `9846fa243079a9e1aa761a8d30f91032ccf89907`
+  (gh 2026-11-17T06:20:05Z, merged by 4fuu after the merge owner's independent
+  review) at final head `598a8016`, with the exact head's six checks green per
+  the source; post-merge on `9846fa2` has Development/Desktop success while
+  Feature checks and CI are still in progress per gh, so that CI is not written
+  as passing.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -648,9 +672,12 @@ Rules:
   with offline SDL_ttf render evidence, `boot.sh` zh/en selection wired to
   `lang=` with host fixture tests (never executing install steps), English
   regression proof, `sh -n` syntax checks.
-- Next: the remaining English surfaces (overlay hints, Remove Loading "Done")
-  go to the owners of those files; this completes the A5 boot-text remainder
-  at host level.
+- Next: the remaining English surfaces (`common/api.c` overlay hints and the
+  Remove Loading pak's "Done") are dispatched on 2026-11-17 to
+  https://ampcode.com/threads/T-01a1e81c-51ab-7236-8ecb-8bed35a92424
+  (Step Medium, the A5 system residual prompts line) as an in-progress,
+  non-blocking item: corner text, comments and fixture fidelity no longer block
+  the usable mainline, so this rides along without holding the ADB batch.
 
 ### I6 — Update package manifest, signature, staging, and check
 - Owner thread: https://ampcode.com/threads/T-01a1e2bf-a7b9-75e8-9b44-92cc3fa42296
@@ -1298,18 +1325,35 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   generating or storing production keys.
 - Next: U6.
 
-#### U6 — Release entry points
-- Owner: any thread; low risk.
-- Status: not started; release body and skeleton READMEs still point at
-  upstream docs. The makefile's default third-party updater pak download was
-  removed by PR #17 (U4 packaging cleanup, now merged into main). The
-  production source decision (U5, this fork's own GitHub Releases signed
-  assets) removes the last owner-side dependency, so this task is dispatchable.
+#### U6 — Release entry points (merged into main at `9846fa2`)
+- Owner: dispatched to https://ampcode.com/threads/T-01a1e81c-4958-72c4-8437-806acc443dfb
+  (Step Medium, 2026-11-17).
+- Status: MERGED, not device-relevant. PR #49
+  (https://github.com/4fuu/NextUI/pull/49, branch `docs/release-entry-our-side`,
+  "Point the release entry at this repository") merged into main as
+  `9846fa243079a9e1aa761a8d30f91032ccf89907` (gh 2026-11-17T06:20:05Z, merged by
+  4fuu after the merge owner's independent review and serial merge) at final head
+  `598a8016817553261f8048bbb8e8b4dba11cef0e`. Per the source, the change is three
+  files and seven lines of links only: the `release.yaml` release body's three
+  upstream documentation links now point at `https://github.com/4fuu/NextUI` and
+  `https://github.com/4fuu/NextUI/releases`, and `skeleton/BASE/README.txt` plus
+  `skeleton/EXTRAS/README.txt` point their "Source" line and per-device
+  instructions at this repository. NOTICE and the upstream issue reference stay
+  as historical attribution, and the workflow's behavior, triggers, signing
+  guard, and asset paths are unchanged. Source verification: both new URLs
+  answer HTTP 200 today (the repository has no releases yet, so `/releases` is an
+  entry point rather than content and no URL is invented), the YAML parses, the
+  `fmt` conversion was exercised, no test asserts the old URLs, and the exact
+  head's six checks were all success (Host tests x2, tg5040 x2, build-linux,
+  build-macos). Post-merge on `9846fa2`: Development/Desktop is success while
+  Feature checks and CI are still in progress per gh, so that CI is recorded as
+  in progress and not written as passing.
 - Depends on: none (independent).
 - Delivery/verification: release workflow body and skeleton BASE/EXTRAS
   READMEs point at this repo's documentation entry; NOTICE and the upstream
   issue reference stay as historical attribution.
-- Next: none (closes the update chain).
+- Next: none; this closes the update-chain entry points. U5's production key and
+  feed custody are unchanged by it.
 
 #### U7 — `.tmp_update` payload sync (boot recovery tool refresh)
 - Owner thread: https://ampcode.com/threads/T-01a1e3a0-67ec-708d-bb5c-a56df4f415b1
@@ -1793,33 +1837,48 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 
 ### P4 — First-batch applications
 
-#### F1 — Clock reference application
-- Owner: I1 thread (delivered inside `be88c20`).
-- Status: host-done locally with `pak.json` declaring `overlay`; unpushed.
-- Depends on: I1 review/compile/push.
-- Delivery/verification: ships with the runtime batch; real-machine overlay
-  behavior in V1.
-- Next: V1.
+#### F1 — Clock reference application (deferred: out of this round's system scope)
+- Owner: was the I1 thread https://ampcode.com/threads/T-01a1e286-d5d6-7776-9b19-4515a1744ca0
+  (delivered inside `be88c20`).
+- Status: DEFERRED, not done and not cancelled. The owner corrected the scope on
+  2026-11-17 ("谁告诉你需要首批应用了？你先把系统弄好。"): the first-batch
+  application selection was a schedule extension mistaken for a user
+  requirement, so F1's product delivery, F2's selection, F3's metadata/rename
+  and F5's application release pipeline are all withdrawn from this round's
+  must-do list and recorded as deferred rather than complete. This schedule sent
+  no recovery or handoff request to any source thread for F1, so there is
+  nothing to retract; the F3 and F5 sources were stopped and archived by the
+  Space. The existing Clock test sample stays in the tree for system
+  verification only -- no Clock productization and no separate delivery. Real
+  system defect fixes are unaffected and continue.
+- Depends on: nothing in this round.
+- Delivery/verification: not required this round.
+- Next: only if the owner re-adds an application scope later.
 
-#### F2 — First-batch selection decision
+#### F2 — First-batch selection decision (withdrawn: not an owner question this round)
 - Owner: repo owner (4fuu).
-- Status: undecided. Engineering default is one Apostrophe reference app (file
-  manager, `ap_file_picker` exists); "ship no new app" is not an option.
-- Depends on: nothing; it blocks only F3/E1 completion.
-- Delivery/verification: owner confirms the selection.
-- Next: F3.
+- Status: WITHDRAWN from this round's scope on 2026-11-17 by the owner's
+  correction. The earlier "undecided, blocks only F3" framing came from the same
+  schedule extension that mistook a first-batch application plan for a user
+  requirement, so this is no longer recorded as a decision awaiting the owner and
+  no selection is being requested. The 2026-11-17 interim choice (the retained
+  generic tools plus Clock) is superseded by this withdrawal and is kept only as
+  history.
+- Depends on: nothing in this round.
+- Delivery/verification: not required this round.
+- Next: only if the owner re-adds an application scope later.
 
-#### F3 — Bundled tool paks manifest and de-gaming rename
-- Owner: unassigned; Space to dispatch.
-- Status: not started; the remaining bundled tool paks have no `pak.json`. The
-  play-time statistics app and its service were removed in the game-statistics
-  cleanup (nothing ever started a session, so its database stayed empty and its
-  pak listed nothing), so the de-gaming rename no longer applies to it.
-- Depends on: F2 for the new reference app; B1 manifest scan already pushed.
-- Delivery/verification: each bundled pak gets a `pak.json` (id/version/
-  capabilities); missing manifest still behaves exactly as today; rename does
-  not change stored values.
-- Next: F4/F5 when authorized.
+#### F3 — Bundled tool paks manifest and de-gaming rename (deferred: source stopped)
+- Owner: was dispatched to https://ampcode.com/threads/T-01a1e822-0c08-744b-91e8-5afe753b325c
+  (Step Medium); the source was stopped by the Space on 2026-11-17 and is being
+  archived with its workspace preserved.
+- Status: DEFERRED out of this round's scope, not done and not cancelled. The
+  first-batch application framing is withdrawn (see F1/F2), so tool metadata and
+  the de-gaming rename are no longer must-do items; existing application support
+  capability in the launcher stays as it is.
+- Depends on: nothing in this round.
+- Delivery/verification: not required this round.
+- Next: only if the owner re-adds an application scope later.
 
 #### F6 — Application install closed loop (backend merged; local-file entry dispatched; no app store is a goal)
 - Owner threads: the read-only audit thread
@@ -2193,46 +2252,95 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   discovery and launch after the removal stay verified through the existing
   launcher tests plus the real launcher evidence F6b is to deliver.
 
-#### F5 — Application release pipeline
-- Owner: unassigned; the owner-side gates are now decided (2026-11-16
-  owner-delegated: the repository authorization and the U5 key custody
-  decision), so it is dispatchable but not started.
-- Status: not started.
-- Depends on: U4 feed, U5 signature policy (both in main or decided), owner
-  authorization for the app repository (delegated).
-- Delivery/verification: `pak.json` version -> git tag -> release assets named
-  per `release_filename` with a SHA-256 manifest in the shared format family.
-- Next: none (closes application delivery).
+#### F5 — Application release pipeline (deferred: source stopped)
+- Owner: was dispatched to https://ampcode.com/threads/T-01a1e81c-409f-74fa-aa7d-838ef3589751
+  (Step Medium); the source was stopped by the Space on 2026-11-17 and is being
+  archived with its workspace preserved.
+- Status: DEFERRED out of this round's scope, not done and not cancelled. With
+  the first-batch application framing withdrawn (see F1/F2), a per-application
+  release pipeline is not a must-do item this round; the system-side release
+  path that U5 delivered stays in scope and is separate.
+- Depends on: nothing in this round.
+- Delivery/verification: not required this round.
+- Next: only if the owner re-adds an application scope later.
 
 ### P5 — Verification gates
 
-#### V1 — Real-machine batch
-- Owner: single ADB device thread (T-01a1df89); batch scheduled by the Space.
-- Status: early-branch evidence only; batch7 acceptance remains zero. On
-  batch2-1 (`ee0eee7`) tests T1-T9 passed and T10 is partial: the key chain
-  works (d-pad/A/B fine) but HOME never reaches the joystick layer, a
-  source-side mapping gap tracked as I7, not a "press more keys" item.
-- Owner decisions (2026-11-16): no further physical key testing; the device
-  stays on NextUI with no rollback and stays online. The device's `suspend`
-  script is temporarily a no-op (original saved as `suspend.batch2-orig`,
-  sha256 ab967b19...; override sha256 e162365a...); only the ADB thread
-  restores it, only on 4fuu's explicit instruction. Screen dimming by
-  screentimeout is not suspend.
-- Rules: one batch, one ADB thread; every test records version/steps/restore/
-  evidence; actual files are saved with hashes before hardware writes; no
-  sleep/POWER misuse; power-cut update tests need separate owner authorization;
-  batch2-1 results are never extrapolated into "new code passed".
-- Next: acceptance records per item as host work completes; nothing else
-  proceeds to device claims.
+#### V1 — Real-machine batch (ordinary device testing authorized 2026-11-17)
+- Owner: single ADB device thread https://ampcode.com/threads/T-01a1df89-7707-7413-b6d3-372e8208f333
+  plus the retained co-debug thread https://ampcode.com/threads/T-01a1e033;
+  the batch is scheduled by the Space.
+- Status: the owner's 2026-11-17 priority change ("快点做完", corner bugs allowed,
+  testing and the ADB thread explicitly allowed) lifts the earlier "no ordinary
+  test authorization" note, so V1 is now an active batch rather than a blocked
+  gate. The ADB thread reported it is ready and blocked only on the build
+  payload for `origin/main` `6feb6cc`: adb device `1c000c8a23c3c7f209d` online,
+  uptime 1 day 38 minutes, `dmesg Suspended=0`, wake lock held, a 12-hour watch
+  process with zero drops, the device currently running the batch2-1 (`ee0eee7`)
+  SD-overlay method with the internal boot chain untouched, 17/17 internal file
+  hashes matching the pre-batch state and a restorable backup, and 118.8G free on
+  the SD card.
+- Payload for this batch (verified by this schedule from the main CI run): the
+  CI workflow run `44027852856` on `6feb6cc` uploaded
+  `NextUI-20261117-0-base.zip` (the SD bootstrap layout: Bios, Roms, Saves,
+  Overlays, trimui, h700, MinUI.zip, `nextui.upgrade_bluez.tg5040.pakz`,
+  README.txt), with `-extras.zip` and `-all.zip` beside it. The inner
+  `MinUI.zip` is 30,240,598 bytes, sha256
+  `26863f66e39a9f250cd7e69096c7ae52bbbd0bf7b7b3a09004da79827df5aed1`, and its
+  `.system/version.txt` reads `v6.16.0` while `.system/commits.txt` records
+  `- NextUI 6feb6ccb 2026-11-17 4fuu/NextUI` plus the three toolchain rows. The
+  install/recovery path in that payload: `trimui/app/MainUI` is the installer
+  shim (it moves `runtrimui.sh` aside, copies `.tmp_update` to the SD root,
+  removes the `trimui` directory, runs `$SDCARD_PATH/.tmp_update/updater`, then
+  poweroffs), `.tmp_update/updater` performs the actual installation,
+  `.tmp_update/nextupd-recover.sh` is the recovery entry, and
+  `.tmp_update/{tg5040,tg5050,h700}/nextupd.elf` ship per platform.
+- The ADB thread's recorded deployment and rollback plan: rename the current
+  `.system` to `/mnt/SDCARD/.system-batch2-1` (rename only, nothing deleted),
+  place the new payload at `/mnt/SDCARD/.system/tg5040`, trigger through the
+  single shim `/mnt/SDCARD/trimui/app/MainUI`, and roll back by renaming the
+  directory back while keeping or removing the shim. It will re-apply its local
+  no-op `suspend` override after deployment to keep the user's no-sleep
+  convention, which this round keeps.
+- Rules that still hold: one batch, one ADB thread; every test records
+  version, steps, restore and evidence; real files are saved with hashes before
+  hardware writes; no deliberate power-cut and no SD wipe; the user's
+  no-sleep/no-disconnect convention stays; corner bugs are recorded and the run
+  continues, while data destruction, boot or install failure, a signature
+  bypass, or a hardware-safety issue stops the batch immediately and is reported
+  at once. Physical effects that cannot be proven automatically stay recorded as
+  unverified rather than assumed.
+- Test order the ADB thread plans (corner bugs recorded, then continue): desktop
+  and adapted-app launch/return; HOME overlay's existing input path (the software
+  path is testable, the physical key effect is marked unverified); session
+  restore; brightness/audio/LED/rumble (software path plus observable state,
+  physical effects marked unverified); the Chinese UI; isolated app install and
+  launch with the test key, which never enters the production configuration.
+- Owner decisions (2026-11-16) that stay in force: the device stays on NextUI
+  with no rollback and stays online; the `suspend` script override
+  (`suspend.batch2-orig` sha256 ab967b19..., override sha256 e162365a...) is
+  restored only by the ADB thread and only on 4fuu's explicit instruction;
+  screen dimming by screentimeout is not suspend.
+- Next: acceptance records per module as the batch runs; batch2-1 results are
+  never extrapolated into "new code passed".
 
-#### V2 — Multi-platform compile remainder (C5)
+#### V2 — Multi-platform compile remainder (C5) — current CI already covers tg5050/h700
 - Owner: toolchain-target thread alongside each code task.
-- Status: partial; tg5040 passes, tg5050/h700 have no batch7 build evidence.
+- Status: the "no batch7 build evidence" note was stale. Checked on 2026-11-17
+  against the live workflow and a real run: `.github/workflows/ci.yaml` (the full
+  CI on main) has explicit `Build (tg5040)`, `Build (tg5050)` and `Build (h700)`
+  steps followed by `make special` and `make package`, and the successful CI run
+  `44027852856` on `6feb6cc` executed all three build steps (confirmed in its
+  log) plus the packaging and attestation steps. So tg5050 and h700 compile
+  evidence exists in the current CI on every push to main; the batch7 label
+  referred to an older manual baseline and no duplicate work is opened for it.
+  The Feature checks workflow additionally cross-builds the tg5040 target on
+  every branch and pull request.
 - Depends on: each code task.
 - Delivery/verification: tg5050/h700/desktop compile and FN behavior degrades
   to "no such key". Other platforms' real-machine acceptance stays a future
   option, not a delivery requirement.
-- Next: continuous with each task.
+- Next: nothing new; the compile gate rides the existing workflows.
 
 ### P6 — Modification debt (audited; both cleanup lines merged into main)
 
@@ -2496,6 +2604,14 @@ as they happen; nothing is reported as passing without a run.
   a pull request into `main`; the CI/merge owner merges after checks pass. This
   thread performs no merges itself.
 - Per the maintenance rule at the top of this file, this update is committed
+  because real tasks changed: the 2026-11-17 scope correction withdrew the
+  first-batch application extension (F1, F2, F3 and F5 are now deferred, their
+  sources stopped and archived, and no owner selection is requested), the ADB
+  device batch is authorized and running against `origin/main` with the CI
+  payload for `6feb6cc` verified and handed over, V2's stale "no batch7
+  evidence" note was corrected against the live full CI that builds tg5040,
+  tg5050 and h700, and U6 merged into main as PR #49 at `9846fa2`.
+- Earlier rounds in this same pull request, kept as history: this update is committed
   because real tasks changed (PR #33's `v0.0.0-ci` exit-64 failure fixed at
   head `be3d548d` with the real-archive verification and seven negative
   controls, PR #32 merged into main as `64540a7` with all post-merge runs
@@ -2596,7 +2712,12 @@ as they happen; nothing is reported as passing without a run.
   owner's independent review at each exact head and 63 + 40 + 30 checks green
   on the merged tree; those verdicts are recorded as the source's relay of the
   merge owner's result. Only the custody and publication layers of U5 remain
-  open. The previous
+  open. U6 then closed too: PR #49 merged into main as
+  `9846fa243079a9e1aa761a8d30f91032ccf89907` (gh 2026-11-17T06:20:05Z, merged by
+  4fuu after the merge owner's independent review) at final head `598a8016`,
+  with the exact head's six checks green per the source and post-merge on
+  `9846fa2` showing Development/Desktop success while Feature checks and CI are
+  still in progress per gh, so that CI is not written as passing. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
 - Branch identity evidence (2026-11-16, verified against the remote, because a
@@ -2652,6 +2773,6 @@ as they happen; nothing is reported as passing without a run.
   merge (PR #38 merged just below it at `1f737c9`), then to `5b66d70` with the
   PR #42 merge, then to `5fed2b3` with the PR #44 merge, then to `008ffde`
   with the PR #45 merge, then to `44018eb` with the PR #46 merge, then to
-  `9d2ce41` with the PR #43 merge, then to `e314ea9` with the PR #47 merge, and
-  now to `6feb6cc` with the PR #48 merge
+  `9d2ce41` with the PR #43 merge, then to `e314ea9` with the PR #47 merge, then
+  to `6feb6cc` with the PR #48 merge, and now to `9846fa2` with the PR #49 merge
   (2026-11-17 per gh).
