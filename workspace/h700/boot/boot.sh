@@ -19,13 +19,6 @@ raw_log() {
 	echo "$@" >> "$LOG_PATH" 2>/dev/null || true
 }
 
-has_pakz() {
-	for pakz in "$TF2_PATH"/*.pakz; do
-		[ -e "$pakz" ] && return 0
-	done
-	return 1
-}
-
 extract_payload() {
 	if [ -x /tmp/nextui-h700-unzip ] && [ -x /tmp/nextui-h700-fbsplash ] && [ -f /tmp/nextui-h700/shim-common.sh ]; then
 		return 0
@@ -126,7 +119,7 @@ if [ -f "$UPDATE_PATH" ]; then
 	fi
 fi
 
-if [ -x "$TF2_PATH/.tmp_update/$PLATFORM.sh" ] && { [ -f "$UPDATE_PATH" ] || has_pakz; }; then
+if [ -x "$TF2_PATH/.tmp_update/$PLATFORM.sh" ] && [ -f "$UPDATE_PATH" ]; then
 	show_splash "INSTALLING NEXTUI"
 	"$TF2_PATH/.tmp_update/$PLATFORM.sh" >> "$LOG_PATH" 2>&1
 elif [ -x "$SYSTEM_PATH/bin/install.sh" ] && [ -f "$UPDATE_PATH" ]; then

@@ -36,20 +36,29 @@ for script in "$SNIPPET" "${BOOT_SCRIPTS[@]}"; do
     fi
 done
 
-# Every wired boot script must take its text from the variables, and must keep
-# the English defaults as the missing-file fallback.
-for script in "${BOOT_SCRIPTS[@]}"; do
-    grep -q 'BOOT_TEXT_INSTALLING' "$script" || fail "$script does not use BOOT_TEXT_INSTALLING"
-    grep -q 'BOOT_TEXT_EXTRACTING' "$script" || fail "$script does not use BOOT_TEXT_EXTRACTING"
-    grep -q 'BOOT_TEXT_INSTALLING_PAK' "$script" || fail "$script does not use BOOT_TEXT_INSTALLING_PAK"
-    grep -q 'BOOT_TEXT_UPDATING' "$script" || fail "$script does not use BOOT_TEXT_UPDATING"
-    grep -q 'BOOT_TEXT_INSTALLING_NEXTUI' "$script" || fail "$script does not use BOOT_TEXT_INSTALLING_NEXTUI"
-    grep -q ': "${BOOT_TEXT_INSTALLING:=Installing...}"' "$script" ||
-        fail "$script lost the English fallback for BOOT_TEXT_INSTALLING"
-    if grep -nE 'TEXT:(Extracting|Installing|Updating)|--text="Installing' "$script" >/dev/null; then
-        fail "$script still hardcodes a boot string"
-    fi
-done
+# Every wired boot script must take its text from the variables and must keep
+# the English defaults as the missing-file fallback. tg5040 still installs the
+# tg5040-only Bluetooth upgrade pak, so it keeps the extracting/pak splash
+# strings; tg5050 and h700 install only MinUI.zip now.
+check_boot_text() {
+	local script="$1"; shift
+	local var
+	for var in "$@"; do
+		grep -q "$var" "$script" || fail "$script does not use $var"
+	done
+	grep -q ': "${BOOT_TEXT_INSTALLING:=Installing...}"' "$script" ||
+		fail "$script lost the English fallback for BOOT_TEXT_INSTALLING"
+	if grep -nE 'TEXT:(Extracting|Installing|Updating)|--text="Installing' "$script" >/dev/null; then
+		fail "$script still hardcodes a boot string"
+	fi
+}
+check_boot_text "${BOOT_SCRIPTS[0]}" \
+	BOOT_TEXT_INSTALLING BOOT_TEXT_EXTRACTING BOOT_TEXT_INSTALLING_PAK \
+	BOOT_TEXT_UPDATING BOOT_TEXT_INSTALLING_NEXTUI
+check_boot_text "${BOOT_SCRIPTS[1]}" \
+	BOOT_TEXT_INSTALLING BOOT_TEXT_UPDATING BOOT_TEXT_INSTALLING_NEXTUI
+check_boot_text "${BOOT_SCRIPTS[2]}" \
+	BOOT_TEXT_INSTALLING BOOT_TEXT_UPDATING BOOT_TEXT_INSTALLING_NEXTUI
 
 # ------------------------------------------------------------ expectations ----
 EN_EXPECTED=$'Installing...\nExtracting\nInstalling\nUpdating NextUI\nInstalling NextUI'

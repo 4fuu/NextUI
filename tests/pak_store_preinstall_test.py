@@ -160,14 +160,21 @@ def test_makefile_ships_bluetooth_pak():
     ok("the base package ships the Bluetooth upgrade pak explicitly")
 
 
-def test_boot_unzip_path_kept():
-    # The generic boot path that extracts a user-dropped .pakz stays; only the
-    # preinstalled store download is gone.
-    path = os.path.join(REPO, "workspace", "tg5050", "install", "boot.sh")
-    if "pakz" not in read(path):
-        fail("the boot .pakz extraction path was lost", path)
+def test_boot_pakz_glob_closed():
+    # The boot installer must not glob *.pakz either, so a store pak cannot ride
+    # in behind the boot path the way it once rode in behind the base-package
+    # glob. Only the explicitly named tg5040 Bluetooth upgrade pak installs.
+    problems = []
+    for platform in ("tg5040", "tg5050", "h700"):
+        path = os.path.join(REPO, "workspace", platform, "install", "boot.sh")
+        body = "\n".join(line for line in read(path).splitlines()
+                         if line.strip() and not line.strip().startswith("#"))
+        if "*.pakz" in body or "PAKZ_PATH" in body or "for pakz" in body:
+            problems.append("%s install boot script still globs *.pakz" % platform)
+    if problems:
+        fail("no boot install script globs *.pakz", "; ".join(problems))
     else:
-        ok("the boot .pakz extraction path was kept")
+        ok("no boot install script globs *.pakz")
 
 
 def build_sandbox(work):
@@ -337,7 +344,7 @@ def main():
     test_makefile_has_no_download()
     test_makefile_ships_bluetooth_pak()
     test_launcher_has_no_store_special_case()
-    test_boot_unzip_path_kept()
+    test_boot_pakz_glob_closed()
     test_package_downloads_nothing()
     if FAIL:
         print("%d check(s) failed" % FAIL, file=sys.stderr)

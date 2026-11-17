@@ -2,9 +2,10 @@
 # NOTE: becomes .tmp_update/h700.sh
 
 PLATFORM="h700"
-SDCARD_PATH="/mnt/SDCARD"
+# BOOT_TEST_SDCARD lets a host test point the install at a throwaway root; on the
+# device it is unset and the real card is used, exactly as before.
+SDCARD_PATH="${BOOT_TEST_SDCARD:-/mnt/SDCARD}"
 UPDATE_PATH="$SDCARD_PATH/MinUI.zip"
-PAKZ_PATH="$SDCARD_PATH/*.pakz"
 SYSTEM_PATH="$SDCARD_PATH/.system"
 USERDATA_PATH="$SDCARD_PATH/.userdata/$PLATFORM"
 LOGS_PATH="$USERDATA_PATH/logs"
@@ -26,8 +27,6 @@ if [ -f "$SCRIPT_DIR/boot_strings.sh" ]; then
 	. "$SCRIPT_DIR/boot_strings.sh"
 fi
 : "${BOOT_TEXT_INSTALLING:=Installing...}"
-: "${BOOT_TEXT_EXTRACTING:=Extracting}"
-: "${BOOT_TEXT_INSTALLING_PAK:=Installing}"
 : "${BOOT_TEXT_UPDATING:=Updating NextUI}"
 : "${BOOT_TEXT_INSTALLING_NEXTUI:=Installing NextUI}"
 
@@ -61,29 +60,6 @@ elif [ -e "$SDCARD_PATH/.nextupd-txn" ] || [ -L "$SDCARD_PATH/.nextupd-txn" ]; t
 	exit 1
 fi
 
-# generic NextUI package install
-for pakz in $PAKZ_PATH; do
-	if [ ! -e "$pakz" ]; then continue; fi
-	echo "TEXT:$BOOT_TEXT_EXTRACTING $pakz" > /tmp/show2.fifo 2>/dev/null || true
-	shim_log "extracting $pakz"
-	./unzip -o -d "$SDCARD_PATH" "$pakz" >> "$INSTALL_LOG" 2>&1
-	unzip_status=$?
-	shim_log "extracting $pakz exited $unzip_status"
-	[ "$unzip_status" = "0" ] || exit "$unzip_status"
-	rm -f "$pakz"
-
-	# run postinstall if present
-	if [ -f "$SDCARD_PATH/post_install.sh" ]; then
-		echo "TEXT:$BOOT_TEXT_INSTALLING_PAK $pakz" > /tmp/show2.fifo 2>/dev/null || true
-		shim_log "running post_install.sh for $pakz"
-		sh "$SDCARD_PATH/post_install.sh" >> "$INSTALL_LOG" 2>&1
-		post_status=$?
-		shim_log "post_install.sh exited $post_status"
-		[ "$post_status" = "0" ] || exit "$post_status"
-		rm -f "$SDCARD_PATH/post_install.sh"
-	fi
-done
-
 # install/update
 if [ -f "$UPDATE_PATH" ]; then
 	if [ -d "$SYSTEM_PATH/$PLATFORM" ]; then
@@ -105,7 +81,7 @@ if [ -f "$UPDATE_PATH" ]; then
 	rm -f "$UPDATE_PATH"
 fi
 
-# the installed system finishes setup (also needed after standalone pakz installs)
+# the installed system finishes setup after the MinUI.zip install
 if [ -x "$SYSTEM_PATH/$PLATFORM/bin/install.sh" ]; then
 	shim_log "running platform install.sh"
 	"$SYSTEM_PATH/$PLATFORM/bin/install.sh" >> "$INSTALL_LOG" 2>&1

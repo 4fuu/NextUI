@@ -647,6 +647,34 @@ cover no transaction, every crash phase, repeat recovery, missing/corrupt tool,
 corrupt record, missing/corrupt backup, and the ambiguous live tree. They do not
 prove real-device boot or power-cut behavior.
 
+## Boot install path
+
+The install boot scripts no longer treat the card as an unsigned install
+surface. The old path unzipped any `*.pakz` dropped at the card root and ran
+its `post_install.sh`, which made boot an arbitrary app-install entry; that
+glob is gone from every platform.
+
+What the boot installer still does:
+
+- Installs or updates the whole system from the bootstrap `MinUI.zip`: the
+  first install onto a stock or empty card, and the documented way to restore a
+  missing live `.tmp_update` payload. Unchanged.
+- On tg5040 only, extracts the one device-compat pak the base package ships,
+  named explicitly as `nextui.upgrade_bluez.tg5040.pakz`, and runs its
+  `post_install.sh` to upgrade BlueZ. No other `.pakz` is read; a dropped
+  `evil.pakz` is neither extracted, executed, nor removed.
+
+App installs and updates go through the signed nextupd transaction and the
+"Install from file" page, never through boot. The h700 boot shim likewise runs
+its installer only for `MinUI.zip`, not for a pakz alone.
+
+The host test `tests/run_boot_install_path_test.sh` proves this against
+throwaway roots and a python `unzip` shim, with the scripts reading the
+`BOOT_TEST_SDCARD` override (unset on the device, so the real card is used
+exactly as before): a rogue `.pakz` does not install, the tg5040 Bluetooth pak
+still installs, a `MinUI.zip` first install still launches, and no pak installs
+on tg5050. It does not exercise a real device or power-cut.
+
 ## Exit codes
 
 | Code | Meaning |
