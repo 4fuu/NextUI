@@ -18,6 +18,7 @@ import glob
 import http.server
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -188,9 +189,10 @@ def main():
               in text,
               "the prepare job does not expose latest-tag, so the feed cannot "
               "merge the previous release")
-        check("the release tag comes from the normalized step",
-              "next-tag: ${{ steps.release-tag.outputs.version }}" in text,
-              "the tag is not the normalized vX.Y.Z form")
+        check("the release tag comes from the validated VERSION step",
+              "next-tag: ${{ steps.release-tag.outputs.version }}" in text
+              and "Validate Release Version" in text,
+              "the tag is not the validated VERSION form")
 
         # The first release has no tags: `git describe` would fail the job, so
         # the no-tag case is explicit and the first version comes from the
@@ -200,28 +202,57 @@ def main():
               latest is not None and "grep -q ." in latest
               and "GIT_LATEST_TAG=" in latest,
               "the no-tag case is not handled")
-        check("the first release tag comes from the version source",
-              "First Release Tag" in text
-              and "v$(tr -d ' \\t\\r\\n' < VERSION)" in text,
-              "the first release does not derive its version from VERSION")
-        check("the bump runs only when a previous tag exists",
-              "if: steps.latest-tag.outputs.GIT_LATEST_TAG != ''" in text
-              and "if: steps.latest-tag.outputs.GIT_LATEST_TAG == ''" in text,
-              "the bump and first-release steps are not mutually exclusive")
-        check("the computed tag is normalized to vX.Y.Z",
-              "Normalize the Tag" in text and 'tag="v$tag"' in text,
-              "the tag is not normalized to the vX.Y.Z form")
-        # The first-release tag must satisfy the prepare script's contract.
+
+        # CalVer (4fuu/uri-agent): VERSION holds YYYY.MDD.REVISION, bumped
+        # deliberately before the release; the workflow only validates it.
+        validate = step_run_block(text, "Validate Release Version")
+        check("the version comes from the VERSION file",
+              validate is not None and "< VERSION" in validate,
+              "the release version is not read from VERSION")
+        check("no semver bump remains",
+              "semver-generator" not in text and "release_type" not in text,
+              "the workflow still auto-bumps a semver instead of validating "
+              "the CalVer in VERSION")
+        check("the version must match the CalVer shape",
+              validate is not None
+              and "^[0-9]{4}\\.[0-9]{3,4}\\.[0-9]+$" in validate,
+              "the YYYY.MDD.REVISION shape is not enforced")
+        check("the version prefix must match today's Asia/Hong_Kong date",
+              validate is not None
+              and "TZ=Asia/Hong_Kong date '+%Y.%-m%d'" in validate
+              and '"$VERSION" == "$EXPECTED_PREFIX".*' in validate,
+              "a stale VERSION date would release under the wrong day")
+        check("releases run from main only",
+              validate is not None
+              and '"$GITHUB_REF" == "refs/heads/main"' in validate,
+              "a release could run from a non-main ref")
+        check("an existing tag must point at this commit (resumable)",
+              validate is not None
+              and 'git rev-list -n 1 "v$VERSION"' in validate
+              and '"$tag_sha" == "$GITHUB_SHA"' in validate,
+              "a failed release cannot be resumed safely")
+        tag_step = step_run_block(text, "Create and Push Tag")
+        check("the tag step is resume-safe and refuses to move a tag",
+              tag_step is not None
+              and 'refs/tags/$GIT_NEXT_TAG' in tag_step
+              and "refusing to move it" in tag_step,
+              "re-running a release would fail on the existing tag or move it")
         with open(os.path.join(REPO, "VERSION"), "r", encoding="ascii") as handle:
-            first_tag = "v" + handle.read().strip()
+            bare_version = handle.read().strip()
+        check("the VERSION file itself is CalVer",
+              re.fullmatch(r"[0-9]{4}\.[0-9]{3,4}\.[0-9]+", bare_version)
+              is not None,
+              f"VERSION '{bare_version}' is not YYYY.MDD.REVISION")
+        # The VERSION tag must satisfy the prepare script's contract.
+        first_tag = "v" + bare_version
         proc = subprocess.run(
             [os.path.join(REPO, "scripts", "prepare-release-update-assets.sh"),
              "--version", first_tag, "--base-url", "https://example.invalid/x",
              "--platforms", "magicx"],
             capture_output=True, text=True)
-        check("the first-release tag satisfies the manifest contract",
+        check("the VERSION tag satisfies the manifest contract",
               "must be vX.Y.Z" not in proc.stdout + proc.stderr,
-              f"the first-release tag was refused: {proc.stderr.strip()[:200]}")
+              f"the VERSION tag was refused: {proc.stderr.strip()[:200]}")
 
         # The signing-key path is removed, not merely optional.
         check("the signing-key guard is gone",

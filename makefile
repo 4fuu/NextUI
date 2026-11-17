@@ -36,11 +36,13 @@ RELEASE_NAME ?= $(RELEASE_BASE)-$(RELEASE_DOT)
 
 # Authoritative project version: the single source of truth. The bootstrap
 # (`make package`) and the transactional update (`make update-package`) both
-# write this vX.Y.Z into .system/version.txt, so the artifacts and the installed
-# version never disagree and nextupd can parse the target version. The date
-# (RELEASE_TIME) is a build identifier only -- it stays in the release file
-# name -- not the version. Bump the VERSION file deliberately for a release; it
-# is not derived from the date.
+# write this vYYYY.MDD.REVISION into .system/version.txt, so the artifacts and
+# the installed version never disagree and nextupd can parse the target
+# version. CalVer following 4fuu/uri-agent: year, month without a leading zero
+# + two-digit day, same-day revision starting at 0. The build date
+# (RELEASE_TIME) stays a build identifier in the release file name. Bump
+# VERSION deliberately to the release day's date before dispatching a release;
+# the release workflow validates the prefix against that day (Asia/Hong_Kong).
 PROJECT_VERSION := $(shell cat VERSION 2>/dev/null || true)
 
 # No vendored packages are downloaded or preinstalled. The build ships only what

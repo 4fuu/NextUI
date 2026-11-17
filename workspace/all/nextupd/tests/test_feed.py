@@ -550,6 +550,42 @@ def main():
         check_feed("system too old", f"{BASE_URL}/feed.json", 4, "system_too_old",
                    system_version="v5.0.0")
 
+        # CalVer release tags (YYYY.MDD.REVISION, following 4fuu/uri-agent)
+        # are numeric semver triples: the client must parse them, order them
+        # across days/months/years and same-day revisions, and upgrade a
+        # legacy semver system onto them.
+        calver_sep = build_package("v2026.928.0", "v6.16.0",
+                                   os.path.join(WORK, "pkg-calver-sep"), key_der)
+        calver_day0 = build_package("v2026.1117.0", "v6.16.0",
+                                    os.path.join(WORK, "pkg-calver-day0"), key_der)
+        calver_day1 = build_package("v2026.1117.1", "v6.16.0",
+                                    os.path.join(WORK, "pkg-calver-day1"), key_der)
+        for package in (calver_sep, calver_day0, calver_day1):
+            copy_assets(package)
+        write_feed(os.path.join(WWW, "feed-calver.json"), [
+            feed_entry(calver_sep, *asset_paths(calver_sep)),
+            feed_entry(calver_day0, *asset_paths(calver_day0)),
+            feed_entry(calver_day1, *asset_paths(calver_day1)),
+        ])
+        proc = run(["feed", "--feed", f"{BASE_URL}/feed-calver.json", "--platform",
+                    PLATFORM, "--system-version", "v6.16.0", "--trusted-key",
+                    FIXTURE_PUB, "--json"])
+        body = expect_json("legacy semver system upgrades to CalVer", proc)
+        if body is not None and body.get("version") != "v2026.1117.1":
+            fail("CalVer selection across months and revisions", body, proc)
+        proc = run(["feed", "--feed", f"{BASE_URL}/feed-calver.json", "--platform",
+                    PLATFORM, "--system-version", "v2026.1117.0", "--trusted-key",
+                    FIXTURE_PUB, "--json"])
+        body = expect_json("same-day revision is an update", proc)
+        if body is not None and body.get("version") != "v2026.1117.1":
+            fail("same-day CalVer revision selection", body, proc)
+        proc = run(["feed", "--feed", f"{BASE_URL}/feed-calver.json", "--platform",
+                    PLATFORM, "--system-version", "v2026.1117.1", "--trusted-key",
+                    FIXTURE_PUB, "--json"])
+        body = expect_json("newest CalVer is up to date", proc)
+        if body is not None and body.get("result") != "up_to_date":
+            fail("CalVer up_to_date result", body, proc)
+
         # Feed schema errors.
         write_feed(os.path.join(WWW, "feed-bad-platform.json"),
                    [feed_entry(current, *asset_paths(current), platform="nope")])

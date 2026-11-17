@@ -58,8 +58,9 @@ One `nextui-update-v1` manifest describes one package:
   cannot be `universal`. A system archive is a `.zip` (the current `MinUI.zip`).
 - An app id is a safe application identifier; its archive is `.pakz` or `.zip`;
   its platform may be `universal`.
-- `version` and `min_system` are strict `vMAJOR.MINOR.PATCH` values, matching
-  the plan's semver release tags.
+- `version` and `min_system` are strict `vMAJOR.MINOR.PATCH` values. Release
+  tags use CalVer in that shape (`vYYYY.MDD.REVISION`, e.g. `v2026.1117.0`);
+  the numeric comparison orders them correctly across days and years.
 - `archive.name` must equal the package file name. Renaming a package without
   re-signing the manifest is rejected.
 - `files` lists every regular file in the archive, sorted by path, with its
