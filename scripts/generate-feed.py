@@ -1,29 +1,27 @@
 #!/usr/bin/env python3
 """Build a nextui-feed-v1 update feed from published package sets.
 
-A package set is what scripts/package-update.sh publishes: the archive, its
-nextui-update-v1 manifest, and the detached Ed25519 signature, all named after
-the archive. This tool reads those published files and writes the routing
-document `nextupd feed` and `nextupd fetch` consume.
+A package set is what scripts/package-update.sh publishes: the archive and its
+nextui-update-v1 manifest, optionally with a detached Ed25519 signature, all
+named after the archive. This tool reads those published files and writes the
+routing document `nextupd feed` and `nextupd fetch` consume.
 
 The feed is routing metadata, not a trust anchor, and this tool keeps it that
 way:
 
-  - every entry field comes from the signed manifest, never from a second
-    source, so version, platform, min_system, archive name, size and SHA-256
-    cannot disagree with what the signature covers
+  - every entry field comes from the manifest, never from a second source, so
+    version, platform, min_system, archive name, size and SHA-256 cannot
+    disagree with it
   - the archive bytes are hashed here and must match the manifest, so the feed
     never advertises a file the release does not actually contain
-  - the signature sidecar must exist; verifying it is the client's job with the
-    trusted key, because this tool never sees a private or public key
+  - a signature sidecar is optional. When one is published, its URL is recorded
+    for clients that were built with a trusted key; this tool never sees a
+    private key
   - with --nextupd the real verifier also walks every archive
     (`check --integrity-only`), so an archive that cannot install never reaches
-    a feed. That check is archive/manifest/content consistency, not
-    authenticity: a present-but-garbage signature passes it. Adding
-    --public-key upgrades the same run to `check --signature --trusted-key`,
-    which refuses a set whose signature does not verify against the committed
-    sidecar; that needs no private key, and it is what the release procedure
-    uses so authenticity is proven before the feed is written
+    a feed. Adding --public-key upgrades the same run to
+    `check --signature --trusted-key`, which refuses a set whose signature does
+    not verify against the committed sidecar; that needs no private key
 
 URLs are the release's asset addresses: --base-url is the release's download
 prefix (for this repository's GitHub Releases,
@@ -70,6 +68,8 @@ FORBIDDEN_NAME_BYTES = ("\\", ":", "*", "?", '"', "<", ">", "|")
 ENTRY_FIELDS = ("platform", "version", "min_system", "manifest_url",
                 "signature_url", "archive_url", "archive_name",
                 "archive_size", "archive_sha256")
+REQUIRED_ENTRY_FIELDS = tuple(field for field in ENTRY_FIELDS
+                              if field != "signature_url")
 
 
 def fail(message):
@@ -240,11 +240,8 @@ def collect_sets(set_dirs):
             manifest_path = os.path.join(directory, name)
             info = read_manifest(manifest_path)
             signature_path = manifest_path[:-len(MANIFEST_SUFFIX)] + SIGNATURE_SUFFIX
-            if not os.path.isfile(signature_path):
-                raise ValueError("%s has no signature sidecar %s; a feed entry "
-                                 "must point at a signed manifest"
-                                 % (manifest_path, os.path.basename(signature_path)))
-            info["signature_path"] = signature_path
+            if os.path.isfile(signature_path):
+                info["signature_path"] = signature_path
             archive_path = os.path.join(directory, info["archive_name"])
             if not os.path.isfile(archive_path):
                 raise ValueError("manifest %s names archive %s, which is not "
@@ -286,6 +283,9 @@ def verify_with_nextupd(binary, info, public_key):
                "--platform", info["platform"],
                "--expected-kind", "system"]
     if public_key is not None:
+        if "signature_path" not in info:
+            raise ValueError("%s has no signature sidecar for --public-key"
+                             % info["path"])
         command += ["--signature", info["signature_path"],
                     "--trusted-key", public_key]
     else:
@@ -313,14 +313,19 @@ def build_entry(info, base_url):
         "version": info["version"],
         "min_system": info["min_system"],
         "manifest_url": join_url(base_url, os.path.basename(info["path"])),
-        "signature_url": join_url(base_url,
-                                  os.path.basename(info["signature_path"])),
+    }
+    if "signature_path" in info:
+        entry["signature_url"] = join_url(base_url,
+                                          os.path.basename(info["signature_path"]))
+    entry.update({
         "archive_url": join_url(base_url, info["archive_name"]),
         "archive_name": info["archive_name"],
         "archive_size": info["archive_size"],
         "archive_sha256": info["archive_sha256"],
-    }
-    for field in ("manifest_url", "signature_url", "archive_url"):
+    })
+    for field in ("manifest_url", "archive_url", "signature_url"):
+        if field not in entry:
+            continue
         problem = validate_url(entry[field], field)
         if problem is not None:
             raise ValueError("%s (set %s)" % (problem, info["path"]))
@@ -364,14 +369,15 @@ def validate_previous_entry(entry, index, location):
     where = "%s entry %d" % (location, index)
     if not isinstance(entry, dict):
         raise ValueError("%s is not an object" % where)
-    missing = [field for field in ENTRY_FIELDS if field not in entry]
+    missing = [field for field in REQUIRED_ENTRY_FIELDS if field not in entry]
     if missing:
         raise ValueError("%s is missing %s" % (where, ", ".join(missing)))
     for field in ("platform", "version", "min_system", "manifest_url",
-                  "signature_url", "archive_url", "archive_name",
-                  "archive_sha256"):
+                  "archive_url", "archive_name", "archive_sha256"):
         if not isinstance(entry[field], str):
             raise ValueError("%s %s must be a string" % (where, field))
+    if "signature_url" in entry and not isinstance(entry["signature_url"], str):
+        raise ValueError("%s signature_url must be a string" % where)
     if entry["platform"] not in KNOWN_PLATFORMS:
         raise ValueError("%s has unknown platform '%s'"
                          % (where, entry["platform"]))
@@ -390,13 +396,15 @@ def validate_previous_entry(entry, index, location):
                          "limit" % (where, MAX_ARCHIVE_BYTES))
     if not is_sha256_hex(entry["archive_sha256"]):
         raise ValueError("%s archive sha256 must be 64 hex digits" % where)
-    for field in ("manifest_url", "signature_url", "archive_url"):
-        problem = validate_url(entry[field], "%s %s" % (where, field))
-        if problem is not None:
-            raise ValueError(problem)
+    for field in ("manifest_url", "archive_url", "signature_url"):
+        if field in entry:
+            problem = validate_url(entry[field], "%s %s" % (where, field))
+            if problem is not None:
+                raise ValueError(problem)
     # The client rejects unknown entry fields, so a previous row is rebuilt
-    # from the nine known fields rather than copied through.
-    return {field: entry[field] for field in ENTRY_FIELDS}
+    # from the known fields rather than copied through. signature_url stays
+    # optional so an integrity-only feed round-trips unchanged.
+    return {field: entry[field] for field in ENTRY_FIELDS if field in entry}
 
 
 def load_previous(location):
@@ -457,7 +465,7 @@ def main():
                              "check is integrity-only (archive, manifest and "
                              "file consistency, not authenticity)")
     parser.add_argument("--public-key", metavar="FILE",
-                        help="the committed nextui-public-key-v1 sidecar; with "
+                        help="optional nextui-public-key-v1 sidecar; with "
                              "--nextupd, every set's detached signature is "
                              "verified against it, so a set that does not "
                              "verify is refused. Needs no private key")

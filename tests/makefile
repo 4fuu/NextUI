@@ -126,9 +126,9 @@ test: test-generate-feed
 test-generate-feed:
 	./run_generate_feed_test.sh
 
-# Release workflow wiring: the release.yaml update-source step, its fail-closed
-# signing-key check, and the wired command executed with the test-only key over
-# a synthetic tree. No release is created and no production key is involved.
+# Release workflow wiring: the release.yaml update-source step and the wired
+# command executed over a synthetic tree, with no signing key. No release is
+# created.
 # Declared on its own lines rather than added to the .PHONY and test lists
 # above, so this hunk never collides with another thread editing those lines.
 .PHONY: test-release-workflow
@@ -137,9 +137,20 @@ test: test-release-workflow
 test-release-workflow:
 	./run_release_workflow_test.sh
 
+# Host-side ADB installer: host SHA-256 verification, local/URL package and
+# manifest discovery, and the device stage/install command shape, all against
+# a fake adb executable. No device is touched.
+# Declared on its own lines rather than added to the .PHONY and test lists
+# above, so this hunk never collides with another thread editing those lines.
+.PHONY: test-adb-install
+test: test-adb-install
+
+test-adb-install:
+	./run_adb_install_test.sh
+
 # Release-workflow preparation: the real script over a synthetic build tree,
 # then the real client path (feed, fetch, stage, install) against what it
-# wrote, plus the gates that fail closed without a production key or sidecar.
+# wrote, plus the non-signing gates that fail closed.
 # Declared on its own lines rather than added to the .PHONY and test lists
 # above, so this hunk never collides with another thread editing those lines.
 .PHONY: test-release-assets
@@ -205,8 +216,8 @@ test-settings:
 
 # System Update Controller regression. Builds the nextupd host tool and the
 # SDL-free Controller test, then drives check/download/install against isolated
-# temporary roots using the committed signed fixture and a local file feed.
-# Host-only: no device, no real root, no feed, no production key.
+# temporary roots using the committed fixture and local file feeds (signed and
+# integrity-only). Host-only: no device, no real root, no network, no key.
 test-sysupdate:
 	../workspace/all/settings/tests/run_sysupdate_test.sh
 	../workspace/all/settings/tests/run_sysupdate_menu_test.sh

@@ -22,7 +22,7 @@ Menu::Menu(const int &globalQuit, int &globalDirty, Controller &controller)
 
     checkItem = new MenuItem(
         ListItemType::Button, TR("Check for updates"),
-        TR("Look for a newer signed system update."), [this](AbstractMenuItem &) -> InputReactionHint {
+        TR("Look for a newer system update."), [this](AbstractMenuItem &) -> InputReactionHint {
             request("check", TR("Checking for updates..."));
             return InputReactionHint::NoOp;
         });

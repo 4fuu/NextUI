@@ -214,18 +214,6 @@ Result Controller::checkForUpdates()
 Result Controller::runFeed()
 {
     Result result;
-    if (config_.feed.empty())
-    {
-        result.state = State::Unconfigured;
-        result.reason = "feed_unconfigured";
-        return result;
-    }
-    if (config_.trusted_key.empty())
-    {
-        result.state = State::Unconfigured;
-        result.reason = "trusted_key_missing";
-        return result;
-    }
     std::string tool;
     if (!resolveTool(tool))
     {
@@ -234,19 +222,22 @@ Result Controller::runFeed()
         return result;
     }
 
+    // nextupd defaults to the official feed. Only pass --feed when this build
+    // was explicitly configured (NEXTUI_UPDATE_FEED); a trusted key is
+    // optional and turns on signature verification.
     std::vector<std::string> argv = {tool,
                                      "feed",
-                                     "--feed",
-                                     config_.feed,
                                      "--platform",
                                      config_.platform,
                                      "--system-version",
                                      config_.system_version,
-                                     "--trusted-key",
-                                     config_.trusted_key,
                                      "--timeout",
                                      std::to_string(config_.timeout_seconds),
                                      "--json"};
+    if (!config_.feed.empty())
+        argv.insert(argv.end() - 1, {"--feed", config_.feed});
+    if (!config_.trusted_key.empty())
+        argv.insert(argv.end() - 1, {"--trusted-key", config_.trusted_key});
     std::string out;
     int code = runTool(argv, out);
     return interpret(out, code);
@@ -264,18 +255,6 @@ Result Controller::downloadToStaging()
 Result Controller::runFetch()
 {
     Result result;
-    if (config_.feed.empty())
-    {
-        result.state = State::Unconfigured;
-        result.reason = "feed_unconfigured";
-        return result;
-    }
-    if (config_.trusted_key.empty())
-    {
-        result.state = State::Unconfigured;
-        result.reason = "trusted_key_missing";
-        return result;
-    }
     std::string tool;
     if (!resolveTool(tool))
     {
@@ -286,19 +265,19 @@ Result Controller::runFetch()
 
     std::vector<std::string> argv = {tool,
                                      "fetch",
-                                     "--feed",
-                                     config_.feed,
                                      "--platform",
                                      config_.platform,
                                      "--system-version",
                                      config_.system_version,
-                                     "--trusted-key",
-                                     config_.trusted_key,
                                      "--staging-root",
                                      config_.staging_root,
                                      "--timeout",
                                      std::to_string(config_.timeout_seconds),
                                      "--json"};
+    if (!config_.feed.empty())
+        argv.insert(argv.end() - 1, {"--feed", config_.feed});
+    if (!config_.trusted_key.empty())
+        argv.insert(argv.end() - 1, {"--trusted-key", config_.trusted_key});
     std::string out;
     int code = runTool(argv, out);
     return interpret(out, code);
@@ -322,12 +301,6 @@ Result Controller::runInstall()
         result.reason = "nothing_staged";
         return result;
     }
-    if (config_.trusted_key.empty())
-    {
-        result.state = State::Unconfigured;
-        result.reason = "trusted_key_missing";
-        return result;
-    }
     std::string tool;
     if (!resolveTool(tool))
     {
@@ -336,21 +309,22 @@ Result Controller::runInstall()
         return result;
     }
 
-    // install re-runs the full manifest/signature/hash check against the staged
-    // bytes before it writes anything, so this is the pre-install re-verification.
+    // install re-runs the full manifest/hash check against the staged bytes
+    // before it writes anything (and the signature when a key is configured),
+    // so this is the pre-install re-verification.
     std::vector<std::string> argv = {tool,
                                      "install",
                                      "--staged-dir",
                                      last_staged_dir_,
                                      "--target-root",
                                      config_.target_root,
-                                     "--trusted-key",
-                                     config_.trusted_key,
                                      "--platform",
                                      config_.platform,
                                      "--system-version",
                                      config_.system_version,
                                      "--json"};
+    if (!config_.trusted_key.empty())
+        argv.insert(argv.end() - 1, {"--trusted-key", config_.trusted_key});
     std::string out;
     int code = runTool(argv, out);
     return interpret(out, code);

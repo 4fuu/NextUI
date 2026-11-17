@@ -707,9 +707,9 @@ int upd_staged_load(const char* staged_dir, UpdStaged* staged, UpdError* error)
         {"archive_sha256", 0, archive_hex, sizeof archive_hex, 1, 0},
         {"manifest", 0, staged->manifest, sizeof staged->manifest, 1, 0},
         {"manifest_sha256", 0, manifest_hex, sizeof manifest_hex, 1, 0},
-        {"signature", 0, staged->signature, sizeof staged->signature, 1, 0},
+        {"signature", 0, staged->signature, sizeof staged->signature, 0, 0},
         {"signature_key_id", 0, staged->signature_key_id,
-         sizeof staged->signature_key_id, 1, 0},
+         sizeof staged->signature_key_id, 0, 0},
         {"staged_at", 1, &staged_at, 0, 1, 0},
     };
 
@@ -775,13 +775,23 @@ int upd_staged_load(const char* staged_dir, UpdStaged* staged, UpdError* error)
     }
     if (!upd_is_safe_filename(staged->archive, UPD_MAX_FILENAME)
         || strcmp(staged->manifest, STAGED_MANIFEST) != 0
-        || strcmp(staged->signature, STAGED_SIGNATURE) != 0)
+        || (staged->signature[0] != '\0'
+            && strcmp(staged->signature, STAGED_SIGNATURE) != 0))
     {
         upd_error_set(error, UPD_E_INVALID, "invalid_staged_layout",
                       "staged file names do not match the staging contract");
         goto failed;
     }
-    if (!upd_is_safe_key_id(staged->signature_key_id))
+    /* An integrity-only stage has no signature and no key id; a signed stage
+     * must carry both, so a half-written descriptor is refused. */
+    if ((staged->signature[0] == '\0') != (staged->signature_key_id[0] == '\0'))
+    {
+        upd_error_set(error, UPD_E_INVALID, "invalid_staged_layout",
+                      "staged signature and key id must agree");
+        goto failed;
+    }
+    if (staged->signature_key_id[0] != '\0'
+        && !upd_is_safe_key_id(staged->signature_key_id))
     {
         upd_error_set(error, UPD_E_INVALID, "invalid_key_id", "invalid signature key id");
         goto failed;
@@ -825,17 +835,27 @@ int upd_staged_verify(const char* staged_dir, const UpdStaged* staged,
         return 0;
     }
     if (strcmp(staged->manifest, STAGED_MANIFEST) != 0
-        || strcmp(staged->signature, STAGED_SIGNATURE) != 0)
+        || (staged->signature[0] != '\0'
+            && strcmp(staged->signature, STAGED_SIGNATURE) != 0))
     {
         upd_error_set(error, UPD_E_INVALID, "invalid_staged_layout",
                       "staged.json names unexpected metadata files");
         return 0;
     }
-    if (key_id != NULL && strcmp(staged->signature_key_id, key_id) != 0)
+    if (key_id != NULL)
     {
-        upd_error_set(error, UPD_E_SIGNATURE, "signature_key_mismatch",
-                      "staged key id does not match the verified signature");
-        return 0;
+        if (staged->signature[0] == '\0' || staged->signature_key_id[0] == '\0')
+        {
+            upd_error_set(error, UPD_E_SIGNATURE, "signature_missing",
+                          "staged package has no signature for the trusted key");
+            return 0;
+        }
+        if (strcmp(staged->signature_key_id, key_id) != 0)
+        {
+            upd_error_set(error, UPD_E_SIGNATURE, "signature_key_mismatch",
+                          "staged key id does not match the verified signature");
+            return 0;
+        }
     }
     if (!join_path(path, sizeof path, staged_dir, STAGED_MANIFEST, error)) return 0;
     if (!upd_hash_file(path, digest, &size, UPD_MAX_MANIFEST_BYTES, error)) return 0;

@@ -117,16 +117,14 @@ void Menu::rebuildRows()
     layout_called = true;
 }
 
-// The idle status: an unconfigured key outranks an empty folder, because nothing
-// can be verified either way.
+// The idle status: a package is offered when the folder holds one that the
+// controller can verify (integrity by default, signature when a key is set).
 std::string Menu::idleStatus()
 {
-    if (controller.config().trusted_key.empty())
-        return TR("No trusted key is configured.");
     for (const Package& package : controller.listPackages())
         if (package.usable)
-            return TR("Choose a signed package to install.");
-    return TR("No signed package found.");
+            return TR("Choose a package to install.");
+    return TR("No package found.");
 }
 
 void Menu::request(const std::string &op, const std::string &busyMessage)
@@ -252,7 +250,7 @@ std::string Menu::describe(const Result &result) const
     case State::Busy:
         return TR("Another operation is in progress.");
     case State::NoPackages:
-        return TR("No signed package found.");
+        return TR("No package found.");
     case State::Failed:
     default:
         if (result.reason == "platform_mismatch" || result.reason == "invalid_platform" ||
@@ -280,7 +278,7 @@ std::string Menu::describePackage(const Package &package)
         return packageReason(package.reason);
     if (!package.app_id.empty() || !package.version.empty())
         return package.app_id + " " + package.version;
-    return TR("Signed app package");
+    return TR("App package");
 }
 
 std::string Menu::packageReason(const std::string &reason)

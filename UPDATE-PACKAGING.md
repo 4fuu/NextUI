@@ -7,10 +7,11 @@ verifier-side contract (manifest schema, staging, transaction states, the
 `.tmp_update` lifecycle) lives in [`UPDATES.md`](UPDATES.md); this page covers
 producing and checking the package.
 
-There is no production release source and no production signing key in this
-repository. Everything below works with a test root and the committed test-only
-key; publishing a real release is an owner decision and is not implemented
-here.
+The official release source is this repository's GitHub Releases. Its manifests
+are unsigned and verified by SHA-256 integrity; the packaging script can still
+produce an optional detached signature when `UPDATE_KEY`/`UPDATE_KEY_ID` are
+supplied. Everything below works with a test root and the committed test-only
+key for that optional mode; publishing a real release is an owner action.
 
 ## Two artifacts, one build tree
 
@@ -41,8 +42,9 @@ The target builds the host `nextupd` binary and runs
 
 - `nextui-system-<platform>.zip` — the archive
 - `nextui-system-<platform>.manifest.json` — the `nextui-update-v1` manifest
-- `nextui-system-<platform>.manifest.sig` — the detached Ed25519 signature,
-  only when `UPDATE_KEY`/`UPDATE_KEY_ID` are supplied
+- `nextui-system-<platform>.manifest.sig` — an optional detached Ed25519
+  signature, only when `UPDATE_KEY`/`UPDATE_KEY_ID` are supplied; the official
+  release path supplies neither and publishes unsigned manifests
 - `nextui-system-<platform>.manifest.set` — the commit marker recording the set
   (see [Atomic output](#atomic-output))
 
@@ -60,9 +62,8 @@ Inputs, all overridable through the matching `UPDATE_*` variables:
 | `UPDATE_BOOT_DIR` | `build/BOOT/.tmp_update` | the `.tmp_update` content, used unless `UPDATE_BOOT=0` |
 | `UPDATE_KEY`, `UPDATE_KEY_ID` | — | sign here; otherwise the manifest is left unsigned for the owner |
 
-The default is the **full archive**: `.system/<platform>/` plus the signed
-`.tmp_update` boot payload, which installs now that main carries the updater's
-signed boot-payload support. `UPDATE_BOOT=0` produces a system-only archive,
+The default is the **full archive**: `.system/<platform>/` plus the
+manifest-covered `.tmp_update` boot payload. `UPDATE_BOOT=0` produces a system-only archive,
 which updates `.system` and leaves the live `.tmp_update` payload untouched;
 a missing boot payload with `UPDATE_BOOT=1` fails instead of falling back.
 
@@ -211,8 +212,9 @@ of the 68 shared `.system/res` files with its SHA-256 against
 `tests/verify_update_package_negative_test.py` then injects a missing boot tool,
 a 0644 boot tool, a missing and a changed resource, a wrong layout, a missing
 launcher and a `Tools/` root into copies of that archive and requires the check
-to reject each one. The archive is unsigned and publishes nothing; the release
-source, feed configuration and production signing key stay owner decisions.
+to reject each one. The archive is unsigned and publishes nothing; publishing a
+real release remains an owner action, while the client's feed and integrity
+defaults are built in.
 Nothing here installs to a device.
 
 ## Not included

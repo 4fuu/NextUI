@@ -18,22 +18,21 @@ and records the boot phases in a separate `.nextupd-txn/boot.json`. A package
 without `.tmp_update/` keeps the old behavior: it updates `.system` only and
 leaves the boot payload untouched.
 
-The update feed is not configured by default. There is no built-in release
-source and no production signing key in this repository, so `feed` and `fetch`
-report `feed_unconfigured` until a caller supplies `--feed` or
-`NEXTUI_UPDATE_FEED` and a real trusted key is provisioned by the owner. The
-test feed and test signing seed are for protocol tests only. The install UI,
-real release publication, and production key custody remain separate tasks.
+The official update feed is built in:
+`https://github.com/4fuu/NextUI/releases/latest/download/nextui-feed.json`.
+`--feed` and `NEXTUI_UPDATE_FEED` override it. Integrity (SHA-256) is the
+default trust mode and requires no key; the test signing seed is used only for
+the optional signature mode. Real release publication remains a separate task.
 
 The code lives in `workspace/all/nextupd/`. Host tests cover the manifest,
 signature, ZIP, corrupt-package, path/link, disk-space, interruption,
 transaction-phase crash, re-entry, rollback, backup-corruption, feed parsing,
 feed compatibility selection, download truncation/timeout, staged-package
-reuse, and signed boot-payload synchronization cases.
+reuse, and manifest-covered boot-payload synchronization cases.
 
 ## Package identity
 
-One signed `nextui-update-v1` manifest describes one package:
+One `nextui-update-v1` manifest describes one package:
 
 ```json
 {
@@ -67,7 +66,7 @@ One signed `nextui-update-v1` manifest describes one package:
   uncompressed size and SHA-256. Directories are accepted only when they are a
   prefix of a listed file. Extra files and unlisted directories are rejected.
 - The same format family covers system zips and application pakz.
-- A system package may include `.tmp_update/` in the same signed manifest. When
+- A system package may include `.tmp_update/` in the same manifest. When
   it does, the subtree must provide the recovery contract:
   `.tmp_update/updater`, `.tmp_update/nextupd-recover.sh`,
   `.tmp_update/<platform>.sh`, and `.tmp_update/<platform>/nextupd.elf`. The
@@ -96,7 +95,7 @@ One signed `nextui-update-v1` manifest describes one package:
 - A package for another platform, or below `min_system` when a current system
   version is supplied.
 - An incomplete boot payload, a boot tool or boot script without an executable
-  mode, a signed `.tmp_update/.nextupd-boot.json`, or a `.tmp_update/staging/`
+  mode, a manifest-covered `.tmp_update/.nextupd-boot.json`, or a `.tmp_update/staging/`
   path. A `.tmp_update/` subtree is all-or-nothing; a partial one is rejected
   before the installer writes anything.
 - An invalid or missing signature when verification is required.
@@ -127,17 +126,24 @@ nextui-public-key-v1
 <base64 raw 32-byte Ed25519 public key>
 ```
 
-Signatures cover the exact manifest bytes, so reformatting a manifest
-invalidates it. The signing helper is
+Integrity is the default: the manifest pins the archive name, size and SHA-256,
+and every file in the archive has its own SHA-256. These checks are
+fail-closed, including platform/kind/min_system binding and ZIP path safety.
+
+A detached Ed25519 signature remains supported but is opt-in. It is verified
+only when a trusted key is supplied (`--trusted-key` or
+`NEXTUI_UPDATE_TRUSTED_KEY`); then the signature is mandatory and its key id
+must match. Signatures cover the exact manifest bytes, so reformatting a
+manifest invalidates a signature. The signing helper is
 `workspace/all/nextupd/scripts/sign-manifest.sh`; it invokes OpenSSL on a
 release host and does not create or store keys. No production key is present in
-this repository. The committed test seed and fixture are for protocol tests
-only. A missing production key blocks release signing, not this implementation.
-`nextupd` never calls SHA-256 a substitute for a signature.
+this repository. The official release path is unsigned.
 
-`check` fails closed when neither a signature nor `--integrity-only` is given.
-`stage` has no integrity-only mode and always requires a signature and trusted
-key. `--integrity-only` prints an explicit unverified-authenticity warning.
+`check` succeeds without a signature and prints an explicit
+unverified-authenticity warning. `stage` and `install` likewise accept an
+unsigned manifest; with a trusted key they require the signature and fail
+closed without it. `--integrity-only` is accepted for compatibility and is now
+the default.
 
 ## Commands
 
@@ -157,7 +163,7 @@ workspace/all/nextupd/build/desktop/nextupd.elf manifest \
   --out MinUI.manifest.json
 ```
 
-Sign it on a trusted release host:
+Optionally sign it on a trusted release host (not part of the official path):
 
 ```sh
 workspace/all/nextupd/scripts/sign-manifest.sh \
@@ -168,15 +174,16 @@ Check without writing anything:
 
 ```sh
 nextupd check --package MinUI.zip --manifest MinUI.manifest.json \
-  --signature MinUI.manifest.sig --trusted-key nextui-release.pub \
   --platform tg5040 --system-version v6.16.0
 ```
+
+Add `--signature MinUI.manifest.sig --trusted-key nextui-release.pub` to
+require the optional signature.
 
 Stage verified bytes:
 
 ```sh
 nextupd stage --package MinUI.zip --manifest MinUI.manifest.json \
-  --signature MinUI.manifest.sig --trusted-key nextui-release.pub \
   --platform tg5040 --staging-root "$SDCARD_PATH/.tmp_update/staging"
 ```
 
@@ -188,14 +195,15 @@ Staging layout:
   nextui.system.tg5040-v6.16.0-tg5040/
     MinUI.zip
     manifest.json
-    manifest.sig
+    manifest.sig         # only when staged with a trusted key
     staged.json          # written last, after every other file is fsynced
 ```
 
 `staged.json` is an advisory descriptor. It is not signed, so `install` re-runs
-the full check against the staged archive, manifest, signature, and trusted key,
-then cross-checks every descriptor field and both descriptor hashes against that
-verified manifest. A modified descriptor fails before any target write.
+the full check against the staged archive and manifest (and signature when a
+trusted key is configured), then cross-checks every descriptor field and both
+descriptor hashes against that verified manifest. A modified descriptor fails
+before any target write.
 
 Disk space is checked before any package bytes are written. If a stage is
 interrupted, `.part` files may remain, but there is no `staged.json`; the next
@@ -206,9 +214,10 @@ marker leaves no ready package. Replacing an existing stage requires
 ## Update feed, check, and download
 
 The feed is a versioned `nextui-feed-v1` JSON document. It is routing metadata,
-not a trust anchor: every entry names a signed `nextui-update-v1` manifest, and
-only that signature (plus the trusted key) authorizes staging. The feed itself is
-not signed, so a feed cannot make an unsigned archive trustworthy.
+not a trust anchor: every entry names a `nextui-update-v1` manifest and the
+archive's SHA-256, and those hashes authorize staging. The feed itself is not
+signed, so it cannot make a mismatched archive trustworthy. A `signature_url`
+is optional and is used only when the client has a trusted key.
 
 ```json
 {
@@ -237,11 +246,12 @@ not signed, so a feed cannot make an unsigned archive trustworthy.
   system; a row that requires a newer system is skipped. If no row is
   compatible, the result is `system_too_old`.
 - `version`, `min_system`, `id` (derived as `nextui.system.<platform>`), archive
-  name, size, and SHA-256 must match the signed manifest. A mismatch fails as
+  name, size, and SHA-256 must match the manifest. A mismatch fails as
   `feed_manifest_mismatch` before the package is downloaded.
-- `manifest_url`, `signature_url`, and `archive_url` may be absolute or relative
-  to the feed location. HTTP and HTTPS are accepted; local feeds resolve
-  relative paths against the feed's directory.
+- `manifest_url` and `archive_url` are required. `signature_url` is optional
+  and, when present, is fetched only if a trusted key is configured. All may be
+  absolute or relative to the feed location. HTTP and HTTPS are accepted; local
+  feeds resolve relative paths against the feed's directory.
 - Unknown fields, duplicate platform/version rows, unknown platforms, invalid
   semver, unsafe file names, and relative `..` segments are rejected.
 - `channel` and `generated_at` are optional metadata and are not trusted.
@@ -250,25 +260,26 @@ Check a configured feed without writing anything:
 
 ```sh
 nextupd feed --feed <feed-url-or-file> --platform tg5040 \
-  --system-version v6.16.0 --trusted-key nextui-test-only-1.pub --json
+  --system-version v6.16.0 --json
 ```
 
-`feed` downloads only the manifest and signature, verifies them, and reports
-`update_available` or `up_to_date`. It never downloads the archive.
+`feed` downloads the manifest (and signature when a trusted key is configured),
+verifies them, and reports `update_available` or `up_to_date`. It never
+downloads the archive.
 
 Download, verify, and stage:
 
 ```sh
 nextupd fetch --feed <feed-url-or-file> --platform tg5040 \
-  --system-version v6.16.0 --trusted-key nextui-test-only-1.pub \
+  --system-version v6.16.0 \
   --staging-root "$TEST_ROOT/staging" --json
 ```
 
-`fetch` requires `--trusted-key` and an explicit `--staging-root`; it has no
-default root and never installs. It downloads into a private
-`.nextupd-incoming-*` directory under the staging root, verifies the manifest and
-signature before downloading the archive, enforces the manifest's archive size,
-then reuses the existing `stage` path (`.part`, marker last, fsync, lock, space
+`fetch` requires an explicit `--staging-root`; it has no default root and never
+installs. It downloads into a private `.nextupd-incoming-*` directory under the
+staging root, verifies the manifest (and signature when a trusted key is set)
+before downloading the archive, enforces the manifest's archive size, then
+reuses the existing `stage` path (`.part`, marker last, fsync, lock, space
 precheck). A controlled failure removes the incoming directory and leaves no
 `staged.json`. A hard power loss may leave a hidden incoming directory, but it
 is not a staged package and `install` refuses it without `staged.json`.
@@ -278,10 +289,9 @@ and reuses it (`already_staged`) without downloading the archive again.
 `--replace` forces a fresh download and restage. A damaged or incompatible
 staging directory is replaced rather than reused.
 
-There is no default feed URL. `--feed` or `NEXTUI_UPDATE_FEED` is required; if
-neither is set, `feed` and `fetch` fail with exit 15 and `feed_unconfigured`
-instead of contacting a third-party or upstream updater. The release source
-address and production key remain owner decisions.
+The default feed is the official GitHub Releases feed (see above).
+`--feed` or `NEXTUI_UPDATE_FEED` overrides it. No trusted key is required;
+integrity is the default.
 
 ## Installing a staged system
 
@@ -301,7 +311,7 @@ Policy:
 
 - Only `kind: system` is installed. Every archive path must be under
   `.system/` or `.tmp_update/`; `.system/version.txt` must be present in the
-  package and equal the signed manifest `version`.
+  package and equal the manifest `version`.
 - When the package carries `.tmp_update/`, the complete boot contract described
   above is required. The installer extracts it from the verified archive,
   verifies every file and mode again, and keeps the current payload as
@@ -377,21 +387,21 @@ ambiguous.
 
 ## Installing a local application
 
-A signed `nextui-update-v1` package with `kind: app` installs a local
-application into the launcher's canonical app root. This path is separate from
-any store: it consumes a package the caller has already staged on the device,
-selects no source, contacts no network, and uses no production key. It does not
-replace or reuse the third-party Pak Store, and it does not change the boot
-`unzip` path.
+A `nextui-update-v1` package with `kind: app` installs a local application into
+the launcher's canonical app root. This path is separate from any store: it
+consumes a package the caller has already staged on the device, selects no
+source, contacts no network, and uses no production key. It does not replace or
+reuse the third-party Pak Store, and it does not change the boot `unzip` path.
 
 ```sh
 nextupd install --staged-dir "$STAGE" --target-root "$SDCARD_PATH" \
-  --trusted-key nextui-release.pub --platform tg5040 --system-version v6.16.0
+  --platform tg5040 --system-version v6.16.0
 ```
 
 `install` re-verifies the staged package exactly as it does for a system
-package (manifest, detached signature, per-file SHA-256, ZIP safety, staged
-descriptor cross-check), then routes `kind: app` to an independent transaction.
+package (manifest, per-file SHA-256, ZIP safety, staged descriptor cross-check;
+and the detached signature when a trusted key is configured), then routes
+`kind: app` to an independent transaction.
 The system `nextui-install-txn-v1` contract, `.system`, `.system.bak`, and the
 `.tmp_update` boot payload are never read or written by an app install.
 
@@ -401,17 +411,15 @@ to say so, and `check`, `stage` and `install` all take `--expected-kind
 
 ```sh
 nextupd stage --package Demo.pakz --manifest Demo.manifest.json \
-  --signature Demo.manifest.sig --trusted-key nextui-release.pub \
   --platform tg5040 --staging-root "$STAGE" --expected-kind app
 ```
 
-The flag is checked against the manifest that same invocation verified, right
-after the detached signature covers it and before `stage` creates a staging
-directory or `install` chooses a transaction. A mismatch exits 3 with
-`kind_mismatch` and writes nothing. Because the comparison uses the manifest
-bytes the signature covered rather than a second read of the same file, a
-package swapped in after a caller's own scan is refused: the caller's scan is a
-listing, and the kind boundary is the tool's. Every other check is unchanged and
+The flag is checked against the manifest that same invocation verified, before
+`stage` creates a staging directory or `install` chooses a transaction. A
+mismatch exits 3 with `kind_mismatch` and writes nothing. Because the comparison
+uses the manifest bytes that invocation verified rather than a second read of
+the same file, a package swapped in after a caller's own scan is refused: the
+caller's scan is a listing, and the kind boundary is the tool's. Every other check is unchanged and
 in the same order, and omitting the flag leaves the routing behaviour exactly as
 it was, so the System Update path and any script that never named a kind keep
 working.
@@ -429,41 +437,39 @@ what closes that, and the host regression covers exactly that swap.
 ### The "Install from file" settings page
 
 Settings carries a user entry for this path. It is a presentation layer over the
-same tool: it lists the signed packages in one app-controlled folder, runs
-`stage` and then `install` for the picked one on a worker thread, and reports
-progress and every real failure in the page's Status row. It never blocks the
-menu frame behind an overlay, and a second tap cannot start a second install
-(the page's input lock plus the tool's own target lock).
+same tool: it lists the packages in one app-controlled folder, runs `stage` and
+then `install` for the picked one on a worker thread, and reports progress and
+every real failure in the page's Status row. It never blocks the menu frame
+behind an overlay, and a second tap cannot start a second install (the page's
+input lock plus the tool's own target lock).
 
 - The package folder is `<target-root>/.tmp_update/packages`. A package is the
-  archive plus its two sidecars, named after the archive:
-  `Demo.pakz`, `Demo.manifest.json`, `Demo.manifest.sig`. A package missing a
-  sidecar is listed with the reason and is not handed to the tool, because
-  `stage` requires all three paths.
+  archive plus its manifest, named after the archive: `Demo.pakz`,
+  `Demo.manifest.json`. A `Demo.manifest.sig` sidecar is optional and is
+  required only when a trusted key is configured.
 - The staging root is `<target-root>/.tmp_update/staging`, the target root is
   the SD card, and the platform is the running `PLATFORM`. None of them come from
   user input or package data.
-- The trusted public key follows the System Update contract exactly: a path the
-  app is configured with (`NEXTUI_UPDATE_TRUSTED_KEY`), with no key built in.
-  Without one the page reports that no trusted key is configured and installs
-  nothing. Production key custody stays with the owner.
+- The trusted public key is optional, following the System Update contract: a
+  path the app is configured with (`NEXTUI_UPDATE_TRUSTED_KEY`), with no key
+  built in. Without one the package is verified by SHA-256 integrity.
 - The page installs application packages only, and both of its tool calls say so:
   `stage` and `install` carry `--expected-kind app`, so the tool refuses a
   package whose *verified* manifest kind is anything else, with `kind_mismatch`
   and nothing written, before it stages or chooses a transaction. The page's own
   scan is only a listing, and the boundary is the tool's, on the manifest bytes
-  its signature check covered. There is no uninstall, no permission product and
+  its manifest check covered. There is no uninstall, no permission product and
   no online catalog.
 - After a committed install the app is an ordinary `Tools/<platform>` pak: the
   launcher discovers and launches it like any other app, and the user returns to
-  the desktop to start it. The page shows each package's signed id and version in
+  the desktop to start it. The page shows each package's manifest id and version in
   the selected row's description line; the row itself carries the file name.
 
 Destination policy:
 
 - The destination is always `Tools/<platform>/<id>.pak/` under the explicit
   `--target-root`. `<platform>` is the target platform passed to `install`
-  (e.g. `tg5040`, `h700`, `desktop`), and `<id>` is the signed manifest id.
+  (e.g. `tg5040`, `h700`, `desktop`), and `<id>` is the manifest id.
   The package never chooses its own landing spot, so it cannot write to an
   arbitrary SD location, overwrite a different app, or touch `.system`,
   `.tmp_update`, or user data.
@@ -473,8 +479,8 @@ Destination policy:
   rejected before any write. This is the same discovery layout the launcher
   scans: a directory whose name ends in `.pak` and that contains `launch.sh`.
 - The package must carry `launch.sh` (an executable entry) and `pak.json`. The
-  installed `pak.json` version must equal the signed manifest version, so the
-  launcher's metadata and version record match the signed package.
+  installed `pak.json` version must equal the manifest version, so the
+  launcher's metadata and version record match the verified package.
 - `platform` may be `universal` in the **manifest**, in which case the app
   installs on any concrete target. The install **target** `--platform` must be a
   concrete platform (`tg5040`, `h700`, `desktop`, ...): a `universal` target is
@@ -552,9 +558,9 @@ non-`.pak`, or a `.pak` file) are not.
 
 ## Boot payload lifecycle
 
-The boot payload is a second signed tree, not a second source of truth. Its
-file list comes from the same `nextui-update-v1` manifest that signs
-`.system/`; the installer never reads a live `.tmp_update` file as package
+The boot payload is a second manifest-covered tree, not a second source of
+truth. Its file list comes from the same `nextui-update-v1` manifest that
+covers `.system/`; the installer never reads a live `.tmp_update` file as package
 input. The boot journal is separate from `txn.json` on purpose:
 
 - Old tools parse `nextui-install-txn-v1` strictly and reject unknown fields.
@@ -586,7 +592,7 @@ The boot states and their recovery rules:
 | --- | --- | --- |
 | `prepared` | boot candidate complete; live payload untouched | discard candidate, keep old boot; roll back an uncommitted system |
 | `installing` | recovery tool or later files may be published | verify live; finish from `boot.new`; otherwise restore `.tmp_update.bak` |
-| `installed` | live payload matches the signed list and stamp | finish the system commit; if the system rolls back, restore the old payload |
+| `installed` | live payload matches the manifest list and stamp | finish the system commit; if the system rolls back, restore the old payload |
 | `committed` | release committed | remove staging, journal and `.tmp_update.bak` |
 | `rolled_back` | old payload restored or retained | remove staging and journal |
 
@@ -606,11 +612,11 @@ The boot payload is not published when:
 - the live stamp names a newer semantic version (`newer`), so a system update
   cannot silently downgrade a boot payload;
 - the live stamp uses an unknown future schema (`unknown`), so this tool does
-  not guess that the signed package is newer.
+  not guess that the package is newer.
 
 An equal system version returns `already_installed` before any boot work, as
 before. A same-version boot repair is therefore not part of `install`. On an
-installed system a missing live `.tmp_update` payload is restored by a signed
+installed system a missing live `.tmp_update` payload is restored by a verified
 system install, which re-synchronizes `.tmp_update`; the bootstrap `MinUI.zip`
 path restores it only as part of a first install.
 
@@ -667,7 +673,7 @@ What the boot installer still does:
 - On a first install only (no `.system/<platform>` yet), unpacks the bootstrap
   `MinUI.zip` and finishes the install. On an already-installed system the zip
   is left untouched and the installed system boots; everyday system updates and
-  repairs go through the signed nextupd transaction, never through a dropped
+  repairs go through the verified nextupd transaction, never through a dropped
   zip.
 - On tg5040 only, extracts the one device-compat pak the base package ships,
   named explicitly as `nextui.upgrade_bluez.tg5040.pakz`, and runs its
@@ -679,9 +685,9 @@ that exact filename is not content authentication, so it is the one unsigned
 boot install that is still reachable. The host test proves the pak is extracted
 and its `post_install.sh` executes, using a stand-in script; it does not run the
 real BlueZ upgrade, so that upgrade remains device-unverified. Everything else
-an installed system needs comes through the signed transaction.
+an installed system needs comes through the verified transaction.
 
-App installs and system updates go through the signed nextupd transaction and
+App installs and system updates go through the verified nextupd transaction and
 the "Install from file" page. The h700 boot shim likewise bootstraps and runs
 its installer only for a first install, not from a dropped zip or pakz.
 
@@ -793,18 +799,18 @@ real-device behavior.
   image; the boot payload carries `nextupd.elf` in `.tmp_update/<platform>/`.
 - `recover` is wired into the install boot scripts only. It does not stage or
   install packages, and it does not run from `launch.sh`, keymon, or devserv.
-- A transactional install synchronizes `.tmp_update` only when the signed
-  package carries that subtree. Equal system versions return
+- A transactional install synchronizes `.tmp_update` only when the package
+  manifest carries that subtree. Equal system versions return
   `already_installed` before boot work, so a same-version repair still uses the
   bootstrap `MinUI.zip` path. The release must publish an archive whose
   manifest covers exactly the applied roots (`.system/` plus optional
   `.tmp_update/`); the bootstrap archive that also carries `Tools/` is not a
   transactional package.
-- The feed is unsigned routing metadata. It can select a signed package but
-  cannot authorize one; the manifest signature and trusted key remain required.
-- There is no production feed address and no production key in this repository.
-  `feed` and `fetch` are unavailable until the owner provisions both. No
-  downstream release workflow publishes `nextui-feed-v1` yet.
+- The feed is unsigned routing metadata. It selects a package but does not
+  authorize one; the manifest and archive SHA-256 checks do. A trusted key adds
+  the optional detached signature.
+- The official feed URL is built in. No production key is present or required
+  for the official path; the first release still remains an owner action.
 - HTTPS downloads delegate to the system `curl` with TLS verification enabled.
   If `curl` is absent, the result is `transport_unavailable`; there is no
   insecure fallback. Plain HTTP is supported for local/LAN feeds and fixtures.
@@ -816,12 +822,12 @@ real-device behavior.
   treated as a ready package; controlled failures remove it.
 - The application store source is not part of this feed. This change does not
   select or replace the app-store source; only the default third-party system
-  updater pak reference was removed. Local signed application install is a
+  updater pak reference was removed. Local application install is a
   separate path from any store: it consumes an already-staged package, selects
   no source, and contacts no network. There is no store source selection, no
   online catalog, and no store permission product here.
 - Version policy trusts the target's `.system/version.txt`. There is no signed,
-  monotonic anti-rollback counter; replaying an older signed package is refused
+  monotonic anti-rollback counter; replaying an older package is refused
   while the live version file is newer, but an attacker who can rewrite that
   file is outside this threat model.
 - The target `.system` and `.system.bak` must be real directories, not symlinks.

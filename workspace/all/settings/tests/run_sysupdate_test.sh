@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Host-only test for the System Update Controller. It builds the nextupd host
 # tool and the SDL-free Controller test, then drives check/download/install
-# against isolated temporary roots using the committed signed fixture and a
-# local file feed. It never touches /mnt/SDCARD, a real device, a feed, or a
-# production key.
+# against isolated temporary roots using the committed fixture and local file
+# feeds (signed and integrity-only). It never touches /mnt/SDCARD, a real
+# device, the network, or a production key.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -22,7 +22,7 @@ NU=workspace/all/nextupd
     -O2 -std=gnu99 -w -I"$NU/third_party/tweetnacl"
 
 # Build the nextupd host tool from the same sources as tests/run_tests.sh.
-"$CC" -std=gnu99 -O2 -D_FILE_OFFSET_BITS=64 \
+"$CC" -std=gnu99 -O2 -D_FILE_OFFSET_BITS=64 -DNEXTUPD_TESTING \
     -I"$NU" -Iworkspace/all/common \
     "$NU/nextupd.c" "$NU/update_download.c" "$NU/update_feed.c" \
     "$NU/update_manifest.c" "$NU/update_signature.c" "$NU/update_transaction.c" \

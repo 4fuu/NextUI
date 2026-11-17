@@ -55,7 +55,9 @@ def fail(name, message, proc=None):
 
 def run(args, env=None):
     merged = os.environ.copy()
-    for key in ("PLATFORM", "NEXTUI_SYSTEM_VERSION", "NEXTUI_UPDATE_FEED", "SDCARD_PATH"):
+    for key in ("PLATFORM", "NEXTUI_SYSTEM_VERSION", "NEXTUI_UPDATE_FEED",
+                "NEXTUI_UPDATE_TRUSTED_KEY", "NEXTUPD_TEST_DEFAULT_FEED",
+                "SDCARD_PATH"):
         merged.pop(key, None)
     if env:
         merged.update(env)
@@ -223,12 +225,13 @@ def feed_entry(pkg, manifest_url, signature_url, archive_url, **overrides):
         "version": pkg["version"],
         "min_system": pkg["min_system"],
         "manifest_url": manifest_url,
-        "signature_url": signature_url,
         "archive_url": archive_url,
         "archive_name": "MinUI.zip",
         "archive_size": pkg["size"],
         "archive_sha256": pkg["sha256"],
     }
+    if signature_url is not None:
+        entry["signature_url"] = signature_url
     entry.update(overrides)
     return entry
 
@@ -388,11 +391,15 @@ def stage_dir(root, version):
 
 
 def check_feed(name, feed_source, expected_code, reason=None, extra=None, env=None,
-               system_version="v6.0.0"):
+               system_version="v6.0.0", key=FIXTURE_PUB):
     args = [
-        "feed", "--feed", feed_source, "--platform", PLATFORM,
-        "--system-version", system_version, "--trusted-key", FIXTURE_PUB, "--json",
+        "feed", "--platform", PLATFORM,
+        "--system-version", system_version, "--json",
     ]
+    if feed_source is not None:
+        args[1:1] = ["--feed", feed_source]
+    if key is not None:
+        args += ["--trusted-key", key]
     args.extend(extra or [])
     proc = run(args, env=env)
     if expected_code == 0:
@@ -402,12 +409,16 @@ def check_feed(name, feed_source, expected_code, reason=None, extra=None, env=No
 
 
 def fetch(name, feed_source, root, expected_code, reason=None, extra=None, env=None,
-          system_version="v6.0.0"):
+          system_version="v6.0.0", key=FIXTURE_PUB):
     args = [
-        "fetch", "--feed", feed_source, "--platform", PLATFORM,
-        "--system-version", system_version, "--trusted-key", FIXTURE_PUB,
+        "fetch", "--platform", PLATFORM,
+        "--system-version", system_version,
         "--staging-root", root, "--json",
     ]
+    if feed_source is not None:
+        args[1:1] = ["--feed", feed_source]
+    if key is not None:
+        args += ["--trusted-key", key]
     args.extend(extra or [])
     proc = run(args, env=env)
     if expected_code == 0:
@@ -476,14 +487,19 @@ def main():
         ]
         local_feed = write_feed(os.path.join(local_dir, "feed.json"), local_entries)
 
-        # Unconfigured source.
-        proc = run(["feed", "--platform", PLATFORM, "--system-version", "v6.0.0",
-                    "--trusted-key", FIXTURE_PUB, "--json"])
-        expect("unconfigured feed exits 15", proc, 15, "feed_unconfigured")
+        # The built-in default feed is used when no source is configured. The
+        # host build redirects that default at a local fixture so this test
+        # never contacts GitHub.
+        body = check_feed("default feed is used", None, 0,
+                          env={"NEXTUPD_TEST_DEFAULT_FEED": local_feed})
+        if body is not None and body.get("result") != "update_available":
+            fail("default feed result", body)
 
+        # NEXTUI_UPDATE_FEED overrides the built-in default.
         env_proc = run(["feed", "--platform", PLATFORM, "--system-version", "v6.0.0",
                         "--trusted-key", FIXTURE_PUB, "--json"],
-                       env={"NEXTUI_UPDATE_FEED": local_feed})
+                       env={"NEXTUI_UPDATE_FEED": local_feed,
+                            "NEXTUPD_TEST_DEFAULT_FEED": os.path.join(WORK, "absent.json")})
         body = expect_json("env feed is used", env_proc)
         if body is not None and body.get("result") != "update_available":
             fail("env feed result", body, env_proc)
@@ -758,6 +774,44 @@ def main():
         ])
         expect("replacement staging is valid", check_stage, 0)
 
+        # Integrity-only: a feed entry may omit signature_url, and feed/fetch
+        # work with no trusted key. The manifest and archive hashes still bind
+        # everything that is downloaded.
+        unsigned_feed = write_feed(os.path.join(WWW, "feed-unsigned.json"), [
+            feed_entry(next_package, asset_paths(next_package)[0], None,
+                       asset_paths(next_package)[2]),
+        ])
+        body = check_feed("feed without a signature or key",
+                          f"{BASE_URL}/feed-unsigned.json", 0, key=None)
+        if body is not None:
+            if body.get("result") != "update_available":
+                fail("feed without a signature result", body)
+            elif body.get("signature_verified") is not False:
+                fail("feed without a signature", "reported a verified signature")
+            else:
+                ok("feed without a signature reports integrity only")
+        root = os.path.join(WORK, "stage-unsigned")
+        body = fetch("fetch without a signature or key",
+                     f"{BASE_URL}/feed-unsigned.json", root, 0, key=None)
+        if body is not None:
+            if (body.get("result") != "staged"
+                    or body.get("signature_key_id") != ""
+                    or body.get("signature_path") != ""):
+                fail("unsigned staged result fields", body)
+            else:
+                ok("unsigned staged result fields")
+        unsigned_stage = stage_dir(root, "v6.17.0")
+        check_unsigned = run([
+            "check", "--package", os.path.join(unsigned_stage, "MinUI.zip"),
+            "--manifest", os.path.join(unsigned_stage, "manifest.json"),
+            "--platform", PLATFORM, "--system-version", "v6.0.0", "--json",
+        ])
+        expect("unsigned staged bytes pass the default checker", check_unsigned, 0)
+        if os.path.exists(os.path.join(unsigned_stage, "manifest.sig")):
+            fail("unsigned staging", "published a signature file")
+        else:
+            ok("unsigned staging publishes no signature")
+
         # Chunked transfer and redirects are accepted.
         proc = run(["feed", "--feed", f"{BASE_URL}/chunked/feed.json", "--platform",
                     PLATFORM, "--system-version", "v6.0.0", "--trusted-key",
@@ -784,9 +838,6 @@ def main():
         proc = run(["feed", "--platform", PLATFORM, "--system-version", "v6.0.0",
                     "--trusted-key", FIXTURE_PUB, "--timeout", "0", "--json"])
         expect("invalid timeout is usage", proc, 64)
-        proc = run(["feed", "--platform", PLATFORM, "--system-version", "v6.0.0",
-                    "--json"])
-        expect("feed requires a trusted key", proc, 64, "trusted-key")
         proc = run(["fetch", "--platform", PLATFORM, "--system-version", "v6.0.0",
                     "--trusted-key", FIXTURE_PUB, "--json"])
         expect("fetch requires a staging root", proc, 64, "staging-root")

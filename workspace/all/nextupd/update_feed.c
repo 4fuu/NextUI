@@ -195,8 +195,8 @@ static int parse_entry(JsonLiteCursor* cursor, UpdFeedEntry* entry, size_t index
         FIELD_ARCHIVE_SIZE = 1u << 7,
         FIELD_ARCHIVE_SHA256 = 1u << 8,
         FIELD_REQUIRED = FIELD_PLATFORM | FIELD_VERSION | FIELD_MIN_SYSTEM | FIELD_MANIFEST
-                         | FIELD_SIGNATURE | FIELD_ARCHIVE_URL | FIELD_ARCHIVE_NAME
-                         | FIELD_ARCHIVE_SIZE | FIELD_ARCHIVE_SHA256
+                         | FIELD_ARCHIVE_URL | FIELD_ARCHIVE_NAME | FIELD_ARCHIVE_SIZE
+                         | FIELD_ARCHIVE_SHA256
     };
     FeedFieldMask mask;
 
@@ -354,8 +354,12 @@ static int validate_entry(UpdFeedEntry* entry, size_t index, UpdError* error)
         return 0;
     }
     if (!feed_validate_location(entry->manifest_url, "manifest_url", error)
-        || !feed_validate_location(entry->signature_url, "signature_url", error)
         || !feed_validate_location(entry->archive_url, "archive_url", error))
+        return 0;
+    /* A signature is optional. When present it must still be a safe location,
+     * because a caller that configured a trusted key will fetch it. */
+    if (entry->signature_url[0] != '\0'
+        && !feed_validate_location(entry->signature_url, "signature_url", error))
         return 0;
     return 1;
 }
@@ -702,7 +706,7 @@ int upd_feed_entry_matches_manifest(const UpdFeedEntry* entry, const UpdManifest
         || strcmp(manifest->min_system, entry->min_system) != 0)
     {
         upd_error_set(error, UPD_E_INVALID, "feed_manifest_mismatch",
-                      "feed entry does not match the signed manifest");
+                      "feed entry does not match the manifest");
         return 0;
     }
     return 1;

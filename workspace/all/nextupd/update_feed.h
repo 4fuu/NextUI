@@ -10,15 +10,22 @@ extern "C" {
 /*
  * nextui-feed-v1.
  *
- * The feed is routing metadata, not a trust anchor. Each entry names a signed
- * nextui-update-v1 manifest; only that signature decides whether bytes may be
- * staged. Feed entries are the compatibility matrix: one row per platform and
- * version, with the minimum running system that may install it.
+ * The feed is routing metadata, not a trust anchor. Each entry names a
+ * nextui-update-v1 manifest and the SHA-256 of its archive. Integrity is the
+ * default: the manifest binds the archive size and digest, and every file in
+ * the archive has its own digest. An entry may also name a detached Ed25519
+ * signature; it is used only when the caller supplies a trusted public key.
  *
- * There is no built-in feed address. A caller must pass one explicitly, and an
- * unconfigured feed is reported as unavailable instead of falling back to a
- * third-party release source.
+ * Feed entries are the compatibility matrix: one row per platform and version,
+ * with the minimum running system that may install it.
+ *
+ * The official feed is this project's GitHub Releases. A caller may override
+ * it with --feed or NEXTUI_UPDATE_FEED for local testing or a deliberate
+ * third-party source reached over ADB.
  */
+
+#define UPD_DEFAULT_FEED_URL \
+    "https://github.com/4fuu/NextUI/releases/latest/download/nextui-feed.json"
 
 #define UPD_MAX_FEED_BYTES (2U * 1024U * 1024U)
 #define UPD_MAX_FEED_ENTRIES 64
@@ -31,7 +38,7 @@ typedef struct
     char min_system[UPD_MAX_VERSION + 1];
     int has_min_system;
     char manifest_url[UPD_MAX_URL + 1];
-    char signature_url[UPD_MAX_URL + 1];
+    char signature_url[UPD_MAX_URL + 1]; /* empty when the feed omits one */
     char archive_url[UPD_MAX_URL + 1];
     char archive_name[UPD_MAX_FILENAME + 1];
     uint64_t archive_size;
@@ -62,9 +69,9 @@ int upd_feed_select(const UpdFeed* feed, const char* platform, const char* syste
                     const UpdFeedEntry** entry, UpdError* error);
 
 /*
- * Cross-check routing metadata against the already signature-verified manifest.
- * A feed cannot substitute a different package, version, minimum system, or
- * archive digest for the signed one.
+ * Cross-check routing metadata against the already verified manifest. A feed
+ * cannot substitute a different package, version, minimum system, or archive
+ * digest for the one the caller verified.
  */
 int upd_feed_entry_matches_manifest(const UpdFeedEntry* entry, const UpdManifest* manifest,
                                     UpdError* error);

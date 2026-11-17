@@ -11,8 +11,9 @@ extern "C" {
  * Offline system install transactions.
  *
  * The installer consumes the advisory staged.json written by `nextupd stage`,
- * but never trusts it: the caller re-verifies the staged archive, manifest and
- * signature first, then cross-checks this descriptor against that manifest.
+ * but never trusts it: the caller re-verifies the staged archive and manifest
+ * first (and the detached signature when a trusted key is configured), then
+ * cross-checks this descriptor against that manifest.
  *
  * Installation only happens in an explicitly supplied target root that already
  * contains a live `.system` tree. There is no default root, no SDCARD lookup and
@@ -32,6 +33,7 @@ typedef struct
     char platform[UPD_MAX_PLATFORM + 1];
     char archive[UPD_MAX_FILENAME + 1];
     char manifest[UPD_MAX_FILENAME + 1];
+    /* Empty for an integrity-only stage: no signature sidecar exists. */
     char signature[UPD_MAX_FILENAME + 1];
     unsigned char archive_sha256[UPD_SHA256_BYTES];
     unsigned char manifest_sha256[UPD_SHA256_BYTES];
@@ -68,7 +70,8 @@ int upd_staged_load(const char* staged_dir, UpdStaged* staged, UpdError* error);
 
 /*
  * Re-hash the staged manifest and archive and compare every identity field
- * against the verified manifest and signing key. Writes nothing.
+ * against the verified manifest. When key_id is non-NULL the staged descriptor
+ * must also name that signing key. Writes nothing.
  */
 int upd_staged_verify(const char* staged_dir, const UpdStaged* staged,
                       const UpdManifest* manifest, const char* key_id, UpdError* error);

@@ -425,7 +425,7 @@ static void runScreenshots(const char *outDir, const std::string &packages,
     AppInstall::Config config;
     config.platform = "tg5040";
     config.system_version = "v6.16.0";
-    config.trusted_key = "/tmp/appinstall-menu-no-such-key";
+    config.trusted_key = ""; // the production default: integrity only
     config.packages_dir = packages;
     config.target_root = "/tmp/appinstall-menu-no-target";
     config.tool_path = "/nonexistent/nextupd.elf";
@@ -474,7 +474,7 @@ static void runScreenshots(const char *outDir, const std::string &packages,
 int main(int argc, char **argv)
 {
     // Optional: --packages <dir> selects the folder the page scans (default: an
-    // empty folder, so the page reports "No signed package found.").
+    // empty folder, so the page reports "No package found.").
     // Optional: --unusable <dir> selects a folder holding a .pakz with no
     // sidecars, for the unusable-package regression.
     // Optional: --screenshot <dir> [zh|en] renders the page in that language.
@@ -495,6 +495,8 @@ int main(int argc, char **argv)
         }
     }
 
+    unsetenv("NEXTUI_UPDATE_FEED");
+    unsetenv("NEXTUI_UPDATE_TRUSTED_KEY");
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
         printf("FAIL: SDL_Init: %s\n", SDL_GetError());

@@ -86,7 +86,7 @@ rm -rf "$PACKAGES" "$UNUSABLE"
 mkdir -p "$PACKAGES" "$UNUSABLE"
 printf 'not a package\n' > "$UNUSABLE/Demo.pakz"
 
-# The page lists what the folder scan finds, so give it a real signed package:
+# The page lists what the folder scan finds, so give it a real package:
 # the row is the same one a card would show after the user copies a package in.
 NU=workspace/all/nextupd
 if [[ ! -x "$BUILD_DIR/nextupd.elf" ]]; then

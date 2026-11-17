@@ -20,9 +20,10 @@
  *   the swap settings opens no .system file: fonts and surfaces are preloaded at
  *   init and progress is shown by the page's Status row (a preloaded string), so
  *   settings never reads a half-replaced .system.
- * - install re-runs the full manifest/signature/hash verification against the
- *   staged bytes before it writes anything, so the pre-install re-check is the
- *   tool's, not a UI promise.
+ * - install re-runs the full manifest/hash verification (and the detached
+ *   signature when a trusted key is configured) against the staged bytes before
+ *   it writes anything, so the pre-install re-check is the tool's, not a UI
+ *   promise.
  * - After a committed install the page shows "restart to apply" and never
  *   reboots or cuts power itself; leaving is the normal appQuit -> relauncher
  *   path, and boot recovery (the independent .tmp_update/<platform>/nextupd.elf
@@ -43,15 +44,15 @@ namespace SysUpdate {
 // missing tool is ToolUnavailable, and a verification failure is never Staged.
 enum class State {
     Idle,
-    UpdateAvailable,      // feed reports a newer signed version
+    UpdateAvailable,      // feed reports a newer version
     UpToDate,             // feed reports the running version is current
-    Staged,               // a signed package is downloaded and staged, ready to install
+    Staged,               // a package is downloaded and staged, ready to install
     Installed,            // committed into the target; a restart activates it
     Recoverable,          // an interrupted transaction is pending (resolved at boot)
-    Unconfigured,         // no feed / no trusted key configured
+    Unconfigured,         // legacy: no source was configured
     TransportUnavailable, // no curl, or the feed could not be reached
     SystemTooOld,         // running system is below the package min_system
-    VerificationFailed,   // signature / hash / manifest mismatch
+    VerificationFailed,   // hash / manifest mismatch, or signature with a key
     Busy,                 // another operation or install holds the target
     DowngradeRefused,     // staged version is not newer than the running one
     AlreadyInstalled,     // staged version equals the running version
@@ -67,8 +68,10 @@ struct Config {
     std::string tool_path;
     std::string platform;       // e.g. "tg5040"
     std::string system_version; // running .system version, e.g. "v6.16.0"
-    std::string feed;           // feed URL or file; empty => Unconfigured
-    std::string trusted_key;    // nextui-public-key-v1 sidecar; empty => Unconfigured
+    // Feed URL or file. Empty => nextupd's built-in official feed.
+    std::string feed;
+    // Optional nextui-public-key-v1 sidecar. Empty => integrity only.
+    std::string trusted_key;
     std::string staging_root;   // private staging area, e.g. <sdcard>/.tmp_update/staging
     std::string target_root;    // explicit install target, e.g. <sdcard>
     int timeout_seconds = 30;

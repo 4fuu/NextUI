@@ -1,31 +1,22 @@
 #!/bin/sh
-# Prepare the signed update assets for one GitHub Release.
+# Prepare the update assets for one GitHub Release.
 #
 # This is release-side preparation only. It builds the transactional update
 # package for every platform through the existing `make update-package` entry,
-# signs each manifest with the production key, builds the nextui-feed-v1 feed
-# the client consumes, and verifies the whole set with the real nextupd binary
-# against the committed public sidecar. It publishes nothing: it creates no
+# builds the nextui-feed-v1 feed the client consumes, and verifies the whole set
+# with the real nextupd binary over SHA-256 integrity (manifest/archive/file
+# hashes, sizes, platform and kind). It publishes nothing: it creates no
 # release, pushes no tag, and uploads no asset. The release workflow uploads
 # what this script writes.
 #
-# The production private key is never a file, an argument, or an output here.
-# --key-env names the environment variable that holds the PEM; the signing host
-# injects it from the confidential facility (for example with
-# `amp --no-tui --amp-env`), and sign-manifest.sh reads it from there. Without
-# that variable this script fails: it never signs with the committed test-only
-# key and never leaves unsigned update assets behind.
-#
-# The public sidecar is the client's trust anchor. Every signature is verified
-# against the committed sidecar, never against a key derived from the private
-# key, so a release can never be signed with a key the client does not trust.
-# The sidecar is discovered beside this repository at
-# workspace/all/nextupd/release/*.pub, or given explicitly with --public-key.
+# Integrity is the client's default. These manifests are unsigned; the feed
+# carries their real SHA-256 digests, and a detached Ed25519 signature is used
+# only by callers that were built with an explicit trusted key.
 #
 # Usage:
-#   prepare-release-update-assets.sh --version vX.Y.Z --key-env NAME \
+#   prepare-release-update-assets.sh --version vX.Y.Z \
 #       --base-url URL [--min-system vX.Y.Z] [--platforms LIST] \
-#       [--previous-url URL] [--public-key FILE] [--out-dir DIR] \
+#       [--previous-url URL] [--out-dir DIR] \
 #       [--system-dir DIR] [--boot-dir DIR] [--repo-root DIR]
 #       [--version-source FILE]
 #
@@ -40,27 +31,22 @@
 # platform plus the feed, and nothing else:
 #
 #   nextui-system-<platform>.zip             the archive
-#   nextui-system-<platform>.manifest.json   the signed manifest
-#   nextui-system-<platform>.manifest.sig    the detached signature
+#   nextui-system-<platform>.manifest.json   the manifest
 #   nextui-feed.json                         the nextui-feed-v1 document
 #
 # The packaging script's .manifest.set commit marker is not copied here: it
-# records the unsigned publish and is stale once the manifest is signed.
+# records the publish and is not a release asset.
 set -eu
 
 PROGRAM=prepare-release-update-assets
 DEFAULT_PLATFORMS="tg5040 tg5050 h700"
 KNOWN_PLATFORMS="tg5040 tg5050 h700 desktop"
-RELEASE_KEY_DIR="workspace/all/nextupd/release"
 
 version=
-key_env=
-key_env_given=0
 base_url=
 min_system=
 platforms=$DEFAULT_PLATFORMS
 previous_url=
-public_key=
 version_source=
 out_dir="releases/update"
 system_dir=
@@ -68,7 +54,7 @@ boot_dir=
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 
 usage() {
-    sed -n '3,39p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,34p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 fail() {
@@ -79,13 +65,11 @@ fail() {
 while [ "$#" -ge 1 ]; do
     case "$1" in
         --version) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; version=$2; shift 2 ;;
-        --key-env) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; key_env=$2; key_env_given=1; shift 2 ;;
         --base-url) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; base_url=$2; shift 2 ;;
         --min-system) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; min_system=$2; shift 2 ;;
         --platforms) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; platforms=$2; shift 2 ;;
         --previous-url) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; previous_url=$2; shift 2 ;;
         --version-source) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; version_source=$2; shift 2 ;;
-        --public-key) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; public_key=$2; shift 2 ;;
         --out-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; out_dir=$2; shift 2 ;;
         --system-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; system_dir=$2; shift 2 ;;
         --boot-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; boot_dir=$2; shift 2 ;;
@@ -95,7 +79,7 @@ while [ "$#" -ge 1 ]; do
     esac
 done
 
-for tool in make python3 curl openssl printenv; do
+for tool in make python3 curl; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing $tool" 69
 done
 
@@ -129,9 +113,6 @@ if [ -f "$version_source" ]; then
     fi
 fi
 
-if [ "$key_env_given" -eq 0 ]; then
-    fail "--key-env is required: the signing key must come from the confidential facility, and this script never falls back to the test key" 64
-fi
 [ -n "$base_url" ] || fail "--base-url is required (the release's asset download prefix)" 64
 
 if [ -n "$min_system" ]; then
@@ -148,44 +129,6 @@ for platform in $(printf '%s' "$platforms" | tr ',' ' '); do
     esac
 done
 platforms=$(printf '%s' "$platforms" | tr ',' ' ')
-
-# The name is used to look the key up, so it is validated by rejection:
-# empty, a leading digit, and any byte outside [A-Za-z0-9_] anywhere are
-# refused before the lookup happens. An acceptance pattern would not do:
-# its trailing wildcard would let "AB-C" through.
-case "$key_env" in
-    ''|[0-9]*|*[!A-Za-z0-9_]*)
-        fail "invalid --key-env name" 64
-        ;;
-esac
-# printenv looks the name up without evaluating anything, so a name can never
-# become a command. The value itself is never read here, only passed through
-# to sign-manifest.sh, which reads it from the environment.
-if [ -z "$(printenv "$key_env" 2>/dev/null || true)" ]; then
-    fail "environment variable $key_env is empty or unset: store the production signing key in the confidential facility and inject it, or this release cannot be signed" 65
-fi
-
-# The trust anchor: the committed production public sidecar. Exactly one is
-# expected; more than one means an unfinished key rotation, and guessing would
-# sign a release against a key the client may not trust.
-if [ -z "$public_key" ]; then
-    matches=$(find "$repo_root/$RELEASE_KEY_DIR" -maxdepth 1 -name '*.pub' 2>/dev/null | sort)
-    count=$(printf '%s\n' "$matches" | grep -c . || true)
-    if [ "$count" -eq 0 ]; then
-        fail "no production public key sidecar under $repo_root/$RELEASE_KEY_DIR: run the custody procedure (generate the key pair on a trusted host, store the private key in the confidential facility, commit the sidecar)" 65
-    elif [ "$count" -gt 1 ]; then
-        fail "multiple public key sidecars under $repo_root/$RELEASE_KEY_DIR ($matches): finish the rotation or pass --public-key" 65
-    fi
-    public_key=$matches
-fi
-[ -f "$public_key" ] || fail "public key $public_key does not exist" 65
-head -1 "$public_key" | grep -qx 'nextui-public-key-v1' \
-    || fail "$public_key is not a nextui-public-key-v1 sidecar" 65
-key_id=$(sed -n '2p' "$public_key")
-case "$key_id" in
-    '') fail "$public_key has no key id" 65 ;;
-    *[!A-Za-z0-9._-]*) fail "$public_key has an invalid key id" 65 ;;
-esac
 
 # The feed URLs must satisfy the client's URL rules before anything is built.
 python3 - "$base_url" <<'PY' || exit 65
@@ -207,10 +150,8 @@ while cursor < len(url):
 PY
 
 generator="$repo_root/scripts/generate-feed.py"
-sign_script="$repo_root/workspace/all/nextupd/scripts/sign-manifest.sh"
 nextupd="$repo_root/workspace/all/nextupd/build/desktop/nextupd.elf"
 [ -x "$generator" ] || fail "$generator is missing or not executable" 69
-[ -x "$sign_script" ] || fail "$sign_script is missing or not executable" 69
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/nextui-release-assets.XXXXXX")
 trap 'rm -rf "$work"' EXIT INT TERM
@@ -242,35 +183,23 @@ for platform in $platforms; do
     done
 done
 
-# Sign each manifest with the production key from the environment, then verify
-# the signature against the committed public sidecar: the release is only
-# uploadable when the client's own verifier accepts it.
+# Verify every set with the client's own verifier before publishing: manifest
+# schema and identity, archive size/SHA-256, per-file SHA-256, ZIP safety,
+# platform and kind. These sets are unsigned; a failure here means the release
+# would not install.
 for platform in $platforms; do
     manifest="$work/packages/nextui-system-$platform.manifest.json"
-    signature="$work/packages/nextui-system-$platform.manifest.sig"
-    if ! "$sign_script" --key-env "$key_env" "$key_id" "$manifest" "$signature" \
-            > "$work/sign-$platform.log" 2>&1; then
-        cat "$work/sign-$platform.log" >&2
-        fail "signing the $platform manifest failed" 70
-    fi
     if check_output=$("$nextupd" check \
             --package "$work/packages/nextui-system-$platform.zip" \
             --manifest "$manifest" \
-            --signature "$signature" \
-            --trusted-key "$public_key" \
-            --platform "$platform" 2>&1); then
-        printf '%s\n' "$check_output" | grep -q "signature: verified (key $key_id)" \
-            || fail "$platform signature does not verify against $public_key: $check_output" 70
+            --platform "$platform" \
+            --expected-kind system 2>&1); then
+        :
     else
-        fail "$platform package does not verify against $public_key: $check_output" 70
+        fail "$platform package does not verify: $check_output" 70
     fi
-    printf 'verified %s (key %s)\n' "$platform" "$key_id"
+    printf 'verified %s (sha256)\n' "$platform"
 done
-
-# The signatures exist and are verified against the public sidecar, so the key
-# is no longer needed. Removing it from the environment keeps it out of every
-# later child process (the feed generator and its verification).
-unset "$key_env" || fail "cannot unset $key_env" 65
 
 # The feed. --previous merges the published feed when one exists, so older
 # compatible rows survive this release; a definitive 404 means this is the
@@ -297,12 +226,12 @@ feed_args=""
 if [ -n "$previous_feed" ]; then
     feed_args="--previous $previous_feed"
 fi
-# --public-key makes the generator's verification signature-based: the feed is
-# only written when every set's detached signature verifies against the
-# committed sidecar, which needs no private key.
+# --nextupd runs the real verifier over every set, so a package that cannot
+# install never reaches the feed. Without --public-key that check is
+# integrity-only, which is the client's default.
 # shellcheck disable=SC2086
 if ! "$generator" --set-dir "$work/packages" --base-url "$base_url" \
-        --nextupd "$nextupd" --public-key "$public_key" \
+        --nextupd "$nextupd" \
         $feed_args --out "$work/nextui-feed.json" > "$work/generate.log" 2>&1; then
     cat "$work/generate.log" >&2
     fail "feed generation failed" 70
@@ -318,23 +247,23 @@ fi
 check_platform=$(printf '%s\n' $platforms | head -1)
 feed_output=$("$nextupd" feed \
     --feed "$work/packages/verify-feed.json" --platform "$check_platform" \
-    --system-version "$version" --trusted-key "$public_key" --json) \
+    --system-version "$version" --json) \
     || fail "the generated feed is not accepted by nextupd feed: $feed_output" 70
 printf '%s\n' "$feed_output" | grep -q '"result":"up_to_date"' \
     || fail "the feed does not offer $version as the current version: $feed_output" 70
 
-# Publish the uploadable set: the three files per platform plus the feed. The
-# packaging script's commit marker recorded the unsigned publish and is stale
-# now, so it is not copied.
+# Publish the uploadable set: two files per platform plus the feed. The
+# packaging script's commit marker is an operator record, not a release asset,
+# so it is not copied.
 mkdir -p "$out_dir"
 rm -f "$out_dir"/nextui-system-*.zip "$out_dir"/nextui-system-*.manifest.json \
       "$out_dir"/nextui-system-*.manifest.sig "$out_dir"/nextui-feed.json
 for platform in $platforms; do
-    for suffix in zip manifest.json manifest.sig; do
+    for suffix in zip manifest.json; do
         cp "$work/packages/nextui-system-$platform.$suffix" "$out_dir/"
     done
 done
 cp "$work/nextui-feed.json" "$out_dir/nextui-feed.json"
 
-printf '%s: prepared %s in %s (key %s)\n' "$PROGRAM" "$version" "$out_dir" "$key_id"
+printf '%s: prepared %s in %s (sha256 integrity)\n' "$PROGRAM" "$version" "$out_dir"
 ls -1 "$out_dir"

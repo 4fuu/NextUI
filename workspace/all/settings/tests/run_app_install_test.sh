@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Host-only test for the local application install Controller. It builds the
-# nextupd host tool and the SDL-free Controller test, prepares signed app
-# packages with the committed test-only key, and drives the install against
+# nextupd host tool and the SDL-free Controller test, prepares app packages
+# (signed and unsigned), and drives the install against
 # isolated temporary roots. It never touches /mnt/SDCARD, a real device, a feed,
 # a store source, or a production key.
 set -euo pipefail
@@ -23,7 +23,7 @@ FIXTURES="$NU/tests/fixtures"
     -O2 -std=gnu99 -w -I"$NU/third_party/tweetnacl"
 
 # Build the nextupd host tool from the same sources as tests/run_tests.sh.
-"$CC" -std=gnu99 -O2 -D_FILE_OFFSET_BITS=64 \
+"$CC" -std=gnu99 -O2 -D_FILE_OFFSET_BITS=64 -DNEXTUPD_TESTING \
     -I"$NU" -Iworkspace/all/common \
     "$NU/nextupd.c" "$NU/update_download.c" "$NU/update_feed.c" \
     "$NU/update_manifest.c" "$NU/update_signature.c" "$NU/update_transaction.c" \
@@ -46,7 +46,7 @@ FIXTURES="$NU/tests/fixtures"
     "$build_dir/json_lite.o" \
     -o "$build_dir/appinstall_controller_test" -pthread
 
-# Signed app packages. Each directory is the shape the page scans: a .pakz with
+# App packages. Each directory is the shape the page scans: a .pakz with
 # its .manifest.json and .manifest.sig sidecars.
 PACKAGES="$build_dir/packages"
 python3 workspace/all/settings/tests/make_app_package.py \
