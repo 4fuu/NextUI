@@ -275,6 +275,26 @@ int main(void)
 
 	write_settings("en", 0x00FF00FFu);
 
+	/* DISP_MEM_GETADR returns the slot's physical address as the ioctl()
+	 * result. ioctl() is declared int, so a scanout buffer above 2 GiB —
+	 * 0xfc000000 on the Brick Pro — arrives sign-extended and must still be
+	 * accepted in full. -1 (ioctl failure) and 0 (empty slot) fail. */
+	{
+		unsigned long long physical = 0;
+		int sign_extended = (int)0xfc000000u;
+
+		CHECK(sign_extended < 0, "0xfc000000 is negative through ioctl()");
+		CHECK(SystemOverlay_decodeScanoutAddress(sign_extended, &physical) == 0
+			  && physical == 0xfc000000ULL,
+			  "sign-extended GETADR address keeps all 32 bits");
+		physical = 0;
+		CHECK(SystemOverlay_decodeScanoutAddress(0x10000000, &physical) == 0
+			  && physical == 0x10000000ULL,
+			  "low GETADR address is unchanged");
+		CHECK(SystemOverlay_decodeScanoutAddress(-1, &physical) != 0, "GETADR -1 fails");
+		CHECK(SystemOverlay_decodeScanoutAddress(0, &physical) != 0, "GETADR 0 fails");
+	}
+
 	memset(&fake, 0, sizeof fake);
 	memset(&display, 0, sizeof display);
 	display.user = &fake;
