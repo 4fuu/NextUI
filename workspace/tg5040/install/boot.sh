@@ -43,7 +43,6 @@ fi
 : "${BOOT_TEXT_INSTALLING:=Installing...}"
 : "${BOOT_TEXT_EXTRACTING:=Extracting}"
 : "${BOOT_TEXT_INSTALLING_PAK:=Installing}"
-: "${BOOT_TEXT_UPDATING:=Updating NextUI}"
 : "${BOOT_TEXT_INSTALLING_NEXTUI:=Installing NextUI}"
 
 if [ "$SHOW_SPLASH" = "yes" ] ; then
@@ -109,24 +108,19 @@ if [ -e "$BLUEZ_PAKZ" ]; then
 	fi
 fi
 
-# install/update
-if [ -f "$UPDATE_PATH" ]; then 
+# First install only. The bootstrap MinUI.zip is unpacked onto a stock or empty
+# card. An already-installed .system/<platform> is never overwritten here:
+# everyday system updates and repairs go through the signed nextupd
+# transaction, so a dropped MinUI.zip is left untouched and the installed
+# system boots.
+if [ -f "$UPDATE_PATH" ] && [ ! -d "$SYSTEM_PATH/$PLATFORM" ]; then
 	cd $(dirname "$0")/$PLATFORM
-	if [ -d "$SYSTEM_PATH" ]; then
-		echo "TEXT:$BOOT_TEXT_UPDATING" > /tmp/show2.fifo
-	else
-		echo "TEXT:$BOOT_TEXT_INSTALLING_NEXTUI" > /tmp/show2.fifo
-	fi
-
-	# clean replacement for core paths
-	rm -rf $SYSTEM_PATH/$PLATFORM/bin
-	rm -rf $SYSTEM_PATH/$PLATFORM/lib
-	rm -rf $SYSTEM_PATH/$PLATFORM/paks/MinUI.pak
+	echo "TEXT:$BOOT_TEXT_INSTALLING_NEXTUI" > /tmp/show2.fifo
 
 	./unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH" # &> /mnt/SDCARD/unzip.txt
 	rm -f "$UPDATE_PATH"
 
-	# the updated system finishes the install/update
+	# the installed system finishes the install
 	if [ -f $SYSTEM_PATH/$PLATFORM/bin/install.sh ]; then
 		$SYSTEM_PATH/$PLATFORM/bin/install.sh # &> $SDCARD_PATH/log.txt
 	fi

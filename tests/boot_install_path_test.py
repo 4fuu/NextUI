@@ -2,28 +2,30 @@
 """Host isolation tests for the old boot install-path convergence.
 
 The boot scripts used to unzip any `*.pakz` dropped on the card and run its
-`post_install.sh`, which made boot an arbitrary, unsigned app-install path.
-That path is now closed. The boot installer keeps only:
+`post_install.sh`, and used to unpack a dropped `MinUI.zip` onto the card on
+every boot -- including over an already-installed system. Both made boot an
+unsigned install surface. Everyday app installs and system updates now go
+through the signed nextupd transaction and the "Install from file" page, so the
+boot installer keeps only:
 
   - the first install / update of the whole system from the bootstrap
-    `MinUI.zip` (unchanged); and
+    `MinUI.zip`, and only when no system is installed yet; and
   - the tg5040 Bluetooth upgrade pak, named explicitly
     (`nextui.upgrade_bluez.tg5040.pakz`) as a device-compat bootstrap.
-
-App installs move to the signed "Install from file" transaction (nextupd), and
-tg5050 / h700 carry no boot pak install at all.
 
 These tests prove that convergence with positive and negative controls, on the
 real production scripts:
 
-  - static: no install boot script globs `*.pakz` or iterates a pakz variable;
-    tg5040 names the Bluetooth pak explicitly; the h700 shim no longer triggers
-    an install on a pakz alone; every install script still references the
-    `MinUI.zip` bootstrap; and every script passes `sh -n` and `dash -n`.
-  - behavioral: a real run of the tg5040 boot script extracts and installs the
-    Bluetooth pak; a rogue `evil.pakz` is neither extracted, executed, nor
-    removed and writes nothing; a `MinUI.zip` first install still populates
-    `.system` and launches; and a pakz on tg5050 is ignored (wrong platform).
+  - static: no install boot script globs `*.pakz`; the `MinUI.zip` write is
+    gated on "no installed system" on every platform and in the h700 shim;
+    tg5040 names the Bluetooth pak explicitly; every script passes `sh -n` and
+    `dash -n`.
+  - behavioral: a real run of each boot script extracts and installs the
+    Bluetooth pak (tg5040); a `MinUI.zip` first install still populates
+    `.system` and launches; an installed `.system` plus a malicious `MinUI.zip`
+    is left untouched (not extracted, not run, `.system` unchanged, zip not
+    consumed) and the installed system still launches; and a rogue `.pakz` is
+    neither extracted, executed, nor removed.
 
 Everything runs inside throwaway directories against a python `unzip` shim: no
 device, no real SD card, no network, no production key. The `BOOT_TEST_SDCARD`
@@ -49,6 +51,8 @@ INSTALL_SCRIPTS = {
     "h700": os.path.join(REPO, "workspace", "h700", "install", "boot.sh"),
 }
 H700_SHIM = os.path.join(REPO, "workspace", "h700", "boot", "boot.sh")
+H700_HELPERS = os.path.join(REPO, "workspace", "h700", "install")
+SHIM_COMMON = os.path.join(REPO, "workspace", "h700", "shim-common.sh")
 BOOT_STRINGS = os.path.join(REPO, "skeleton", "BOOT", "common", "boot_strings.sh")
 
 PASS = 0
@@ -112,6 +116,25 @@ def test_no_pakz_glob():
         ok("no install boot script globs or iterates *.pakz")
 
 
+def test_minui_zip_gated_first_install():
+    # The MinUI.zip write must be gated on "no installed system" so a dropped
+    # zip cannot unsigned-overwrite an installed .system; only a first install
+    # unpacks it. (The behavioral negative controls prove the gate holds; this
+    # locks in the guard so a future edit cannot silently drop it.)
+    problems = []
+    for platform, path in INSTALL_SCRIPTS.items():
+        body = "\n".join(code_lines(read(path)))
+        if '[ ! -d "$SYSTEM_PATH/$PLATFORM" ]' not in body:
+            problems.append("%s does not gate MinUI.zip on first install" % platform)
+    shim = "\n".join(code_lines(read(H700_SHIM)))
+    if '[ ! -d "$SYSTEM_PATH" ]' not in shim:
+        problems.append("the h700 shim does not gate the zip on first install")
+    if problems:
+        fail("the MinUI.zip install is gated on first install", "; ".join(problems))
+    else:
+        ok("the MinUI.zip install is gated on first install")
+
+
 def test_tg5040_keeps_bluetooth_pak():
     body = "\n".join(code_lines(read(INSTALL_SCRIPTS["tg5040"])))
     problems = []
@@ -135,9 +158,9 @@ def test_h700_shim_converged():
     if "|| has_pakz" in body:
         problems.append("the h700 shim still triggers an install on a pakz alone")
     if problems:
-        fail("the h700 shim installs only for MinUI.zip", "; ".join(problems))
+        fail("the h700 shim installs only for a first install", "; ".join(problems))
     else:
-        ok("the h700 shim installs only for MinUI.zip")
+        ok("the h700 shim installs only for a first install")
 
 
 def test_bootstrap_minui_zip_kept():
@@ -214,6 +237,11 @@ def make_sandbox(platform, work):
     os.makedirs(sdcard)
     write_exec(os.path.join(sb, platform, "unzip"), UNZIP_SHIM)
     write_exec(os.path.join(sb, platform, "show2.elf"), "#!/bin/sh\nexit 0\n")
+    if platform == "h700":
+        # .tmp_update/h700.sh sources these beside itself before .system exists.
+        shutil.copy(os.path.join(H700_HELPERS, "h700-install.sh"),
+                    os.path.join(sb, platform, "h700-install.sh"))
+        shutil.copy(SHIM_COMMON, os.path.join(sb, platform, "shim-common.sh"))
     bindir = os.path.join(sb, "bin")
     os.makedirs(bindir)
     write_exec(os.path.join(bindir, "poweroff"), POWEROFF_SHIM)
@@ -226,21 +254,31 @@ def make_sandbox(platform, work):
 
 
 def run_boot(sb, sdcard, bindir, platform):
+    """Run the install boot script; return (reached_poweroff, returncode)."""
     env = dict(os.environ)
     env["BOOT_TEST_SDCARD"] = sdcard
     env["POWEROFF_MARKER"] = os.path.join(sb, "poweroff.marker")
     env["PATH"] = bindir + os.pathsep + env["PATH"]
     script = os.path.join(sb, "%s.sh" % platform)
     with open(os.path.join(sb, "boot.stderr"), "w") as err:
-        subprocess.run(["timeout", "30", "sh", script],
-                       cwd=sb, env=env, stdout=subprocess.DEVNULL, stderr=err)
-    return os.path.exists(env["POWEROFF_MARKER"])
+        proc = subprocess.run(["timeout", "30", "sh", script],
+                              cwd=sb, env=env, stdout=subprocess.DEVNULL, stderr=err)
+    return os.path.exists(env["POWEROFF_MARKER"]), proc.returncode
+
+
+def completed(platform, reached_poweroff, returncode):
+    # tg5040/tg5050 end in poweroff; h700 execs launch.sh and exits 0.
+    return reached_poweroff if platform in ("tg5040", "tg5050") else returncode == 0
 
 
 def build_pak(path, entries):
     with zipfile.ZipFile(path, "w") as archive:
         for name, data in entries.items():
             archive.writestr(name, data)
+
+
+def launch_script(marker):
+    return '#!/bin/sh\necho launched > "%s"\n' % marker
 
 
 def test_bluetooth_pak_installs():
@@ -252,7 +290,7 @@ def test_bluetooth_pak_installs():
             ".update_bluez/usr/bin/bluetoothctl": "stub\n",
             "post_install.sh": '#!/bin/sh\necho ran > "%s"\n' % ran,
         })
-        reached = run_boot(sb, sdcard, bindir, "tg5040")
+        reached, _ = run_boot(sb, sdcard, bindir, "tg5040")
         problems = []
         if not reached:
             problems.append("boot did not run to completion")
@@ -282,7 +320,7 @@ def test_rogue_pakz_rejected():
             "evil_payload": "pwned\n",
             "post_install.sh": '#!/bin/sh\necho pwned > "%s"\n' % ran,
         })
-        reached = run_boot(sb, sdcard, bindir, "tg5040")
+        reached, _ = run_boot(sb, sdcard, bindir, "tg5040")
         problems = []
         if not reached:
             problems.append("boot did not run to completion")
@@ -313,12 +351,11 @@ def test_first_install_from_minui_zip():
         install_ran = os.path.join(sdcard, ".install_ran")
         update_zip = os.path.join(sdcard, "MinUI.zip")
         build_pak(update_zip, {
-            ".system/tg5040/paks/MinUI.pak/launch.sh":
-                '#!/bin/sh\necho launched > "%s"\n' % launch_ran,
+            ".system/tg5040/paks/MinUI.pak/launch.sh": launch_script(launch_ran),
             ".system/tg5040/bin/install.sh":
                 '#!/bin/sh\necho installed > "%s"\n' % install_ran,
         })
-        reached = run_boot(sb, sdcard, bindir, "tg5040")
+        reached, _ = run_boot(sb, sdcard, bindir, "tg5040")
         problems = []
         if not reached:
             problems.append("boot did not run to completion")
@@ -339,6 +376,86 @@ def test_first_install_from_minui_zip():
         shutil.rmtree(work, ignore_errors=True)
 
 
+def test_h700_first_install_from_minui_zip():
+    work = tempfile.mkdtemp(prefix="nextui-boot-path.")
+    try:
+        sb, sdcard, bindir = make_sandbox("h700", work)
+        launch_ran = os.path.join(sdcard, ".launch_ran")
+        install_ran = os.path.join(sdcard, ".install_ran")
+        update_zip = os.path.join(sdcard, "MinUI.zip")
+        build_pak(update_zip, {
+            ".system/h700/paks/MinUI.pak/launch.sh": launch_script(launch_ran),
+            ".system/h700/bin/install.sh":
+                '#!/bin/sh\necho installed > "%s"\n' % install_ran,
+        })
+        _, rc = run_boot(sb, sdcard, bindir, "h700")
+        problems = []
+        if rc != 0:
+            problems.append("the h700 installer did not exit cleanly (rc=%d)" % rc)
+        if not os.path.exists(launch_ran):
+            problems.append("launch.sh did not run")
+        if not os.path.exists(install_ran):
+            problems.append("install.sh did not run")
+        if os.path.exists(update_zip):
+            problems.append("MinUI.zip was not consumed")
+        if problems:
+            fail("the h700 MinUI.zip first install still works", "; ".join(problems))
+        else:
+            ok("the h700 MinUI.zip first install still works")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def test_installed_system_minui_zip_ignored():
+    # On every platform, an already-installed .system must not be overwritten by
+    # a dropped MinUI.zip: the zip is left untouched and the installed system
+    # still launches. Everyday updates go through the signed nextupd path.
+    work = tempfile.mkdtemp(prefix="nextui-boot-path.")
+    try:
+        for platform in ("tg5040", "tg5050", "h700"):
+            sb, sdcard, bindir = make_sandbox(platform, work)
+            system_dir = os.path.join(sdcard, ".system", platform)
+            launch = os.path.join(system_dir, "paks", "MinUI.pak", "launch.sh")
+            os.makedirs(os.path.dirname(launch))
+            launch_ran = os.path.join(sdcard, ".installed_launch_ran")
+            write_exec(launch, launch_script(launch_ran))
+            sentinel = os.path.join(system_dir, "SENTINEL")
+            with open(sentinel, "w") as handle:
+                handle.write("original\n")
+            pwned = os.path.join(sdcard, ".pwned")
+            update_zip = os.path.join(sdcard, "MinUI.zip")
+            build_pak(update_zip, {
+                ".system/%s/SENTINEL" % platform: "pwned\n",
+                ".system/%s/paks/MinUI.pak/launch.sh" % platform:
+                    '#!/bin/sh\necho pwned > "%s"\n' % pwned,
+                "evil_marker": "pwned\n",
+            })
+            reached, rc = run_boot(sb, sdcard, bindir, platform)
+            problems = []
+            if not completed(platform, reached, rc):
+                problems.append("boot did not run to completion")
+            if not os.path.exists(update_zip):
+                problems.append("the MinUI.zip was consumed on an installed system")
+            with open(sentinel) as handle:
+                if handle.read().strip() != "original":
+                    problems.append("the installed .system was overwritten")
+            if not os.path.exists(launch_ran):
+                problems.append("the installed system did not launch")
+            if os.path.exists(pwned):
+                problems.append("the malicious launch.sh ran")
+            if os.path.exists(os.path.join(sdcard, "evil_marker")):
+                problems.append("the malicious zip was extracted")
+            if os.path.exists(os.path.join(sdcard, ".tmp_update")):
+                problems.append("the run wrote .tmp_update")
+            label = "a dropped MinUI.zip cannot overwrite an installed system (%s)" % platform
+            if problems:
+                fail(label, "; ".join(problems))
+            else:
+                ok(label)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def test_wrong_platform_pakz_ignored():
     work = tempfile.mkdtemp(prefix="nextui-boot-path.")
     try:
@@ -353,7 +470,7 @@ def test_wrong_platform_pakz_ignored():
         })
         evil = os.path.join(sdcard, "evil.pakz")
         build_pak(evil, {"evil_payload": "pwned\n"})
-        reached = run_boot(sb, sdcard, bindir, "tg5050")
+        reached, _ = run_boot(sb, sdcard, bindir, "tg5050")
         problems = []
         if not reached:
             problems.append("boot did not run to completion")
@@ -377,12 +494,14 @@ def main():
     if not os.path.isdir(REPO):
         print("FAIL: no repository at %s" % REPO, file=sys.stderr)
         return 1
-    for path in list(INSTALL_SCRIPTS.values()) + [H700_SHIM, BOOT_STRINGS]:
+    for path in list(INSTALL_SCRIPTS.values()) + [H700_SHIM, H700_HELPERS, SHIM_COMMON,
+                                                  BOOT_STRINGS]:
         if not os.path.exists(path):
             print("FAIL: missing %s" % path, file=sys.stderr)
             return 1
     test_syntax()
     test_no_pakz_glob()
+    test_minui_zip_gated_first_install()
     test_tg5040_keeps_bluetooth_pak()
     test_h700_shim_converged()
     test_bootstrap_minui_zip_kept()
@@ -390,6 +509,8 @@ def main():
     test_bluetooth_pak_installs()
     test_rogue_pakz_rejected()
     test_first_install_from_minui_zip()
+    test_h700_first_install_from_minui_zip()
+    test_installed_system_minui_zip_ignored()
     test_wrong_platform_pakz_ignored()
     if FAIL:
         print("%d check(s) failed" % FAIL, file=sys.stderr)
