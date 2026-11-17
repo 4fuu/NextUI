@@ -2277,9 +2277,9 @@ as they happen; nothing is reported as passing without a run.
   into main as `008ffde` (final head `58cc0e37`, six checks green, 17 boot
   tests and the full host suite local pass, the installed-system MinUI.zip
   overwrite blocked on tg5040/tg5050/h700 and the h700 shim per the merge
-  owner's final report; the post-merge CI is still in progress and the
-  explicit BlueZ pak is unsigned, so no complete boot-path certification is
-  claimed), and the U5 implementation scope is
+  owner's final report; the post-merge CI on `008ffde` is all success per gh
+  and the explicit BlueZ pak is unsigned, so no complete boot-path
+  certification is claimed), and the U5 implementation scope is
   recorded as not closed -- the production-source thread keeps holding the
   key-independent workflow preparation and configuration validation, and PR
   #46's head advanced to `f7ccf2c` after the merge owner independently found
@@ -2317,7 +2317,14 @@ as they happen; nothing is reported as passing without a run.
   old "F4 — Pak Store single-sourcing" entry, which PR #38's commit `052a72b`
   had updated, while this schedule had already replaced it with the
   owner-confirmed F4 removal entry; the resolution keeps this schedule's
-  replacement and records the supersession in the F4 section.
+  replacement and records the supersession in the F4 section. Re-verified
+  2026-11-17 after the PR #44 and PR #45 merges: `gh pr view 31` and
+  `git ls-remote origin refs/pull/31/head` both report the branch and PR #31
+  head at `5a19e51`, OPEN and MERGEABLE per gh (UNSTABLE only because the
+  required checks on the new head are still running); the branch's merge-base
+  with `origin/main` is `cb622fa` and it now carries its content commits
+  directly on top of that instead of merging main into it every round, so no
+  other schedule pull request is created or closed over an older reading.
 - The current update travels on the branch `docs/schedule-update-11` (earlier
   schedule branches merged as `3ae1ddf`,
   `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
@@ -2325,4 +2332,6 @@ as they happen; nothing is reported as passing without a run.
   later real changes fold into it instead of opening another one, which is why
   the PR #32, PR #33, PR #34, PR #35, PR #36, U10, F6, and merge facts ride
   the same branch. The schedule baseline moved to `4c5398f` with the PR #37
-  merge (PR #38 merged just below it at `1f737c9`).
+  merge (PR #38 merged just below it at `1f737c9`), then to `5b66d70` with the
+  PR #42 merge, then to `5fed2b3` with the PR #44 merge, and now to `008ffde`
+  with the PR #45 merge (2026-11-17 per gh).
