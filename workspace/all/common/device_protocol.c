@@ -919,6 +919,8 @@ int device_protocol_write_app_action_response(const DeviceSession* session,
         writer_char(&writer, '"');
     }
     writer_prefix(&writer, &first);
+    writer_field_string(&writer, "app", session->app);
+    writer_prefix(&writer, &first);
     writer_field_string(&writer, "action", action != NULL ? action : "");
     writer_prefix(&writer, &first);
     writer_field_bool(&writer, "handled_by_app", handled_by_app);

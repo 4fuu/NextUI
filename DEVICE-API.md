@@ -36,16 +36,16 @@ revokes anything; default-allow is independent of the session lifecycle.
 C4 has one resident observer, one hardware display layer, and one launch parent:
 
 - **keymon observes FN1/FN2 and the system keys.** FN1/FN2 come from the same
-  SDL joystick events the app's `PAD_poll` reads. HOME, volume, brightness and
-  the MENU/SELECT modifiers come from `EVIOCGKEY` on the evdev nodes that
-  advertise them (Brick Pro: `KEY_HOMEPAGE` 172, `KEY_VOLUMEUP/DOWN` 115/114 on
-  the TRIMUI Player1 / sunxi-keyboard nodes; brightness 224/225; MENU/SELECT
-  316/314). `EVIOCGKEY` reads the kernel's key bitmap without consuming the
-  event queue, so an app that opened or grabbed the node cannot hide these
-  keys, and keymon never steals input from the app. It never signals a process
-  and never puts a PID in a request. Brick Pro HOME is not a joystick button:
-  the real js0 capture exposes only buttons 0-10, so keymon does not forward a
-  guessed `JOY_MENU_ALT` index.
+  SDL joystick events the app's `PAD_poll` reads. HOME, volume, brightness,
+  MENU/SELECT and the overlay's d-pad/A/B navigation come from `EVIOCGKEY`
+  (plus `EVIOCGABS(ABS_HAT0Y)` for a hat-style d-pad) on the evdev nodes that
+  advertise them (Brick Pro: `KEY_HOMEPAGE` 172, `KEY_VOLUMEUP/DOWN` 115/114,
+  brightness 224/225, MENU/SELECT 316/314; navigation uses `BTN_DPAD_UP/DOWN`,
+  `BTN_SOUTH/EAST`, `KEY_UP/DOWN/ENTER/ESC` and the hat). The state query does
+  not consume the event queue, so it keeps working after the app opens or
+  grabs its node. Keymon never signals a process and never puts a PID in a
+  request. Brick Pro HOME is not a joystick button: the real js0 capture exposes
+  only buttons 0-10, so keymon does not forward a guessed `JOY_MENU_ALT` index.
 - **devserv routes each request for the active session.** A request carries the
   monotonic press time and may carry the generation id. A request from a previous
   session, or one whose press predates the active session, returns
@@ -61,14 +61,16 @@ C4 has one resident observer, one hardware display layer, and one launch parent:
 - **keymon draws the fallback overlay in a separate display layer.** The
   foreground app owns `/dev/fb0` and presents at 60 fps, often with page
   flipping; writing fb0 from another process would race the app and could not be
-  restored cleanly. `UIOverlay` draws into the calling app's SDL/GFX surface,
-  which a resident process cannot obtain. keymon therefore renders a compact
-  panel with the system TTF font into a sunxi disp2 layer above fb0 (channel 1,
-  layer 1-3; fb0 is layer 0), using `DISP_MEM_REQUEST` for a scanout buffer and
-  `DISP_LAYER_SET_CONFIG` with ARGB pixel alpha. Hiding disables the layer; the
-  app's frame was never touched. If `/dev/disp`, a free layer or the colour
-  layer allocation is unavailable, keymon logs the reason and HOME falls back to
-  the previous return-to-desktop exit.
+  restored cleanly. keymon creates a full-screen ARGB GFX surface over a sunxi
+  disp2 scanout buffer and draws the real shared components into it:
+  `UIOverlay_draw()` for the centred panel, `GFX_blitHardwareGroup()` for the
+  top-right battery/status group, `GFX_blitHardwareIndicator()` for
+  volume/brightness/colour-temperature HUDs, and `GFX_blitButtonGroup()` for the
+  launcher-style bottom hint bar. Theme colours and fonts come from the user's
+  `minuisettings.txt` through `CFG`. The layer is channel 1, layer 1-3 (fb0 is
+  layer 0); hiding disables it and the app's frame was never touched. If
+  `/dev/disp`, a free layer or the scanout allocation is unavailable, keymon
+  logs the reason and HOME falls back to the previous return-to-desktop exit.
 - **the launch parent enforces exit.** `nextui_session_run` starts the app in a
   new process group with nextdev's built-in launcher (or a system `setsid` when
   an older nextdev is installed), polls `session-status`, sends `SIGTERM` to
@@ -78,12 +80,18 @@ C4 has one resident observer, one hardware display layer, and one launch parent:
   Pro's rootfs has no `setsid` and its busybox has no `kill --`; the helper does
   not depend on either.
 
-The system overlay shows battery/charging state, volume, brightness, mute and
-the session actions. HOME opens it with Resume and Exit to desktop; VOL+/-
-moves the selection and HOME selects (the app's event stream is not grabbed, so
-A/B/d-pad are deliberately not consumed). It auto-hides after 5 s; volume,
-brightness and mute HUDs auto-hide after 1.6 s. While it is open keymon polls
-`session-status` every 500 ms and hides the layer if the session ends.
+The system overlay's HOME panel contains Resume, Exit to desktop, Wi-Fi and
+Bluetooth, in that order, and shows the app name in its header. The Wi-Fi and
+Bluetooth rows call the same `WIFI_enable`/`BT_enable` platform backend as the
+launcher's HOME overlay. While the panel is open keymon holds `EVIOCGRAB` on the
+system/navigation evdev nodes; the app receives no d-pad/A/B/HOME/volume input.
+D-pad up/down moves the selection, A confirms, B or HOME closes. Closing,
+session end, switching to a HUD, normal keymon exit and SIGTERM all release the
+grab; `SystemGrab_release()` is idempotent. The panel auto-hides after 5 s;
+volume/brightness/mute HUDs auto-hide after 1.6 s and never grab input. While it
+is open keymon polls `session-status` every 500 ms and hides the layer if the
+session ends. Adapted apps (`overlay_host`) still return `handled_by_app` and
+keep their own in-process overlay; the system never draws or grabs for them.
 
 This is source and host-render evidence. Physical display-layer composition,
 the real key codes and volume/brightness persistence remain device acceptance

@@ -25,7 +25,8 @@ fi
     $(pkg-config --cflags sdl2 SDL2_ttf) \
     -I"$ROOT/workspace/tg5040/keymon" \
     "$ROOT/workspace/all/common/tests/keymon_fn_forward_test.c" \
-    "$ROOT/workspace/tg5040/keymon/system_overlay.c" \
+    "$ROOT/workspace/tg5040/keymon/keymon_platform.c" \
+    "$ROOT/workspace/tg5040/keymon/system_grab.c" \
     -o "$BUILD/keymon_fn_forward_test" \
     $(pkg-config --libs sdl2 SDL2_ttf) -L"$PREFIX_LOCAL/lib" -lmsettings -lpthread -lrt -ldl
 

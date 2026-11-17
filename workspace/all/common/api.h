@@ -314,6 +314,10 @@ SDL_Surface* GFX_init(int mode);
  * be mixed with GFX_init()/GFX_flip(). Returns the logical screen surface used
  * for palette mapping, or NULL when fonts/assets are unavailable. */
 SDL_Surface* GFX_initAttached(int width, int height);
+/* Same as GFX_initAttached(), but wraps caller-owned ARGB8888 pixels instead
+ * of allocating a surface. The pixel buffer must stay valid until
+ * GFX_quitAttached(), which frees the surface wrapper but not the pixels. */
+SDL_Surface* GFX_initAttachedPixels(void* pixels, int width, int height);
 void GFX_quitAttached(void);
 #define GFX_resize PLAT_resizeVideo				// (int w, int h, int pitch);
 #define GFX_setSharpness PLAT_setSharpness // (int sharpness)
@@ -597,6 +601,9 @@ int PWR_preventAutosleep(void);
 int PWR_isCharging(void);
 int PWR_isUSBConnected(void);
 int PWR_getBattery(void);
+/* Update the cached battery state drawn by GFX_blitBattery* without starting
+ * the PWR monitor thread. Used by the resident system overlay. */
+void PWR_setBatteryStatus(int charging, int percent);
 
 int PWR_isOnline(void);
 

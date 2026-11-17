@@ -11,56 +11,88 @@ and the existing session supervisor, never `kill --`.
   app that declares `"overlay"` (for example `Clock.pak`).
 - Start from the desktop, launch Moonlight, and wait until it is streaming or
   showing its own UI.
-- Keep an ADB shell available for `ps` and the keymon console log.
+- Keep an ADB shell available for `ps`, `evtest`, and the keymon console log.
 
 ## Checks
 
-1. **HOME in an unadapted app.** Press HOME. Expect a centred system panel with
-   battery percentage/charging state, volume, brightness, mute state, and the
-   rows `RESUME` and `EXIT TO DESKTOP`. The Moonlight picture must still be
-   visible around the panel; the app must not be covered by a full-screen black
-   frame. Press VOL+ once: the selection moves to `EXIT TO DESKTOP`. Press HOME:
-   Moonlight closes and the desktop returns within about 1.5 s. `ps` must show
-   one keymon and no orphaned app process.
-2. **HOME dismiss.** Repeat, but leave `RESUME` selected and press HOME. The
-   panel disappears and Moonlight keeps running with its picture intact. Wait
-   5 s without pressing anything: the panel auto-hides.
-3. **Volume.** In Moonlight, press VOL+ three times and VOL- twice. Each press
-   must change the actual output level by one step and show a bottom
-   `VOLUME` panel. Hold VOL+: after about 300 ms it repeats at roughly 100 ms
-   intervals; the panel hides about 1.6 s after the last change.
-4. **Brightness.** Hold MENU and press VOL+ / VOL-. Brightness must change and
-   the bottom panel must show `BRIGHTNESS`; releasing MENU does not crash or
-   leave the panel stuck.
-5. **Adapted app is unchanged.** Launch Clock, press HOME: Clock's own shared
-   overlay must open, and there must not be a second system panel behind/over
-   it. Press VOL+: Clock's own indicator appears, not the system HUD. HOME again
-   closes Clock's overlay.
-6. **Desktop is unchanged.** On the desktop, HOME and volume must behave exactly
+1. **HOME in an unadapted app.** Press HOME. Expect the shared UIOverlay panel
+   in the centre, the battery/status group in the exact top-right position of
+   the main screen, and the launcher-style key hint bar across the bottom of
+   the screen (outside the panel). The panel header shows `System` and the app
+   name (`Moonlight`). Rows are `Resume`, `Exit to desktop`, `Wi-Fi`, `Bluetooth`;
+   Wi-Fi/Bluetooth show their current state. The Moonlight picture must remain
+   visible around the panel; there must be no in-panel footer and no full-screen
+   black frame.
+2. **Input is owned while HOME is open.** With the panel open, press the d-pad
+   up/down: the row highlight moves only in the panel and Moonlight receives no
+   input. Press A: the selected row runs (Resume closes, Exit closes the app,
+   Wi-Fi/Bluetooth toggle). Press B or HOME: the panel closes immediately.
+   After closing, Moonlight must receive d-pad/A/B again. Confirm with
+   `evtest`/the Moonlight input test that no key is stuck or swallowed.
+3. **Exit to desktop.** Open HOME, move to `Exit to desktop`, press A. The panel
+   closes, Moonlight exits through the session supervisor, and the desktop
+   returns within about 1.5 s. `ps` must show one keymon and no orphaned app
+   process. Reboot while the panel is open (or kill keymon with `SIGTERM` and
+   relaunch the launcher): input must be released, not permanently grabbed.
+4. **Resume and auto-hide.** Open HOME, leave `Resume` selected, press A or
+   B/HOME. The panel disappears and Moonlight keeps running with its picture
+   intact. Wait 5 s without pressing anything: the panel auto-hides. Every hide
+   releases the evdev grab.
+5. **Volume.** In Moonlight, press VOL+ three times and VOL- twice. Each press
+   must change the actual output level by one step and show the top-right
+   hardware pill (`GFX_blitHardwareIndicator`, main-screen position). Hold VOL+:
+   after about 300 ms it repeats at roughly 100 ms intervals; the pill hides
+   about 1.6 s after the last change. Volume HUDs do not grab input.
+6. **Brightness and colour temperature.** Hold MENU and press VOL+ / VOL-:
+   brightness changes and the top-right pill appears. Hold SELECT and press
+   VOL+ / VOL- for colour temperature. Releasing the modifier does not crash or
+   leave the pill stuck.
+7. **Wi-Fi and Bluetooth.** While Moonlight is running, open HOME and toggle
+   Wi-Fi and Bluetooth with A. The row state must change (`On`/`Off`), the
+   setting must persist across reboot, and the same platform backend used by the
+   launcher HOME overlay must be exercised. Toggling must not close the panel
+   or release the grab early.
+8. **Adapted app is unchanged.** Launch Clock, press HOME: Clock's own shared
+   overlay opens, with no second system panel behind/over it and no system
+   grab. Press VOL+: Clock's own indicator appears, not the system pill. HOME
+   again closes Clock's overlay. `run_devserv_test.sh` proves the
+   `handled_by_app` contract at the host level.
+9. **Desktop is unchanged.** On the desktop, HOME and volume must behave exactly
    as before (NextUI's own overlay/indicator); keymon must not draw a system
-   panel because devserv reports no active app session.
-7. **Mute switch.** Toggle the hardware mute switch while Moonlight is running:
-   expect a `MUTED`/`SOUND ON` panel and the existing haptic pulse. Toggle it on
-   the desktop: NextUI's own indicator only.
-8. **Failure/degradation.** Reboot and check the keymon console output. If it
-   contains `system-overlay:` or `system overlay unavailable`, note the reason.
-   With the layer unavailable, HOME must still fall back to returning to the
-   desktop; volume/brightness must still change (without the system HUD).
+   panel because devserv reports no active app session. The system grab must
+   never be active on the desktop.
+10. **Mute switch.** Toggle the hardware mute switch while Moonlight is running:
+    expect the top-right volume pill plus the `Muted` hint and the existing
+    haptic pulse. Toggle it on the desktop: NextUI's own indicator only.
+11. **Failure/degradation.** Reboot and check the keymon console output. If it
+    contains `system-overlay:` or `system overlay unavailable`, note the reason.
+    With the layer unavailable, HOME must still fall back to returning to the
+    desktop; volume/brightness must still change (without the system HUD). If
+    `/dev/disp` allocation fails, the fallback must not leave a grab or a layer
+    enabled.
 
 ## What to report
 
-- Which checks passed/failed, with a photo of the HOME panel over Moonlight and
-  one volume HUD.
+- Which checks passed/failed, with photos of the HOME panel over Moonlight
+  (English and Simplified Chinese) and one volume HUD.
 - `ps` output after an overlay Exit, plus any `system-overlay:` console lines.
 - Whether volume moved by exactly one step per press or skipped/duplicated.
 - `dmesg | grep -i disp` and `ls -l /dev/disp` if the panel is absent or black.
+- The app name shown in the panel header and whether Wi-Fi/Bluetooth state
+  matches the settings screen.
 
 ## Known limits
 
-- The overlay is a sunxi disp2 layer above fb0. It is not an in-app SDL surface;
-  it does not capture A/B/d-pad, so the menu uses VOL+/- and HOME deliberately.
-- A keymon `SIGKILL` cannot disable the layer; a reboot clears it. The normal
-  hide, session-end and SIGTERM paths do disable it.
+- The overlay is a full-screen sunxi disp2 layer above fb0. The app still owns
+  fb0; disabling the layer restores its untouched frame. Pixel alpha on the
+  layer (the dim behind the panel) and the 3 MiB contiguous allocation still
+  need this physical pass.
+- While HOME is open, keymon holds `EVIOCGRAB` on the evdev nodes that expose
+  HOME/volume/navigation. This is intentional: the app must not receive panel
+  input. Every close, session-end, HUD switch, normal exit and SIGTERM path
+  releases the grab; a SIGKILL is recovered by the kernel when the fd closes.
+- The overlay does not consume A/B/d-pad when it is closed. Volume HUDs never
+  grab. Adapted apps (`overlay_host`) remain entirely app-drawn.
 - Apps that grab and hold the ALSA mixer can override keymon's volume write;
   brightness is a global display setting. Report this separately from the
   overlay feedback path.

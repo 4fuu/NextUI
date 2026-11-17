@@ -26,11 +26,13 @@
 #include "fn_action.h"
 #include "sdl.h"
 #include "system_overlay.h"
+#include "system_grab.h"
 
-// keymon is a separate process from the app, so it owns its own copies of the
-// model globals that platform.h's JOY_* macros use.
-int is_brick = 0;
-int is_brickpro = 0;
+/* api.c owns the GFX battery cache, but including all of api.h here collides
+ * with <linux/input.h>'s BTN_A macro and would hide defines.h's BTN_ID_* enum.
+ * keymon only needs this one setter. */
+void PWR_setBatteryStatus(int charging, int percent);
+void PLAT_initPlatform(void);
 
 #define VOLUME_MIN 		0
 #define VOLUME_MAX 		20
@@ -38,6 +40,33 @@ int is_brickpro = 0;
 #define BRIGHTNESS_MAX 	10
 #define COLORTEMP_MIN 	0
 #define COLORTEMP_MAX 	40
+
+/* Linux 4.9 input-event-codes has all of these; keep the numeric ABI local so
+ * an older cross header cannot break the resident daemon build. */
+#ifndef BTN_DPAD_UP
+#define BTN_DPAD_UP 0x220
+#endif
+#ifndef BTN_DPAD_DOWN
+#define BTN_DPAD_DOWN 0x221
+#endif
+#ifndef BTN_SOUTH
+#define BTN_SOUTH 0x130
+#endif
+#ifndef BTN_EAST
+#define BTN_EAST 0x131
+#endif
+#ifndef KEY_UP
+#define KEY_UP 103
+#endif
+#ifndef KEY_DOWN
+#define KEY_DOWN 108
+#endif
+#ifndef KEY_ENTER
+#define KEY_ENTER 28
+#endif
+#ifndef KEY_ESC
+#define KEY_ESC 1
+#endif
 
 #define CODE_MENU0		314
 #define CODE_MENU2		316
@@ -220,6 +249,26 @@ static int response_field_true(const char* response, const char* field) {
 	return strstr(response, needle) != NULL;
 }
 
+static int response_string(const char* response, const char* field, char* out, size_t out_size) {
+	char needle[64];
+	const char* cursor;
+	size_t used = 0;
+
+	if (!out || out_size == 0) return 0;
+	out[0] = '\0';
+	if (!response || !field) return 0;
+	snprintf(needle, sizeof needle, "\"%s\":\"", field);
+	cursor = strstr(response, needle);
+	if (!cursor) return 0;
+	cursor += strlen(needle);
+	while (cursor[used] && cursor[used] != '"' && used + 1 < out_size) {
+		out[used] = cursor[used];
+		used++;
+	}
+	out[used] = '\0';
+	return used > 0;
+}
+
 static int response_session_id(const char* response, char* out, size_t out_size) {
 	const char* cursor;
 	size_t used = 0;
@@ -256,17 +305,20 @@ static int request_feedback(const char* action, char* session_id, size_t session
 // 1 = the system overlay must draw, 0 = the app handled it or no session
 // exists, 2 = an older devserv turned HOME into an exit, -1 = no service.
 static int request_overlay_open(unsigned long long at_ms, char* session_id,
-								size_t session_size, int* handled_by_app) {
+								size_t session_size, char* app_name, size_t app_size,
+								int* handled_by_app) {
 	char request[192];
 	char response[DEVSERV_RESPONSE_MAX];
 
 	if (session_id && session_size) session_id[0] = '\0';
+	if (app_name && app_size) app_name[0] = '\0';
 	if (handled_by_app) *handled_by_app = 0;
 	if (at_ms == 0) return -1;
 	snprintf(request, sizeof request,
 		"{\"op\":\"app-action\",\"action\":\"overlay\",\"at_ms\":%llu}\n", at_ms);
 	if (devserv_request(request, response, sizeof response) != 0) return -1;
 	if (session_id) response_session_id(response, session_id, session_size);
+	if (app_name) response_string(response, "app", app_name, app_size);
 	if (response_field_true(response, "handled_by_app")) {
 		if (handled_by_app) *handled_by_app = 1;
 		return 0;
@@ -322,92 +374,63 @@ static int read_int_path(const char* path, int* out) {
 	return 1;
 }
 
-static void overlay_font_path(char* out, size_t out_size) {
-	char font[64] = "font1.ttf";
-	const char* system_path;
-
-	read_settings_value("font=", font, sizeof font);
-	if (strcmp(font, "1") == 0) snprintf(font, sizeof font, "font1.ttf");
-	else if (strcmp(font, "0") == 0) snprintf(font, sizeof font, "font2.ttf");
-	else if (!font[0] || !strstr(font, ".ttf") || strchr(font, '/') || strstr(font, "..")) {
-		snprintf(font, sizeof font, "font1.ttf");
-	}
-	system_path = getenv("SYSTEM_PATH");
-	if (system_path && system_path[0]) {
-		snprintf(out, out_size, "%s/../res/%s", system_path, font);
-		if (access(out, R_OK) != 0) {
-			snprintf(out, out_size, "%s/../res/font1.ttf", system_path);
-		}
-	}
-	else {
-		snprintf(out, out_size, "%s/%s", RES_PATH, font);
-		if (access(out, R_OK) != 0) {
-			snprintf(out, out_size, "%s/font1.ttf", RES_PATH);
-		}
-	}
-}
-
-static int overlay_selected = 0;
 static char overlay_session_id[SYSTEM_OVERLAY_SESSION_MAX] = "";
+static uint32_t system_key_mask = 0;
 static unsigned long long overlay_hide_at = 0;
 static unsigned long long overlay_session_check_at = 0;
 
-static void overlay_status(SystemOverlayStatus* status, int can_exit) {
-	int value = 0;
-
-	memset(status, 0, sizeof *status);
-	status->battery_percent = -1;
-	if (read_int_path("/sys/class/power_supply/axp2202-battery/capacity", &value)) {
-		status->battery_percent = value;
-	}
-	value = 0;
-	if (read_int_path("/sys/class/power_supply/axp2202-usb/online", &value)) {
-		status->charging = value == 1
-			&& (status->battery_percent < 0 || status->battery_percent < 100);
-	}
-	status->volume = GetVolume();
-	status->volume_max = VOLUME_MAX;
-	status->brightness = GetBrightness();
-	status->brightness_max = BRIGHTNESS_MAX;
-	status->colortemp = GetColortemp();
-	status->colortemp_max = COLORTEMP_MAX;
-	status->muted = GetMute();
-	status->can_exit = can_exit;
-}
-
-static int overlay_render(SystemOverlayMode mode, int selected, unsigned int hide_ms,
-						  const char* session_id) {
-	SystemOverlayStatus status;
-
-	overlay_status(&status, session_id && session_id[0]);
-	if (SystemOverlay_render(mode, &status, selected) != 0) return 0;
-	if (session_id && session_id != overlay_session_id) {
-		snprintf(overlay_session_id, sizeof overlay_session_id, "%s", session_id);
-	}
-	else if (!session_id) {
-		overlay_session_id[0] = '\0';
-	}
-	overlay_selected = selected;
-	overlay_hide_at = monotonic_ms() + hide_ms;
-	overlay_session_check_at = monotonic_ms() + 500;
-	return 1;
-}
-
 static void hide_overlay(void) {
+	SystemGrab_release();
 	SystemOverlay_hide();
 	overlay_session_id[0] = '\0';
-	overlay_selected = 0;
 	overlay_hide_at = 0;
 	overlay_session_check_at = 0;
 }
 
-static int show_home(const char* session_id) {
-	return overlay_render(SYSTEM_OVERLAY_HOME, 0, 5000, session_id);
+static void set_overlay_deadline(unsigned int hide_ms, const char* session_id) {
+	if (session_id && session_id[0]) {
+		snprintf(overlay_session_id, sizeof overlay_session_id, "%s", session_id);
+	}
+	else {
+		overlay_session_id[0] = '\0';
+	}
+	overlay_hide_at = monotonic_ms() + hide_ms;
+	overlay_session_check_at = monotonic_ms() + 500;
+}
+
+static void update_battery_status(void) {
+	int charging = 0;
+	int percent = 0;
+	int value = 0;
+
+	if (read_int_path("/sys/class/power_supply/axp2202-battery/capacity", &value)) {
+		percent = value;
+	}
+	value = 0;
+	if (read_int_path("/sys/class/power_supply/axp2202-usb/online", &value)) {
+		charging = value == 1 && percent < 100;
+	}
+	PWR_setBatteryStatus(charging, percent);
+}
+
+static int show_home(const char* session_id, const char* app_name) {
+	update_battery_status();
+	if (SystemOverlay_showHome(app_name) != 0) return 0;
+	if (SystemGrab_acquire(inputs, system_key_mask, INPUT_COUNT) == 0 && system_key_mask)
+		fprintf(stderr, "keymon: EVIOCGRAB unavailable; overlay input is not exclusive\n");
+	set_overlay_deadline(5000, session_id);
+	return 1;
+}
+
+static int feedback_mode(const char* action) {
+	if (strcmp(action, "volume") == 0) return SYSTEM_OVERLAY_VOLUME;
+	if (strcmp(action, "brightness") == 0) return SYSTEM_OVERLAY_BRIGHTNESS;
+	if (strcmp(action, "colortemp") == 0) return SYSTEM_OVERLAY_COLORTEMP;
+	return SYSTEM_OVERLAY_MUTE;
 }
 
 static int show_feedback(const char* action, unsigned int hide_ms) {
 	char session_id[SYSTEM_OVERLAY_SESSION_MAX];
-	SystemOverlayMode mode;
 	int route;
 
 	route = request_feedback(action, session_id, sizeof session_id);
@@ -416,47 +439,46 @@ static int show_feedback(const char* action, unsigned int hide_ms) {
 		return 0;
 	}
 
-	if (strcmp(action, "volume") == 0) mode = SYSTEM_OVERLAY_VOLUME;
-	else if (strcmp(action, "brightness") == 0) mode = SYSTEM_OVERLAY_BRIGHTNESS;
-	else if (strcmp(action, "colortemp") == 0) mode = SYSTEM_OVERLAY_COLORTEMP;
-	else mode = SYSTEM_OVERLAY_MUTE;
-
-	if (SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-		return overlay_render(SYSTEM_OVERLAY_HOME, overlay_selected, 5000, overlay_session_id);
-	}
-	return overlay_render(mode, 0, hide_ms, session_id);
+	if (SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) SystemGrab_release();
+	if (SystemOverlay_showIndicator(feedback_mode(action)) != 0) return 0;
+	set_overlay_deadline(hide_ms, session_id);
+	return 1;
 }
 
-static void activate_home(void) {
-	if (overlay_selected == 0 || !overlay_session_id[0]) {
+static void finish_home_input(int result) {
+	if (result == 2) {
+		(void)request_exit(monotonic_ms(), overlay_session_id);
 		hide_overlay();
-		return;
 	}
-	(void)request_exit(monotonic_ms(), overlay_session_id);
-	hide_overlay();
-}
-
-static void move_home_selection(int delta) {
-	if (!overlay_session_id[0]) return;
-	overlay_selected = (overlay_selected + 2 + delta) % 2;
-	(void)overlay_render(SYSTEM_OVERLAY_HOME, overlay_selected, 5000, overlay_session_id);
+	else if (result == 1) {
+		hide_overlay();
+	}
+	else {
+		overlay_hide_at = monotonic_ms() + 5000;
+	}
 }
 
 static void handle_home_press(void) {
 	unsigned long long at_ms = monotonic_ms();
 	char session_id[SYSTEM_OVERLAY_SESSION_MAX];
+	char app_name[64];
 	int route;
 
 	if (SystemOverlay_visible() && SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-		activate_home();
+		finish_home_input(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_CANCEL));
 		return;
 	}
 	if (SystemOverlay_visible()) hide_overlay();
 	if (at_ms == 0) return;
 
-	route = request_overlay_open(at_ms, session_id, sizeof session_id, NULL);
+	route = request_overlay_open(at_ms, session_id, sizeof session_id, app_name,
+								  sizeof app_name, NULL);
+	if (route == 2) {
+		(void)request_exit(at_ms, session_id);
+		return;
+	}
 	if (route != 1) return;
-	if (show_home(session_id)) return;
+	if (show_home(session_id, app_name)) return;
 
 	// The display layer is not available: keep the old HOME contract rather
 	// than leaving the user with a key that does nothing.
@@ -492,14 +514,13 @@ static int adjust_colortemp(int delta) {
 
 static void handle_mute_change(void) {
 	char session_id[SYSTEM_OVERLAY_SESSION_MAX];
-	if (SystemOverlay_visible() && SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-		(void)overlay_render(SYSTEM_OVERLAY_HOME, overlay_selected, 5000, overlay_session_id);
-		return;
-	}
 	if (request_feedback("mute", session_id, sizeof session_id) == 1) {
-		(void)overlay_render(SYSTEM_OVERLAY_MUTE, 0, 1600, session_id);
+		if (SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) SystemGrab_release();
+		if (SystemOverlay_showIndicator(SYSTEM_OVERLAY_MUTE) == 0) {
+			set_overlay_deadline(1600, session_id);
+		}
 	}
-	else if (SystemOverlay_visible()) {
+	else if (SystemOverlay_visible() && SystemOverlay_mode() != SYSTEM_OVERLAY_HOME) {
 		hide_overlay();
 	}
 }
@@ -532,6 +553,10 @@ typedef struct {
 	unsigned select;
 	unsigned brightness_up;
 	unsigned brightness_down;
+	unsigned nav_up;
+	unsigned nav_down;
+	unsigned accept;
+	unsigned cancel;
 } SystemKeyState;
 
 typedef struct {
@@ -539,6 +564,8 @@ typedef struct {
 	uint32_t volume_down_at;
 	uint32_t brightness_up_at;
 	uint32_t brightness_down_at;
+	uint32_t nav_up_at;
+	uint32_t nav_down_at;
 } SystemKeyRepeat;
 
 typedef enum {
@@ -550,6 +577,10 @@ typedef enum {
 	SYSKEY_EVENT_BRIGHTNESS_DOWN,
 	SYSKEY_EVENT_COLORTEMP_UP,
 	SYSKEY_EVENT_COLORTEMP_DOWN,
+	SYSKEY_EVENT_NAV_UP,
+	SYSKEY_EVENT_NAV_DOWN,
+	SYSKEY_EVENT_ACCEPT,
+	SYSKEY_EVENT_CANCEL,
 } SystemKeyEvent;
 
 static int key_bit(const unsigned char* bits, int code) {
@@ -558,6 +589,7 @@ static int key_bit(const unsigned char* bits, int code) {
 
 static uint32_t discover_system_keys(void) {
 	unsigned char bits[(KEY_MAX + 8) / 8];
+	unsigned char abs_bits[(ABS_MAX + 8) / 8];
 	uint32_t mask = 0;
 	int index;
 
@@ -565,10 +597,17 @@ static uint32_t discover_system_keys(void) {
 		if (inputs[index] < 0) continue;
 		memset(bits, 0, sizeof bits);
 		if (ioctl(inputs[index], EVIOCGBIT(EV_KEY, sizeof bits), bits) < 0) continue;
+		memset(abs_bits, 0, sizeof abs_bits);
+		int has_abs = ioctl(inputs[index], EVIOCGBIT(EV_ABS, sizeof abs_bits), abs_bits) >= 0;
 		if (key_bit(bits, KEY_HOMEPAGE) || key_bit(bits, KEY_VOLUMEUP)
 			|| key_bit(bits, KEY_VOLUMEDOWN) || key_bit(bits, CODE_MENU2)
 			|| key_bit(bits, CODE_MENU0) || key_bit(bits, KEY_BRIGHTNESSUP)
-			|| key_bit(bits, KEY_BRIGHTNESSDOWN)) {
+			|| key_bit(bits, KEY_BRIGHTNESSDOWN)
+			|| key_bit(bits, BTN_DPAD_UP) || key_bit(bits, BTN_DPAD_DOWN)
+			|| key_bit(bits, BTN_SOUTH) || key_bit(bits, BTN_EAST)
+			|| key_bit(bits, KEY_UP) || key_bit(bits, KEY_DOWN)
+			|| key_bit(bits, KEY_ENTER) || key_bit(bits, KEY_ESC)
+			|| (has_abs && key_bit(abs_bits, ABS_HAT0Y))) {
 			mask |= (uint32_t)1 << index;
 		}
 	}
@@ -591,6 +630,19 @@ static void read_system_key_state(SystemKeyState* state, uint32_t mask) {
 		state->select |= key_bit(bits, CODE_MENU0);
 		state->brightness_up |= key_bit(bits, KEY_BRIGHTNESSUP);
 		state->brightness_down |= key_bit(bits, KEY_BRIGHTNESSDOWN);
+		state->nav_up |= key_bit(bits, BTN_DPAD_UP) || key_bit(bits, KEY_UP);
+		state->nav_down |= key_bit(bits, BTN_DPAD_DOWN) || key_bit(bits, KEY_DOWN);
+		/* platform.h's JOY_A is 1 and JOY_B is 0: the stock release swapped
+		 * the physical labels relative to the evdev/SDL order. Match that
+		 * mapping so A confirms and B cancels on the device. */
+		state->accept |= key_bit(bits, BTN_EAST) || key_bit(bits, KEY_ENTER);
+		state->cancel |= key_bit(bits, BTN_SOUTH) || key_bit(bits, KEY_ESC);
+
+		struct input_absinfo hat;
+		if (ioctl(inputs[index], EVIOCGABS(ABS_HAT0Y), &hat) == 0) {
+			if (hat.value < 0) state->nav_up = 1;
+			else if (hat.value > 0) state->nav_down = 1;
+		}
 	}
 }
 
@@ -656,7 +708,46 @@ static int system_key_events(const SystemKeyState* previous, const SystemKeyStat
 		repeat->brightness_down_at = now + 100;
 	}
 
+	if (!current->nav_up) repeat->nav_up_at = 0;
+	else if (!previous->nav_up) {
+		count = push_event(events, count, capacity, SYSKEY_EVENT_NAV_UP);
+		repeat->nav_up_at = now + 300;
+	}
+	else if (repeat->nav_up_at == 0) repeat->nav_up_at = now + 300;
+	else if (now >= repeat->nav_up_at) {
+		count = push_event(events, count, capacity, SYSKEY_EVENT_NAV_UP);
+		repeat->nav_up_at = now + 100;
+	}
+
+	if (!current->nav_down) repeat->nav_down_at = 0;
+	else if (!previous->nav_down) {
+		count = push_event(events, count, capacity, SYSKEY_EVENT_NAV_DOWN);
+		repeat->nav_down_at = now + 300;
+	}
+	else if (repeat->nav_down_at == 0) repeat->nav_down_at = now + 300;
+	else if (now >= repeat->nav_down_at) {
+		count = push_event(events, count, capacity, SYSKEY_EVENT_NAV_DOWN);
+		repeat->nav_down_at = now + 100;
+	}
+
+	if (current->accept && !previous->accept)
+		count = push_event(events, count, capacity, SYSKEY_EVENT_ACCEPT);
+	if (current->cancel && !previous->cancel)
+		count = push_event(events, count, capacity, SYSKEY_EVENT_CANCEL);
+
 	return count;
+}
+
+static void handle_volume_key(int up) {
+	(void)adjust_volume(up ? 1 : -1);
+	/* HOME navigation is d-pad/A/B now. Volume keeps its own HUD and, if the
+	 * HOME panel was open, replaces it; show_feedback releases the grab first. */
+	(void)show_feedback("volume", 1600);
+}
+
+static void handle_overlay_nav(SystemOverlayInput input) {
+	if (!SystemOverlay_visible() || SystemOverlay_mode() != SYSTEM_OVERLAY_HOME) return;
+	finish_home_input(SystemOverlay_input(input));
 }
 
 static void handle_system_event(SystemKeyEvent event) {
@@ -665,62 +756,38 @@ static void handle_system_event(SystemKeyEvent event) {
 			handle_home_press();
 			break;
 		case SYSKEY_EVENT_VOLUME_UP:
-			if (SystemOverlay_visible() && SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-				move_home_selection(-1);
-			}
-			else {
-				(void)adjust_volume(1);
-				(void)show_feedback("volume", 1600);
-			}
+			handle_volume_key(1);
 			break;
 		case SYSKEY_EVENT_VOLUME_DOWN:
-			if (SystemOverlay_visible() && SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-				move_home_selection(1);
-			}
-			else {
-				(void)adjust_volume(-1);
-				(void)show_feedback("volume", 1600);
-			}
+			handle_volume_key(0);
 			break;
 		case SYSKEY_EVENT_BRIGHTNESS_UP:
 			(void)adjust_brightness(1);
-			if (SystemOverlay_visible() && SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-				(void)overlay_render(SYSTEM_OVERLAY_HOME, overlay_selected, 5000,
-					overlay_session_id);
-			}
-			else {
-				(void)show_feedback("brightness", 1600);
-			}
+			(void)show_feedback("brightness", 1600);
 			break;
 		case SYSKEY_EVENT_BRIGHTNESS_DOWN:
 			(void)adjust_brightness(-1);
-			if (SystemOverlay_visible() && SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-				(void)overlay_render(SYSTEM_OVERLAY_HOME, overlay_selected, 5000,
-					overlay_session_id);
-			}
-			else {
-				(void)show_feedback("brightness", 1600);
-			}
+			(void)show_feedback("brightness", 1600);
 			break;
 		case SYSKEY_EVENT_COLORTEMP_UP:
 			(void)adjust_colortemp(1);
-			if (SystemOverlay_visible() && SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-				(void)overlay_render(SYSTEM_OVERLAY_HOME, overlay_selected, 5000,
-					overlay_session_id);
-			}
-			else {
-				(void)show_feedback("colortemp", 1600);
-			}
+			(void)show_feedback("colortemp", 1600);
 			break;
 		case SYSKEY_EVENT_COLORTEMP_DOWN:
 			(void)adjust_colortemp(-1);
-			if (SystemOverlay_visible() && SystemOverlay_mode() == SYSTEM_OVERLAY_HOME) {
-				(void)overlay_render(SYSTEM_OVERLAY_HOME, overlay_selected, 5000,
-					overlay_session_id);
-			}
-			else {
-				(void)show_feedback("colortemp", 1600);
-			}
+			(void)show_feedback("colortemp", 1600);
+			break;
+		case SYSKEY_EVENT_NAV_UP:
+			handle_overlay_nav(SYSTEM_OVERLAY_INPUT_UP);
+			break;
+		case SYSKEY_EVENT_NAV_DOWN:
+			handle_overlay_nav(SYSTEM_OVERLAY_INPUT_DOWN);
+			break;
+		case SYSKEY_EVENT_ACCEPT:
+			handle_overlay_nav(SYSTEM_OVERLAY_INPUT_ACCEPT);
+			break;
+		case SYSKEY_EVENT_CANCEL:
+			handle_overlay_nav(SYSTEM_OVERLAY_INPUT_CANCEL);
 			break;
 		default:
 			break;
@@ -747,10 +814,12 @@ static void forward_fn_slot(int slot, unsigned long long at_ms) {
 	}
 	else if (kind == FN_ACTION_KIND_OVERLAY) {
 		char session_id[SYSTEM_OVERLAY_SESSION_MAX];
+		char app_name[64];
 		int route;
 		if (SystemOverlay_visible()) hide_overlay();
-		route = request_overlay_open(at_ms, session_id, sizeof session_id, NULL);
-		if (route == 1 && !show_home(session_id)) {
+		route = request_overlay_open(at_ms, session_id, sizeof session_id, app_name,
+								  sizeof app_name, NULL);
+		if (route == 1 && !show_home(session_id, app_name)) {
 			(void)request_exit(at_ms, session_id);
 		}
 	}
@@ -812,12 +881,7 @@ int main (int argc, char *argv[]) {
 	sigaction(SIGTERM, &sa, NULL);
 	signal(SIGPIPE, SIG_IGN);
 
-	{
-		const char* device = getenv("DEVICE");
-		is_brick = stringEquals(device, "brick");
-		is_brickpro = stringEquals(device, "brickpro");
-	}
-
+	PLAT_initPlatform();
 	InitSettings();
 	pthread_create(&mute_pt, NULL, &watchMute, NULL);
 
@@ -826,7 +890,7 @@ int main (int argc, char *argv[]) {
 		sprintf(path, "/dev/input/event%i", i);
 		inputs[i] = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 	}
-	uint32_t system_key_mask = discover_system_keys();
+	system_key_mask = discover_system_keys();
 	SystemKeyState key_state;
 	SystemKeyRepeat key_repeat = {0};
 	read_system_key_state(&key_state, system_key_mask);
@@ -852,9 +916,7 @@ int main (int argc, char *argv[]) {
 		fprintf(stderr, "keymon: SDL joystick unavailable: %s\n", SDL_GetError());
 	}
 
-	char font_path[512];
-	overlay_font_path(font_path, sizeof font_path);
-	if (SystemOverlay_init(FIXED_WIDTH, FIXED_HEIGHT, FIXED_SCALE, font_path) != 0) {
+	if (SystemOverlay_init(FIXED_WIDTH, FIXED_HEIGHT) != 0) {
 		fprintf(stderr, "keymon: system overlay unavailable; HOME falls back to exit\n");
 	}
 
@@ -894,7 +956,7 @@ int main (int argc, char *argv[]) {
 
 		{
 			SystemKeyState next;
-			SystemKeyEvent events[8];
+			SystemKeyEvent events[16];
 			int count;
 			read_system_key_state(&next, system_key_mask);
 			if (ignore) {
@@ -920,7 +982,9 @@ int main (int argc, char *argv[]) {
 		usleep(16666); // 60fps
 	}
 
+	hide_overlay();
 	SystemOverlay_shutdown();
+	SystemGrab_release();
 
 	for (int i=0; i<INPUT_COUNT; i++)
 		close(inputs[i]);

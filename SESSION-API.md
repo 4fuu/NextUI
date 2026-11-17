@@ -206,6 +206,8 @@ newer session. An adapted app (`"overlay"` in `pak.json`) owns HOME, so devserv
 returns `handled_by_app:true` and records no exit. For an unadapted app,
 `overlay` returns `handled_by_system:true` and records no exit: keymon opens the
 resident system overlay, whose explicit Exit action sends `app-action home`.
+The same response includes `app` (the session's display name) so the system panel
+can label the foreground app without a second request.
 `system-feedback` carries no session action and records nothing; it returns
 `handled_by_app` for an adapted app and `handled_by_system` for an unadapted
 one, so keymon knows whether to draw a volume/brightness/mute indicator.
@@ -320,10 +322,14 @@ failure can delay, but never block, the app launch.
   routing, dedicated brightness keys, and `handled_by_app` vs
   `handled_by_system` response parsing.
 - `run_system_overlay_test.sh`: renders the production system overlay with a
-  malloc-backed display backend. Covers HOME/HUD/mute geometry, selection
-  changes, volume and brightness bar growth, transparent panel corners, hide
-  disabling the layer, and a canary proving the renderer stays inside its
-  scanout buffer. This is not evidence of real disp2 composition.
+  malloc-backed display backend. Covers the shared UIOverlay panel (Resume,
+  Exit, Wi-Fi, Bluetooth, app name), themed selection colours before/after a
+  `minuisettings.txt` change, pixel-exact battery and hardware-pill matches
+  against `GFX_blitHardwareGroup`/`GFX_blitHardwareIndicator`, the bottom hint
+  bar, Wi-Fi/Bluetooth setter calls, HUD geometry, hide disabling the layer,
+  the EVIOCGRAB acquire/release lifecycle, and a canary proving the renderer
+  stays inside its scanout buffer. This is not
+  evidence of real disp2 composition.
 - `run_clock_fn_test.sh`: the real Clock Tools pak on the desktop preview.
   Scripted host keys exercise the shared overlay: two opens/closes, app cursor
   unchanged while open, input returns after close, FN2 normal exit, and a
