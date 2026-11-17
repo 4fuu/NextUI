@@ -18,7 +18,9 @@ way:
     trusted key, because this tool never sees a private or public key
   - with --nextupd the real verifier also walks every archive
     (`check --integrity-only`), so an archive that cannot install never reaches
-    a feed
+    a feed. That check is archive/manifest/content consistency, not
+    authenticity: the release procedure verifies the detached signature
+    against the trusted public key after signing
 
 URLs are the release's asset addresses: --base-url is the release's download
 prefix (for this repository's GitHub Releases,
@@ -51,12 +53,20 @@ KNOWN_PLATFORMS = ("tg5040", "tg5050", "h700", "desktop")
 MAX_URL = 2048
 MAX_ARCHIVE_BYTES = 4 * 1024 * 1024 * 1024
 MAX_FEED_ENTRIES = 64
+# The client's field buffers: a value at or above these is rejected on load,
+# so the generator refuses it instead of writing a feed that cannot be read.
+MAX_CHANNEL = 32
+MAX_GENERATED_AT = 40
+MAX_VERSION = 32
 MANIFEST_SUFFIX = ".manifest.json"
 SIGNATURE_SUFFIX = ".manifest.sig"
 EXIT_INVALID = 65
 EXIT_TOOL = 69
 FORBIDDEN_URL_BYTES = (" ", "\\", '"', "<", ">", "|")
 FORBIDDEN_NAME_BYTES = ("\\", ":", "*", "?", '"', "<", ">", "|")
+ENTRY_FIELDS = ("platform", "version", "min_system", "manifest_url",
+                "signature_url", "archive_url", "archive_name",
+                "archive_size", "archive_sha256")
 
 
 def fail(message):
@@ -111,7 +121,9 @@ def validate_url(url, field):
 
 def parse_semver(text):
     """Return (major, minor, patch) for a strict vMAJOR.MINOR.PATCH string."""
-    if not text or not text.startswith("v"):
+    if not isinstance(text, str) or not text.startswith("v"):
+        return None
+    if len(text) >= MAX_VERSION:
         return None
     parts = text[1:].split(".")
     if len(parts) != 3:
@@ -164,7 +176,7 @@ def read_manifest(path):
         raise ValueError("manifest %s has kind '%s'; this feed carries system "
                          "packages only" % (path, kind))
     platform = data.get("platform")
-    if platform not in KNOWN_PLATFORMS:
+    if not isinstance(platform, str) or platform not in KNOWN_PLATFORMS:
         raise ValueError("manifest %s has unknown platform '%s'"
                          % (path, platform))
     if platform == "universal":
@@ -185,7 +197,8 @@ def read_manifest(path):
     if not isinstance(archive, dict):
         raise ValueError("manifest %s has no archive object" % path)
     name = archive.get("name")
-    if not is_safe_filename(name) or not name.endswith(".zip") or len(name) < 5:
+    if not isinstance(name, str) or not is_safe_filename(name) \
+            or not name.endswith(".zip") or len(name) < 5:
         raise ValueError("manifest %s archive name must be a safe .zip name"
                          % path)
     size = archive.get("size")
@@ -264,7 +277,10 @@ def verify_with_nextupd(binary, info):
                "--integrity-only",
                "--platform", info["platform"],
                "--expected-kind", "system"]
-    proc = subprocess.run(command, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(command, capture_output=True, text=True)
+    except OSError as error:
+        raise ValueError("cannot run nextupd %s: %s" % (binary, error))
     if proc.returncode != 0:
         raise ValueError("nextupd check rejected %s: %s"
                          % (info["archive_path"],
@@ -332,13 +348,14 @@ def validate_previous_entry(entry, index, location):
     where = "%s entry %d" % (location, index)
     if not isinstance(entry, dict):
         raise ValueError("%s is not an object" % where)
-    missing = [field for field in ("platform", "version", "min_system",
-                                   "manifest_url", "signature_url",
-                                   "archive_url", "archive_name",
-                                   "archive_size", "archive_sha256")
-               if field not in entry]
+    missing = [field for field in ENTRY_FIELDS if field not in entry]
     if missing:
         raise ValueError("%s is missing %s" % (where, ", ".join(missing)))
+    for field in ("platform", "version", "min_system", "manifest_url",
+                  "signature_url", "archive_url", "archive_name",
+                  "archive_sha256"):
+        if not isinstance(entry[field], str):
+            raise ValueError("%s %s must be a string" % (where, field))
     if entry["platform"] not in KNOWN_PLATFORMS:
         raise ValueError("%s has unknown platform '%s'"
                          % (where, entry["platform"]))
@@ -361,6 +378,9 @@ def validate_previous_entry(entry, index, location):
         problem = validate_url(entry[field], "%s %s" % (where, field))
         if problem is not None:
             raise ValueError(problem)
+    # The client rejects unknown entry fields, so a previous row is rebuilt
+    # from the nine known fields rather than copied through.
+    return {field: entry[field] for field in ENTRY_FIELDS}
 
 
 def load_previous(location):
@@ -374,14 +394,15 @@ def load_previous(location):
     if not isinstance(entries, list) or not entries:
         raise ValueError("previous feed %s lists no entries" % location)
     seen = set()
+    normalized = []
     for index, entry in enumerate(entries):
-        validate_previous_entry(entry, index, location)
+        normalized.append(validate_previous_entry(entry, index, location))
         key = (entry["platform"], entry["version"])
         if key in seen:
             raise ValueError("previous feed %s has a duplicate %s %s entry"
                              % (location, key[0], key[1]))
         seen.add(key)
-    return entries
+    return normalized
 
 
 def merge_entries(previous, fresh):
@@ -428,6 +449,12 @@ def main():
         return fail("--base-url is empty")
     if not args.channel:
         return fail("--channel is empty")
+    if len(args.channel) >= MAX_CHANNEL:
+        return fail("--channel must be shorter than %d bytes, the client's "
+                    "field buffer" % MAX_CHANNEL)
+    if args.generated_at is not None and len(args.generated_at) >= MAX_GENERATED_AT:
+        return fail("--generated-at must be shorter than %d bytes, the "
+                    "client's field buffer" % MAX_GENERATED_AT)
 
     try:
         sets = collect_sets(args.set_dir)

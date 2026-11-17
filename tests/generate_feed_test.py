@@ -108,6 +108,13 @@ def read_json(path):
         return json.load(handle)
 
 
+def write_file(path, data, mode=0o644):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as handle:
+        handle.write(data)
+    os.chmod(path, mode)
+
+
 def write_json(path, value):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
@@ -468,6 +475,66 @@ def main():
                         "--previous", "http://127.0.0.1:1/nextui-feed.json")
         expect("unreachable previous feed is refused", proc, 65,
                "cannot fetch previous feed")
+
+        # Writer/reader contract: the client's field buffers and its strict
+        # unknown-field rejection bound what the generator may write, and bad
+        # input must exit 65 rather than traceback.
+        extra = os.path.join(WORK, "extra-field-feed.json")
+        entry = {
+            "platform": PLATFORM, "version": "v6.15.0", "min_system": "v6.0.0",
+            "manifest_url": "https://example.invalid/m.json",
+            "signature_url": "https://example.invalid/m.sig",
+            "archive_url": "https://example.invalid/a.zip",
+            "archive_name": "nextui-system-tg5040.zip",
+            "archive_size": 610,
+            "archive_sha256": "89a5" + "0" * 60,
+            "notes": "an extra field the client rejects",
+        }
+        write_json(extra, {"schema": "nextui-feed-v1", "entries": [entry]})
+        merged_extra = os.path.join(WORK, "feed-extra.json")
+        proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                        "--previous", extra, "--out", merged_extra)
+        expect("a previous row with an extra field is rebuilt", proc, 0)
+        rows = read_json(merged_extra).get("entries", [])
+        old = [row for row in rows if row["version"] == "v6.15.0"]
+        if len(rows) != 2 or len(old) != 1 or tuple(old[0]) != ENTRY_FIELDS:
+            fail("rebuilt previous row", rows)
+        else:
+            ok("rebuilt previous row carries only the known fields")
+
+        for name, document, reason in (
+            ("a non-string previous version",
+             {"schema": "nextui-feed-v1", "entries": [dict(entry, version=617)]},
+             "version must be a string"),
+            ("a non-string previous URL",
+             {"schema": "nextui-feed-v1",
+              "entries": [dict(entry, manifest_url=617)]},
+             "manifest_url must be a string"),
+            ("a previous version over the client's buffer",
+             {"schema": "nextui-feed-v1",
+              "entries": [dict(entry, version="v" + "9" * 40)]},
+             "version must be vX.Y.Z"),
+        ):
+            broken = os.path.join(WORK, "broken-previous.json")
+            write_json(broken, document)
+            proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                            "--previous", broken)
+            expect(name + " is refused", proc, 65, reason)
+
+        proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                        "--channel", "c" * 32)
+        expect("an over-long channel is refused", proc, 65, "shorter than 32")
+        proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                        "--generated-at", "t" * 40)
+        expect("an over-long generated_at is refused", proc, 65,
+               "shorter than 40")
+
+        unusable = os.path.join(WORK, "not-executable")
+        write_file(unusable, b"#!/bin/sh\nexit 0\n", 0o644)
+        proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                        "--nextupd", unusable)
+        expect("an unusable nextupd binary is refused", proc, 65,
+               "cannot run nextupd")
 
         # --nextupd walks every archive with the real verifier, catching a set
         # whose manifest does not list every file it ships: the generator's own

@@ -50,10 +50,13 @@ Release tags are `vX.Y.Z`, matching the authoritative semver the manifest and
 scripts/generate-feed.py \
     --set-dir releases \
     --base-url https://github.com/4fuu/nextui/releases/download/v6.16.0 \
-    --previous https://github.com/4fuu/nextui/releases/download/v6.16.0/nextui-feed.json \
+    --previous https://github.com/4fuu/nextui/releases/download/v6.15.0/nextui-feed.json \
     --nextupd workspace/all/nextupd/build/desktop/nextupd.elf \
     --out nextui-feed.json
 ```
+
+For the **first** release there is no previous feed: omit `--previous` (or pass
+a URL that 404s) and the feed starts with this release's rows only.
 
 - Every entry field comes from the signed manifest, and the archive bytes are
   hashed here, so the feed cannot advertise a file the release does not
@@ -64,9 +67,13 @@ scripts/generate-feed.py \
   URL), so each release keeps the previous compatible rows: a system too old
   for the newest `min_system` installs the older compatible row, and
   user-initiated downgrades keep working. Rows for the same platform and
-  version are replaced, never duplicated.
+  version are replaced, never duplicated, and a previous row is rebuilt from
+  the nine known fields, because the client rejects unknown ones.
 - `--nextupd` runs the real verifier (`check --integrity-only`) over every
-  archive, so a package that cannot install never reaches a feed.
+  archive, so a package that cannot install never reaches a feed. That check
+  is archive/manifest/content consistency, **not authenticity**: it does not
+  look at the signature. Authenticity is verified separately, after signing,
+  against the committed public key (see [Signing a release](#signing-a-release)).
 - The generator reads no key of any kind. It publishes nothing; the release
   workflow uploads what it writes.
 
@@ -149,6 +156,22 @@ the openssl process. OpenSSL reads the key from a path, so the PEM is written
 to a private mode-0600 temporary file that is removed on every exit path.
 `package-update.sh` signs in place when given `UPDATE_KEY`/`UPDATE_KEY_ID`
 pointing at a key file on the trusted host.
+
+After signing, verify every manifest against the **committed public key** —
+this needs no private key, and it is the only step that proves authenticity,
+because the generator's `--nextupd` check is integrity-only:
+
+```sh
+nextupd check --package releases/nextui-system-tg5040.zip \
+    --manifest releases/nextui-system-tg5040.manifest.json \
+    --signature releases/nextui-system-tg5040.manifest.sig \
+    --trusted-key workspace/all/nextupd/release/nextui-release-1.pub \
+    --platform tg5040 | grep 'signature: verified'
+```
+
+`scripts/prepare-release-update-assets.sh` runs exactly this check for every
+platform and refuses to publish the set when it fails, so a release signed
+with a key the client does not trust never reaches the release page.
 
 Signing after packaging, as above, leaves the packaging script's
 `<base>.manifest.set` marker recording the unsigned publish. The marker is an
