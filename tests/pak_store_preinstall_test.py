@@ -177,6 +177,14 @@ def build_sandbox(work):
     shutil.copy(os.path.join(REPO, "makefile"), os.path.join(repo, "makefile"))
     shutil.copy(os.path.join(REPO, "commits.sh"), os.path.join(repo, "commits.sh"))
     os.chmod(os.path.join(repo, "commits.sh"), 0o755)
+    # `make package` writes .system/version.txt from the authoritative VERSION
+    # file, so the sandbox repo needs one (the real repo's, or a stub).
+    version_src = os.path.join(REPO, "VERSION")
+    if os.path.isfile(version_src):
+        shutil.copy(version_src, os.path.join(repo, "VERSION"))
+    else:
+        with open(os.path.join(repo, "VERSION"), "w") as handle:
+            handle.write("6.16.0\n")
 
     base = os.path.join(repo, "build", "BASE")
     # Shaders and em_ui.sh used to be stubbed here because the base zip
