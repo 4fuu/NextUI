@@ -541,12 +541,55 @@ def main():
                run(["check", "--package", current["archive"],
                     "--manifest", manifest, "--signature", signature,
                     "--trusted-key", FIXTURE_PUB, "--platform", PLATFORM]), 0)
-        proc = subprocess.run([SIGN_SCRIPT, "--key-env", "NEXTUI_MISSING_KEY",
-                               KEY_ID, manifest, signature],
-                              capture_output=True, text=True,
-                              env={k: v for k, v in os.environ.items()
-                                   if k != "NEXTUI_MISSING_KEY"})
-        expect("unset key env var is refused", proc, 65, "NEXTUI_MISSING_KEY")
+
+        # The variable name is used to look the key up, so it is validated by
+        # rejection: empty, a leading digit, and any byte outside [A-Za-z0-9_]
+        # are refused before the lookup, and the lookup itself evaluates
+        # nothing. The marker file is the proof: a name that survives validation
+        # would execute its payload on the signing host, where the key lives.
+        marker = os.path.join(WORK, "key-env-injection-marker")
+        injection_names = (
+            "A-B",
+            "A B",
+            "A;B",
+            "A-};touch %s;#" % marker,
+            "A{B}",
+            "1A",
+            "",
+            "\n",
+        )
+        for bad_name in injection_names:
+            proc = subprocess.run([SIGN_SCRIPT, "--key-env", bad_name, KEY_ID,
+                                   manifest, signature + ".rejected"],
+                                  capture_output=True, text=True,
+                                  env={**os.environ, "NEXTUI_TEST_KEY":
+                                       pem_text})
+            if not expect("key-env rejects the invalid name %r" % bad_name,
+                          proc, 64, "invalid --key-env name"):
+                break
+        if os.path.exists(marker):
+            fail("key-env name validation blocks command execution",
+                 "the marker file was created")
+        else:
+            ok("key-env name validation blocks command execution")
+        if os.path.exists(signature + ".rejected"):
+            fail("key-env name validation writes nothing",
+                 "a signature was written for an invalid name")
+        else:
+            ok("key-env name validation writes nothing")
+
+        # Unset and set-but-empty are both refusals, and neither signs.
+        for label, environment in (("unset", {}),
+                                   ("empty", {"NEXTUI_MISSING_KEY": ""})):
+            proc_env = {k: v for k, v in os.environ.items()
+                        if k != "NEXTUI_MISSING_KEY"}
+            proc_env.update(environment)
+            proc = subprocess.run([SIGN_SCRIPT, "--key-env",
+                                   "NEXTUI_MISSING_KEY", KEY_ID, manifest,
+                                   signature + ".rejected"],
+                                  capture_output=True, text=True,
+                                  env=proc_env)
+            expect("an %s key variable is refused" % label, proc, 65)
 
         print(f"\n{PASS} passed, {FAIL} failed")
         return 1 if FAIL else 0

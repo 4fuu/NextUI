@@ -141,8 +141,12 @@ amp --no-tui --amp-env sh -c '
 ```
 
 `--key-env` reads the PEM from the named environment variable, so the key
-never appears in argv, in a repository file, or in any output; OpenSSL reads
-it from a private mode-0600 temporary file that is removed on every exit path.
+never appears in argv, in a repository file, or in any output. The variable
+name is validated by rejection before the lookup (empty, a leading digit, or
+any byte outside `[A-Za-z0-9_]` is refused), the lookup itself evaluates
+nothing, and the variable is unset once read so the key is not inherited by
+the openssl process. OpenSSL reads the key from a path, so the PEM is written
+to a private mode-0600 temporary file that is removed on every exit path.
 `package-update.sh` signs in place when given `UPDATE_KEY`/`UPDATE_KEY_ID`
 pointing at a key file on the trusted host.
 

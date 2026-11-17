@@ -8,8 +8,11 @@
 # --key-env reads the PEM private key from the named environment variable, for
 # a signing host that keeps the key in a confidential store and injects it at
 # run time. The key then never appears in argv, in a repository file, or in any
-# output. OpenSSL reads the key from a path, so the PEM is written to a private
-# temporary file (mode 0600) that is removed on every exit path.
+# output. The name is validated by rejection before the lookup, the lookup
+# itself evaluates nothing, and the variable is unset once read, so the key is
+# not inherited by the openssl process. OpenSSL reads the key from a path, so
+# the PEM is written to a private temporary file (mode 0600) that is removed on
+# every exit path.
 #
 # This does not create or manage production keys. The key id is an audit label;
 # the detached signature is Ed25519 over the manifest bytes exactly as written.
@@ -28,19 +31,21 @@ usage() {
 }
 
 key_env=
+key_env_given=0
 if [ "$#" -ge 1 ] && [ "$1" = "--key-env" ]; then
     if [ "$#" -lt 2 ]; then
         usage
         exit 64
     fi
     key_env=$2
+    key_env_given=1
     shift 2
 fi
 
 # The key file is positional, unless --key-env replaced it with the named
 # environment variable.
 expected_args=4
-if [ -n "$key_env" ]; then
+if [ "$key_env_given" -eq 1 ]; then
     expected_args=3
 fi
 if [ "$#" -ne "$expected_args" ]; then
@@ -48,7 +53,7 @@ if [ "$#" -ne "$expected_args" ]; then
     exit 64
 fi
 
-if [ -n "$key_env" ]; then
+if [ "$key_env_given" -eq 1 ]; then
     key_id=$1
     manifest=$2
     output=$3
@@ -59,7 +64,7 @@ else
     output=$4
 fi
 
-for tool in openssl base64 mktemp; do
+for tool in openssl base64 mktemp printenv; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "sign-manifest: missing $tool" >&2
         exit 69
@@ -80,24 +85,38 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if [ -n "$key_env" ]; then
+if [ "$key_env_given" -eq 1 ]; then
+    # The name is used to look the key up, so it is validated by rejection:
+    # empty, a leading digit, and any byte outside [A-Za-z0-9_] anywhere are
+    # refused before the lookup happens. An acceptance pattern would not do:
+    # its trailing wildcard would let "AB-C" through.
     case "$key_env" in
-        [A-Za-z_]*[A-Za-z0-9_]*) ;;
-        *)
-            echo "sign-manifest: invalid --key-env name '$key_env'" >&2
+        ''|[0-9]*|*[!A-Za-z0-9_]*)
+            echo "sign-manifest: invalid --key-env name" >&2
             exit 64
             ;;
     esac
-    # The variable name is validated above, so this indirection cannot execute
-    # anything. The value itself is never printed.
-    eval "key_material=\${$key_env-}"
-    if [ -z "$key_material" ]; then
-        echo "sign-manifest: environment variable $key_env is empty or unset" >&2
+    # printenv looks the name up without evaluating anything, so a name can
+    # never become a command. The value itself is never printed.
+    if ! key_material=$(printenv "$key_env"); then
+        echo "sign-manifest: environment variable $key_env is unset" >&2
         exit 65
     fi
+    if [ -z "$key_material" ]; then
+        echo "sign-manifest: environment variable $key_env is empty" >&2
+        exit 65
+    fi
+    # The key is now in this shell and in the private temporary file below;
+    # removing it from the environment keeps it out of every child process,
+    # including the openssl that reads the file.
+    unset "$key_env" || {
+        echo "sign-manifest: cannot unset $key_env" >&2
+        exit 65
+    }
     key_temp=$(mktemp "${TMPDIR:-/tmp}/nextui-signing-key.XXXXXX")
     chmod 600 "$key_temp"
     printf '%s\n' "$key_material" > "$key_temp"
+    unset key_material
     key_file=$key_temp
 fi
 
