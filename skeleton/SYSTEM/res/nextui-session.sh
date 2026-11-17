@@ -28,9 +28,31 @@ nextui_session_socket() {
 	fi
 }
 
+nextui_session_nextdev_bin() {
+	if [ -n "$NEXTDEV_BIN" ] && [ -x "$NEXTDEV_BIN" ]; then
+		printf '%s\n' "$NEXTDEV_BIN"
+		return 0
+	fi
+	if [ -n "$SYSTEM_PATH" ] && [ -x "$SYSTEM_PATH/bin/nextdev.elf" ]; then
+		printf '%s\n' "$SYSTEM_PATH/bin/nextdev.elf"
+		return 0
+	fi
+	return 127
+}
+
 nextui_session_nextdev() {
-	[ -x "$SYSTEM_PATH/bin/nextdev.elf" ] || return 127
-	"$SYSTEM_PATH/bin/nextdev.elf" --wait-ms "${NEXTUI_SESSION_WAIT_MS:-200}" "$@"
+	_nextui_bin=$(nextui_session_nextdev_bin) || return 127
+	"$_nextui_bin" --wait-ms "${NEXTUI_SESSION_WAIT_MS:-200}" "$@"
+}
+
+# nextdev owns the process-group launcher as well as the session RPCs, so the
+# app no longer depends on a system setsid or busybox (Brick Pro ships neither).
+# --help needs no devserv; an older nextdev without the launcher fails this
+# probe and keeps the external-command fallback.
+nextui_session_setsid_bin() {
+	_nextui_bin=$(nextui_session_nextdev_bin) || return 1
+	"$_nextui_bin" --help 2>/dev/null | grep -q 'setsid' || return 1
+	printf '%s\n' "$_nextui_bin"
 }
 
 # The pak directory is derived from the already-parsed HOOK_EMU_PATH. The
@@ -90,7 +112,7 @@ nextui_devserv_start() {
 # A stale session can only survive if a previous stop was lost. Clearing it
 # before the next start also retries an orphan C2 LED lease release.
 nextui_session_clear_stale() {
-	[ -x "$SYSTEM_PATH/bin/nextdev.elf" ] || return 0
+	nextui_session_nextdev_bin >/dev/null 2>&1 || return 0
 	_nextui_socket=$(nextui_session_socket)
 	[ -S "$_nextui_socket" ] || return 0
 	nextui_session_nextdev --socket "$_nextui_socket" session-stop >/dev/null 2>&1 || true
@@ -109,7 +131,7 @@ nextui_session_start() {
 		desktop) return 0 ;;
 	esac
 
-	[ -x "$SYSTEM_PATH/bin/nextdev.elf" ] || return 0
+	nextui_session_nextdev_bin >/dev/null 2>&1 || return 0
 	_nextui_socket=$(nextui_session_socket)
 
 	nextui_session_clear_stale
@@ -135,7 +157,7 @@ nextui_session_start() {
 nextui_session_stop() {
 	[ "$NEXTUI_SESSION_ACTIVE" = "1" ] || return 0
 
-	if [ -x "$SYSTEM_PATH/bin/nextdev.elf" ]; then
+	if nextui_session_nextdev_bin >/dev/null 2>&1; then
 		_nextui_socket=$(nextui_session_socket)
 		if [ -n "$NEXTUI_SESSION_ID" ]; then
 			nextui_session_nextdev --socket "$_nextui_socket" --session-id "$NEXTUI_SESSION_ID" session-stop >/dev/null 2>&1 || true
@@ -151,12 +173,12 @@ nextui_session_stop() {
 
 # One status query. A missing service is not an app failure.
 nextui_session_status() {
-	[ -x "$SYSTEM_PATH/bin/nextdev.elf" ] || return 0
 	nextui_session_nextdev --wait-ms 0 --socket "$(nextui_session_socket)" session-status 2>/dev/null || true
 }
 
-# C4 bounded grace. The app is a child process group created with setsid; only
-# this parent waits and signals it. devserv decides *whether* an exit was
+# C4 bounded grace. The app is a child process group created by nextdev's
+# built-in launcher (or a system setsid when an older nextdev is installed);
+# only this parent waits and signals it. devserv decides *whether* an exit was
 # requested for this session; the parent decides *how* to end its child.
 nextui_session_supervise() {
 	_nextui_pid=$1
@@ -238,20 +260,24 @@ nextui_session_run() {
 		return $?
 	fi
 
-	if ! command -v setsid >/dev/null 2>&1; then
-		if command -v busybox >/dev/null 2>&1 && busybox --list 2>/dev/null | grep -qx setsid; then
-			_nextui_setsid="busybox setsid"
-		else
-			# No process-group isolation: fall back to the previous behavior rather
-			# than signal a PID that might not own the app's children.
-			eval "$_nextui_cmd"
-			return $?
-		fi
+	# Prefer nextdev's built-in launcher: Brick Pro's rootfs has neither
+	# /usr/bin/setsid nor busybox, and the bounded supervisor is only safe when
+	# the app leads its own process group. External setsid remains a fallback
+	# for an older nextdev, then the previous unsupervised foreground eval.
+	_nextui_setsid_bin=$(nextui_session_setsid_bin) || _nextui_setsid_bin=""
+	if [ -n "$_nextui_setsid_bin" ]; then
+		"$_nextui_setsid_bin" setsid sh -c "$_nextui_cmd" &
+	elif command -v setsid >/dev/null 2>&1; then
+		setsid sh -c "$_nextui_cmd" &
+	elif command -v busybox >/dev/null 2>&1 && busybox --list 2>/dev/null | grep -qx setsid; then
+		busybox setsid sh -c "$_nextui_cmd" &
 	else
-		_nextui_setsid="setsid"
+		# No process-group isolation: fall back to the previous behavior rather
+		# than signal a PID that might not own the app's children.
+		eval "$_nextui_cmd"
+		return $?
 	fi
 
-	$_nextui_setsid sh -c "$_nextui_cmd" &
 	_nextui_pid=$!
 	nextui_session_supervise "$_nextui_pid"
 	wait "$_nextui_pid"
