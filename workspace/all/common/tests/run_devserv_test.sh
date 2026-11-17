@@ -548,10 +548,17 @@ OVERLAY_ID="$(session_id_of "$OUTPUT")"
 run_nextdev --pak "$OVERLAY" app-action overlay
 [[ "$STATUS" -eq 0 ]] || { echo "FAIL: overlay app-action: $OUTPUT" >&2; exit 1; }
 expect_contains "$OUTPUT" '"handled_by_app":true'
+expect_contains "$OUTPUT" '"handled_by_system":false'
 expect_contains "$OUTPUT" '"exit_requested":false'
 run_nextdev --pak "$OVERLAY" session-status
 expect_contains "$OUTPUT" '"overlay_host":true'
 expect_contains "$OUTPUT" '"exit_requested":false'
+
+# An adapted app owns its own volume/brightness indicators too.
+OUTPUT="$("$RAW" "$SOCKET" '{"op":"system-feedback","action":"volume"}')"
+expect_contains "$OUTPUT" '"ok":true'
+expect_contains "$OUTPUT" '"handled_by_app":true'
+expect_contains "$OUTPUT" '"handled_by_system":false'
 
 # FN2 is a real exit request; a repeated request is idempotent.
 run_nextdev --pak "$OVERLAY" app-action home
@@ -586,22 +593,53 @@ run_nextdev --pak "$OVERLAY" session-status
 expect_contains "$OUTPUT" '"exit_requested":false'
 run_nextdev --session-id "$NEW_ID" session-stop
 
-# Unadapted apps get no overlay; their HOME is the plan's return-to-desktop
-# fallback and is recorded as a home exit.
+# Unadapted apps get the system fallback overlay. HOME no longer means an
+# immediate exit: the system overlay opens, and only its explicit exit action
+# records the return-to-desktop request.
 run_nextdev --pak "$LEGACY" session-start
 LEGACY_ID="$(session_id_of "$OUTPUT")"
 run_nextdev --pak "$LEGACY" app-action overlay
 [[ "$STATUS" -eq 0 ]] || { echo "FAIL: legacy overlay action: $OUTPUT" >&2; exit 1; }
 expect_contains "$OUTPUT" '"handled_by_app":false'
-expect_contains "$OUTPUT" '"exit_requested":true'
+expect_contains "$OUTPUT" '"handled_by_system":true'
+expect_contains "$OUTPUT" '"exit_requested":false'
 expect_contains "$OUTPUT" '"action":"overlay"'
+run_nextdev --pak "$LEGACY" session-status
+expect_contains "$OUTPUT" '"exit_requested":false'
+
+# The system draws the feedback for an unadapted app.
+OUTPUT="$("$RAW" "$SOCKET" '{"op":"system-feedback","action":"brightness"}')"
+expect_contains "$OUTPUT" '"ok":true'
+expect_contains "$OUTPUT" '"handled_by_app":false'
+expect_contains "$OUTPUT" '"handled_by_system":true'
+
+# A delayed overlay press must not open over a newer session.
+run_nextdev --pak "$LEGACY" --at-ms 1 app-action overlay
+[[ "$STATUS" -eq 1 ]] || { echo "FAIL: stale overlay press was accepted: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"error":"session_stale"'
+
+# Explicit exit from the system overlay is a normal HOME request.
+run_nextdev --pak "$LEGACY" app-action home
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: legacy home action: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"exit_requested":true'
+expect_contains "$OUTPUT" '"action":"home"'
 run_nextdev --session-id "$LEGACY_ID" --forced app-exit-result
 [[ "$STATUS" -eq 0 ]] || { echo "FAIL: forced result: $OUTPUT" >&2; exit 1; }
 expect_contains "$OUTPUT" '"forced":true'
 expect_contains "$OUTPUT" '"result":"forced"'
 run_nextdev --session-id "$LEGACY_ID" session-stop
 
-# No active session: the request is refused, not silently attributed.
+# With no session the desktop owns the feedback, and HOME is refused rather
+# than silently attributed.
+OUTPUT="$("$RAW" "$SOCKET" '{"op":"system-feedback","action":"volume"}')"
+expect_contains "$OUTPUT" '"ok":true'
+expect_contains "$OUTPUT" '"session":"inactive"'
+expect_contains "$OUTPUT" '"handled_by_app":false'
+expect_contains "$OUTPUT" '"handled_by_system":false'
+
+OUTPUT="$("$RAW" "$SOCKET" '{"op":"system-feedback","action":"not-a-key"}')"
+expect_contains "$OUTPUT" '"error":"bad_request"'
+
 run_nextdev app-action home
 [[ "$STATUS" -eq 1 ]] || { echo "FAIL: inactive app-action accepted" >&2; exit 1; }
 expect_contains "$OUTPUT" '"error":"not_active"'

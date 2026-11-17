@@ -396,6 +396,17 @@ void device_session_note_overlay_host(DeviceSession* session, int overlay_host)
     session->overlay_host = overlay_host ? 1 : 0;
 }
 
+DeviceSessionResult device_session_validate_event(DeviceSession* session,
+                                                  unsigned long long expected_id,
+                                                  unsigned long long event_ms)
+{
+    if (session == NULL) return DEVICE_SESSION_BAD_ARGUMENT;
+    if (!session->active) return DEVICE_SESSION_NOT_ACTIVE;
+    if (expected_id != 0 && expected_id != session->id) return DEVICE_SESSION_STALE;
+    if (event_ms != 0 && event_ms < session->started_mono_ms) return DEVICE_SESSION_STALE;
+    return DEVICE_SESSION_OK;
+}
+
 DeviceSessionResult device_session_request_exit(DeviceSession* session,
                                                 unsigned long long expected_id,
                                                 const char* action,
@@ -403,24 +414,27 @@ DeviceSessionResult device_session_request_exit(DeviceSession* session,
                                                 unsigned long long grace_ms)
 {
     unsigned long long now;
+    DeviceSessionResult result;
 
     if (session == NULL || action == NULL || action[0] == '\0')
         return DEVICE_SESSION_BAD_ARGUMENT;
     if (strcmp(action, "home") != 0 && strcmp(action, "overlay") != 0)
         return DEVICE_SESSION_BAD_ARGUMENT;
-    if (!session->active) return DEVICE_SESSION_NOT_ACTIVE;
-    if (expected_id != 0 && expected_id != session->id) return DEVICE_SESSION_STALE;
+
+    result = device_session_validate_event(session, expected_id, event_ms);
+    if (result == DEVICE_SESSION_NOT_ACTIVE) return result;
+    if (result == DEVICE_SESSION_STALE)
+    {
+        if (event_ms != 0 && event_ms < session->started_mono_ms)
+        {
+            set_text(session->exit_detail, sizeof session->exit_detail,
+                     "event predates the active session");
+        }
+        return DEVICE_SESSION_STALE;
+    }
 
     now = device_session_monotonic_ms();
     if (event_ms == 0) event_ms = now;
-
-    /* A delayed press from the previous session must not affect this one. */
-    if (event_ms < session->started_mono_ms)
-    {
-        set_text(session->exit_detail, sizeof session->exit_detail,
-                 "event predates the active session");
-        return DEVICE_SESSION_STALE;
-    }
 
     if (session->exit_requested)
     {

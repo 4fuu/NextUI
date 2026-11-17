@@ -15,12 +15,12 @@ SDL2_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 ifeq (,$(SDL2_LIBS))
 SDL2_LIBS := -lSDL2
 endif
-CFLAGS	= -Os -lmsettings -lpthread -lrt -ldl -Wl,--gc-sections -s
+CFLAGS	= -Os -lmsettings -lSDL2_ttf -lpthread -lrt -ldl -Wl,--gc-sections -s
 CFLAGS  += -I. -I../../all/common -I../platform/ -I$(PREFIX_LOCAL)/include -L$(PREFIX_LOCAL)/lib -DPLATFORM=\"$(UNION_PLATFORM)\"
 CFLAGS  += $(SDL2_CFLAGS) -DUSE_SDL2 $(SDL2_LIBS)
 
 all: $(PREFIX)/include/msettings.h
-	$(CC) $(TARGET).c -o $(PRODUCT) $(CFLAGS)
+	$(CC) $(TARGET).c system_overlay.c -o $(PRODUCT) $(CFLAGS)
 clean:
 	rm -rf $(PRODUCT)
 

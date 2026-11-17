@@ -22,9 +22,11 @@ fi
     -I"$ROOT/workspace/all/common" \
     -I"$ROOT/workspace/tg5040/platform" \
     -I"$ROOT/workspace/tg5040/libmsettings" \
-    $(pkg-config --cflags sdl2) \
+    $(pkg-config --cflags sdl2 SDL2_ttf) \
+    -I"$ROOT/workspace/tg5040/keymon" \
     "$ROOT/workspace/all/common/tests/keymon_fn_forward_test.c" \
+    "$ROOT/workspace/tg5040/keymon/system_overlay.c" \
     -o "$BUILD/keymon_fn_forward_test" \
-    $(pkg-config --libs sdl2) -L"$PREFIX_LOCAL/lib" -lmsettings -lpthread -lrt -ldl
+    $(pkg-config --libs sdl2 SDL2_ttf) -L"$PREFIX_LOCAL/lib" -lmsettings -lpthread -lrt -ldl
 
 LD_LIBRARY_PATH="$PREFIX_LOCAL/lib" "$BUILD/keymon_fn_forward_test"

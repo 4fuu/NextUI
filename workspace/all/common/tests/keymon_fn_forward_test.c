@@ -18,12 +18,14 @@
 #include <string.h>
 #include <unistd.h>
 
-#define MAX_REQUESTS 8
+#define MAX_REQUESTS 32
 #define REQUEST_MAX 256
 
 static int server_descriptor = -1;
 static char requests[MAX_REQUESTS][REQUEST_MAX];
 static volatile int request_count;
+static volatile int reply_overlay_system;
+static volatile int reply_feedback_system;
 
 /* keymon's tg5040 header declares SetMute; the desktop test library does not
  * implement it because the host has no mute switch. The test never starts the
@@ -50,6 +52,40 @@ static void* request_server(void* unused)
         }
         requests[request_count][length] = '\0';
         if (request_count + 1 < MAX_REQUESTS) request_count++;
+        if (strstr(requests[request_count - 1], "\"action\":\"overlay\"")
+            && reply_overlay_system)
+        {
+            const char* reply = "{\"ok\":true,\"session\":\"active\","
+                                "\"session_id\":\"0123456789abcdef\","
+                                "\"handled_by_app\":false,\"handled_by_system\":true,"
+                                "\"exit_requested\":false}\n";
+            (void)write(client, reply, strlen(reply));
+        }
+        else if (strstr(requests[request_count - 1], "\"op\":\"system-feedback\"")
+                 && reply_feedback_system)
+        {
+            const char* reply = "{\"ok\":true,\"session\":\"active\","
+                                "\"session_id\":\"0123456789abcdef\","
+                                "\"handled_by_app\":false,\"handled_by_system\":true,"
+                                "\"exit_requested\":false}\n";
+            (void)write(client, reply, strlen(reply));
+        }
+        else if (strstr(requests[request_count - 1], "\"action\":\"overlay\""))
+        {
+            const char* reply = "{\"ok\":true,\"session\":\"active\","
+                                "\"session_id\":\"0123456789abcdef\","
+                                "\"handled_by_app\":true,\"handled_by_system\":false,"
+                                "\"exit_requested\":false}\n";
+            (void)write(client, reply, strlen(reply));
+        }
+        else
+        {
+            const char* reply = "{\"ok\":true,\"session\":\"active\","
+                                "\"session_id\":\"0123456789abcdef\","
+                                "\"handled_by_app\":false,\"handled_by_system\":false,"
+                                "\"exit_requested\":true}\n";
+            (void)write(client, reply, strlen(reply));
+        }
         close(client);
     }
     return NULL;
@@ -190,6 +226,120 @@ int main(void)
     forward_fn_slot(2, 1007);
     if (!wait_for_requests(5)) return 1;
     expect_request(4, "home", 1007);
+
+    // HOME/volume state polling: edge detection and sane repeat timing without
+    // consuming another process's evdev queue.
+    {
+        SystemKeyState previous = {0};
+        SystemKeyState current = {0};
+        SystemKeyRepeat repeat = {0};
+        SystemKeyEvent events[8];
+        int count;
+
+        current.home = 1;
+        count = system_key_events(&previous, &current, 1000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_HOME) {
+            fprintf(stderr, "HOME press was not emitted\n");
+            return 1;
+        }
+        previous = current;
+        count = system_key_events(&previous, &current, 1016, &repeat, events, 8);
+        if (count != 0) {
+            fprintf(stderr, "held HOME repeated\n");
+            return 1;
+        }
+        current.home = 0;
+        previous = current;
+
+        current.volume_up = 1;
+        count = system_key_events(&previous, &current, 2000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_VOLUME_UP) {
+            fprintf(stderr, "volume-up press was not emitted\n");
+            return 1;
+        }
+        previous = current;
+        count = system_key_events(&previous, &current, 2299, &repeat, events, 8);
+        if (count != 0) {
+            fprintf(stderr, "volume repeated before 300ms\n");
+            return 1;
+        }
+        count = system_key_events(&previous, &current, 2300, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_VOLUME_UP) {
+            fprintf(stderr, "volume repeat was not emitted at 300ms\n");
+            return 1;
+        }
+        count = system_key_events(&previous, &current, 2400, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_VOLUME_UP) {
+            fprintf(stderr, "volume repeat was not emitted at 100ms cadence\n");
+            return 1;
+        }
+
+        current.volume_up = 0;
+        current.menu = 1;
+        previous = current;
+        current.volume_up = 1;
+        count = system_key_events(&previous, &current, 3000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_BRIGHTNESS_UP) {
+            fprintf(stderr, "menu+plus did not route to brightness\n");
+            return 1;
+        }
+
+        current.menu = 0;
+        current.select = 1;
+        previous = current;
+        current.volume_up = 0;
+        previous = current;
+        current.volume_up = 1;
+        count = system_key_events(&previous, &current, 4000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_COLORTEMP_UP) {
+            fprintf(stderr, "select+plus did not route to colortemp\n");
+            return 1;
+        }
+
+        current.select = 0;
+        current.volume_up = 0;
+        previous = current;
+        current.brightness_down = 1;
+        count = system_key_events(&previous, &current, 5000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_BRIGHTNESS_DOWN) {
+            fprintf(stderr, "dedicated brightness key was not emitted\n");
+            return 1;
+        }
+    }
+
+    // app-action/system-feedback response routing.
+    {
+        char session_id[24];
+        int handled_by_app = 0;
+        reply_overlay_system = 1;
+        if (request_overlay_open(6001, session_id, sizeof session_id, &handled_by_app) != 1) {
+            fprintf(stderr, "system overlay route was not parsed\n");
+            return 1;
+        }
+        if (strcmp(session_id, "0123456789abcdef") != 0 || handled_by_app) {
+            fprintf(stderr, "system overlay route lost its session id\n");
+            return 1;
+        }
+
+        reply_overlay_system = 0;
+        if (request_overlay_open(6002, session_id, sizeof session_id, &handled_by_app) != 0
+            || !handled_by_app)
+        {
+            fprintf(stderr, "adapted app overlay route was not parsed\n");
+            return 1;
+        }
+
+        reply_feedback_system = 1;
+        if (request_feedback("volume", session_id, sizeof session_id) != 1) {
+            fprintf(stderr, "system feedback route was not parsed\n");
+            return 1;
+        }
+        reply_feedback_system = 0;
+        if (request_feedback("volume", session_id, sizeof session_id) == 1) {
+            fprintf(stderr, "app feedback route was reported as system\n");
+            return 1;
+        }
+    }
 
     close(server_descriptor);
     unlink(socket_path);

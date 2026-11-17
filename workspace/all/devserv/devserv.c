@@ -50,7 +50,8 @@ static void usage(FILE* stream)
             "hardware capability reports unavailable.\n"
             "Sessions: session-start/stop/status restore only fields the service saw\n"
             "change; app-action records a session-scoped home/overlay request and\n"
-            "never accepts a PID; the launch parent performs the bounded TERM/KILL.\n"
+            "system-feedback reports who draws a system key's visual feedback;\n"
+            "neither accepts a PID; the launch parent performs the bounded TERM/KILL.\n"
             "Policy: installed apps may use every implemented capability without a\n"
             "grant; --require-grants enables the legacy grant/identity gate.\n",
             DEFAULT_SOCKET_PATH);
@@ -518,6 +519,7 @@ static void handle_connection(int descriptor, const char* grants_path,
             const char* error = NULL;
             const char* detail = NULL;
             int handled_by_app = 0;
+            int handled_by_system = 0;
 
             if (message.session_id[0] != '\0'
                 && !parse_session_id(message.session_id, &expected))
@@ -526,20 +528,35 @@ static void handle_connection(int descriptor, const char* grants_path,
                 return;
             }
 
-            if (session->active && expected != 0 && expected != session->id)
+            result = device_session_validate_event(session, expected, message.at_ms);
+            if (result == DEVICE_SESSION_STALE)
             {
-                result = DEVICE_SESSION_STALE;
                 error = "session_stale";
-                detail = "session id does not match the active session";
+                detail = "session id or event time does not match";
             }
-            else if (session->active && session->overlay_host
-                     && strcmp(message.action, "overlay") == 0)
+            else if (result == DEVICE_SESSION_NOT_ACTIVE)
             {
-                /* The adapted app consumes HOME in-process. Do not translate it
-                 * into an exit and do not draw anything from this process. */
-                result = DEVICE_SESSION_APP_HANDLED;
-                handled_by_app = 1;
-                detail = "the application hosts the overlay";
+                error = "not_active";
+                detail = "no application session is active";
+            }
+            else if (strcmp(message.action, "overlay") == 0)
+            {
+                if (session->overlay_host)
+                {
+                    /* The adapted app consumes HOME in-process. Do not translate
+                     * it into an exit and do not draw anything from this process. */
+                    result = DEVICE_SESSION_APP_HANDLED;
+                    handled_by_app = 1;
+                    detail = "the application hosts the overlay";
+                }
+                else
+                {
+                    /* The system fallback draws the overlay; HOME no longer
+                     * means an immediate exit for an unadapted app. */
+                    result = DEVICE_SESSION_OK;
+                    handled_by_system = 1;
+                    detail = "the system draws the fallback overlay";
+                }
             }
             else
             {
@@ -565,7 +582,51 @@ static void handle_connection(int descriptor, const char* grants_path,
             }
 
             if (!device_protocol_write_app_action_response(session, result, message.action,
-                                                           handled_by_app, error, detail,
+                                                           handled_by_app, handled_by_system,
+                                                           error, detail, response,
+                                                           sizeof response))
+                snprintf(response, sizeof response,
+                         "{\"ok\":false,\"error\":\"backend_error\","
+                         "\"detail\":\"response too large\"}");
+            break;
+        }
+
+        case DEVICE_OP_SYSTEM_FEEDBACK:
+        {
+            int handled_by_app = 0;
+            int handled_by_system = 0;
+            const char* detail;
+
+            if (strcmp(message.action, "volume") != 0
+                && strcmp(message.action, "brightness") != 0
+                && strcmp(message.action, "colortemp") != 0
+                && strcmp(message.action, "mute") != 0)
+            {
+                send_error(descriptor, "bad_request", "unknown feedback action");
+                return;
+            }
+
+            if (session->active)
+            {
+                if (session->overlay_host)
+                {
+                    handled_by_app = 1;
+                    detail = "the application owns its own indicator";
+                }
+                else
+                {
+                    handled_by_system = 1;
+                    detail = "the system draws the fallback indicator";
+                }
+            }
+            else
+            {
+                detail = "no application session is active";
+            }
+
+            if (!device_protocol_write_app_action_response(session, DEVICE_SESSION_OK,
+                                                           message.action, handled_by_app,
+                                                           handled_by_system, NULL, detail,
                                                            response, sizeof response))
                 snprintf(response, sizeof response,
                          "{\"ok\":false,\"error\":\"backend_error\","

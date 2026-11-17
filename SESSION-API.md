@@ -24,7 +24,7 @@ This is **not** B3 application state:
 - No process is stopped, frozen or signalled. "Session" never means `SIGSTOP`.
 
 C4 adds a session-scoped exit request and a bounded launch-parent supervisor;
-it is documented in [DEVICE-API.md](DEVICE-API.md#c4-application-exit). A
+it is documented in [DEVICE-API.md](DEVICE-API.md#c4-application-exit-and-the-system-wide-overlay). A
 session still never freezes a process; C4 only ends the app's own process group
 after a recorded request and a grace period.
 
@@ -194,6 +194,7 @@ no grant, while `--require-grants` keeps the legacy grant/identity checks.
 {"op":"session-stop","session_id":"0123456789abcdef"}
 {"op":"session-status"}
 {"op":"app-action","action":"home|overlay","at_ms":12345,"session_id":"0123456789abcdef"}
+{"op":"system-feedback","action":"volume|brightness|colortemp|mute"}
 {"op":"app-exit-result","session_id":"0123456789abcdef","forced":true}
 ```
 
@@ -203,7 +204,11 @@ active session is `session_stale`. A supplied `session_id` must match the
 active generation; this is what stops a delayed request from tearing down a
 newer session. An adapted app (`"overlay"` in `pak.json`) owns HOME, so devserv
 returns `handled_by_app:true` and records no exit. For an unadapted app,
-`overlay` becomes the return-to-desktop fallback.
+`overlay` returns `handled_by_system:true` and records no exit: keymon opens the
+resident system overlay, whose explicit Exit action sends `app-action home`.
+`system-feedback` carries no session action and records nothing; it returns
+`handled_by_app` for an adapted app and `handled_by_system` for an unadapted
+one, so keymon knows whether to draw a volume/brightness/mute indicator.
 
 `app-exit-result` is written by the launch parent after its bounded wait. A late
 report is rejected by the same generation guard and never changes a newer
@@ -268,9 +273,10 @@ failure can delay, but never block, the app launch.
 ## Boundaries
 
 - C4 is a launch-parent supervisor. devserv records the session-scoped request;
-  the parent uses `setsid` and signals the child's process group, never a PID
-  supplied by a client. If `setsid` is unavailable the helper falls back to the
-  old foreground `eval` and no force path is claimed. A `devserv` crash or power
+  the parent uses nextdev's built-in process-group launcher (or a system
+  `setsid` fallback) and signals the child's process group, never a PID
+  supplied by a client. If no launcher is available the helper falls back to
+  the old foreground `eval` and no force path is claimed. A `devserv` crash or power
   loss can still lose the in-memory request; the next launch's pre-start
   ID-less stop restores the stale session.
 - Session state is runtime-only. No session file is written. The legacy grant
@@ -296,7 +302,9 @@ failure can delay, but never block, the app launch.
   and all four `launch.sh` files preserving B3 hook parsing and hook order.
 - `run_devserv_test.sh`: legacy `--require-grants` Unix-socket E2E —
   start/status/duplicate/stale/stop/repeat, raw socket requests, grant and
-  identity enforcement, no fake field success.
+  identity enforcement, no fake field success, adapted `handled_by_app` vs
+  unadapted `handled_by_system` overlay routing, stale overlay events, and
+  `system-feedback` routing for active/adapted/unadapted/inactive sessions.
 - `run_devserv_default_allow_test.sh`: default policy — no grant file, no
   manifest declaration, legacy pak access, `grant_required:false` and
   `authorized:true`; unknown capability still unsupported, no backend still
@@ -307,7 +315,15 @@ failure can delay, but never block, the app launch.
 - `run_keymon_fn_forward_test.sh`: includes the real keymon.c and drives its
   forwarding seam against a temp socket: legacy FN2/FN3 defaults, live
   `minuisettings.txt` override, `none`/`pak:` no-ops, any-slot rebinding, press
-  time preserved, and no PID/kill field in the request.
+  time preserved, no PID/kill field in the request, HOME/volume edge detection,
+  300 ms repeat delay and 100 ms cadence, MENU/SELECT brightness/colourtemp
+  routing, dedicated brightness keys, and `handled_by_app` vs
+  `handled_by_system` response parsing.
+- `run_system_overlay_test.sh`: renders the production system overlay with a
+  malloc-backed display backend. Covers HOME/HUD/mute geometry, selection
+  changes, volume and brightness bar growth, transparent panel corners, hide
+  disabling the layer, and a canary proving the renderer stays inside its
+  scanout buffer. This is not evidence of real disp2 composition.
 - `run_clock_fn_test.sh`: the real Clock Tools pak on the desktop preview.
   Scripted host keys exercise the shared overlay: two opens/closes, app cursor
   unchanged while open, input returns after close, FN2 normal exit, and a

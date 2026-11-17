@@ -586,6 +586,41 @@ static int test_ids_and_last_id(void)
     return 0;
 }
 
+static int test_validate_event(void)
+{
+    Fake fake;
+    DeviceSession session;
+    unsigned long long id;
+    unsigned long long started;
+
+    fake_init(&fake);
+    device_session_init(&session);
+    CHECK(device_session_begin(&session, &OPS, "app", "pak") == DEVICE_SESSION_OK, "begin");
+    id = session.id;
+    started = session.started_mono_ms;
+
+    CHECK(device_session_validate_event(&session, id, started + 1) == DEVICE_SESSION_OK,
+          "matching event accepted");
+    CHECK(device_session_validate_event(&session, 0, started + 1) == DEVICE_SESSION_OK,
+          "id-less event accepted");
+    CHECK(device_session_validate_event(&session, id, 0) == DEVICE_SESSION_OK,
+          "zero time means now");
+    CHECK(device_session_validate_event(&session, id, started - 1) == DEVICE_SESSION_STALE,
+          "event before session is stale");
+    CHECK(device_session_validate_event(&session, id ^ 1ULL, started + 1)
+              == DEVICE_SESSION_STALE,
+          "wrong id is stale");
+    CHECK(device_session_validate_event(NULL, id, started + 1) == DEVICE_SESSION_BAD_ARGUMENT,
+          "missing session is bad argument");
+    CHECK(!session.exit_requested, "validation records no exit");
+
+    CHECK(device_session_end(&session, &OPS, id) == DEVICE_SESSION_OK, "end");
+    CHECK(device_session_validate_event(&session, id, started + 1)
+              == DEVICE_SESSION_NOT_ACTIVE,
+          "ended session is not active");
+    return 0;
+}
+
 int main(void)
 {
     if (test_names() != 0) return 1;
@@ -595,6 +630,7 @@ int main(void)
     if (test_note_capability() != 0) return 1;
     if (test_dirty_only_restore_and_repeated_end() != 0) return 1;
     if (test_stale_stop_protection() != 0) return 1;
+    if (test_validate_event() != 0) return 1;
     if (test_partial_restore() != 0) return 1;
     if (test_write_verification() != 0) return 1;
     if (test_muted_policy() != 0) return 1;

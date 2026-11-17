@@ -23,10 +23,13 @@ extern "C" {
  *   {"op":"session-status"}
  *   {"op":"app-action","action":"home|overlay","at_ms":12345,
  *    "session_id":"0123456789abcdef"}
+ *   {"op":"system-feedback","action":"volume|brightness|colortemp|mute"}
  *   {"op":"app-exit-result","session_id":"0123456789abcdef","forced":true}
  *
  * app-action is the keymon seam: keymon supplies the monotonic press time so a
  * delayed request cannot apply to a newer session. It never carries a PID.
+ * system-feedback only asks who owns the visual feedback for a system key; it
+ * changes no state and records no exit.
  * app-exit-result is the launch parent's bounded-wait report; a late report is
  * rejected by the same session-id guard as session-stop.
  *
@@ -48,6 +51,7 @@ typedef enum
     DEVICE_OP_SESSION_STOP,
     DEVICE_OP_SESSION_STATUS,
     DEVICE_OP_APP_ACTION,
+    DEVICE_OP_SYSTEM_FEEDBACK,
     DEVICE_OP_APP_EXIT_RESULT,
 } DeviceOp;
 
@@ -98,8 +102,8 @@ int device_protocol_write_session_response(const DeviceSession* session,
                                            size_t out_size);
 int device_protocol_write_app_action_response(const DeviceSession* session,
                                               DeviceSessionResult result, const char* action,
-                                              int handled_by_app, const char* error,
-                                              const char* detail, char* out,
+                                              int handled_by_app, int handled_by_system,
+                                              const char* error, const char* detail, char* out,
                                               size_t out_size);
 int device_protocol_write_error_response(const char* error, const char* detail, char* out,
                                          size_t out_size);
