@@ -164,8 +164,10 @@ to a private mode-0600 temporary file that is removed on every exit path.
 pointing at a key file on the trusted host.
 
 After signing, verify every manifest against the **committed public key** —
-this needs no private key, and it is the only step that proves authenticity,
-because the generator's `--nextupd` check is integrity-only:
+this needs no private key. `--nextupd` alone is integrity-only (archive,
+manifest and file consistency); with `--public-key` it also verifies the
+detached signature, so this separate post-sign check is a second, independent
+proof against the committed sidecar:
 
 ```sh
 nextupd check --package releases/nextui-system-tg5040.zip \
