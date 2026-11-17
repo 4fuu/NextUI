@@ -412,16 +412,24 @@ Rules:
   conditional on `--public-key`, so integrity mode can still accept a garbage
   signature while the same call refuses it with the public key supplied.
   U5 is still not closed as a whole: the release workflow continues on the
-  production-source thread's stacked branch and the prepare script needs the
-  same kind of `--key-env` validation fix before independent review; nothing
-  is published and no production key or feed URL is configured. Still open:
-  PR #43 (branch `feature/rumble-backend`, the R3 rumble backend, head
-  `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd`, OPEN, MERGEABLE/CLEAN per gh,
-  exact-head CI green per gh with the Host tests job at 652 passed / 0 failed
-  across 8 suites plus the tg5040 target build and Development/Desktop; the
-  merge owner reported on 2026-11-17 that it is not yet handled, so it has no
-  independent review result and is not written as accepted) and this
-  schedule's own PR #31.
+  production-source thread's stacked branch, and the release-workflow
+  preparation layer is now open as PR #47 (see below); nothing is published
+  and no production key or feed URL is configured. Still open: PR #43
+  (branch `feature/rumble-backend`, the R3 rumble backend, head
+  `0d4deec85d555b34a978d34106a91a9fcdef2a73` -- a normal merge of
+  `origin/main` on top of `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd`, so the
+  earlier head is superseded rather than rewritten -- OPEN, MERGEABLE/CLEAN
+  per gh, exact-head CI green per gh with the Host tests job at 652 passed / 0
+  failed across 8 suites plus the tg5040 target build and Development/Desktop;
+  the source has delivered the exact-head report to the merge owner for the
+  independent gate and no independent review result exists yet, so it is not
+  written as accepted), PR #47
+  (branch `feature/release-workflow-prep`, the release-workflow preparation
+  layer of U5, head `3fb794682367b23548fe5a6ab9c2fd40c62768f2`, OPEN,
+  MERGEABLE/CLEAN per gh, exact-head CI green per gh with the Host tests job
+  at 756 passed / 0 failed across 10 suites plus the tg5040 target build and
+  Development/Desktop; no independent review result yet, so it is not written
+  as accepted), and this schedule's own PR #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -806,28 +814,42 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   next-dispatchable recommendation).
 - Status: delivered and open for review, not merged and not accepted. PR #43
   (https://github.com/4fuu/NextUI/pull/43, branch `feature/rumble-backend`,
-  "Serve input.rumble through the existing PLAT_setRumble path (R3)"), head
-  `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd` (two commits: `1aa91e97` "Add the
-  R3 rumble backend and wire input.rumble into devserv" and `bb67f347`
-  "Document the DEVICE dependency of the rumble platform detection"), base
-  main, OPEN, MERGEABLE/CLEAN per gh, not a draft. Exact-head CI green per gh:
-  Feature checks push and pull_request, whose pull_request run 43959419409 ran
-  the Host tests job (652 passed / 0 failed across 8 suites per the run log)
-  and the tg5040 target build (both success), plus Development/Desktop
-  (build-linux and build-macos). No independent review result exists for this
-  head yet -- the merge owner reported on 2026-11-17 that PR #43 is not yet
-  handled -- so nothing is written as accepted and a source self-test is not
+  "Serve input.rumble through the existing PLAT_setRumble path (R3)"), exact
+  head `0d4deec85d555b34a978d34106a91a9fcdef2a73` per gh, which is a plain
+  merge of `origin/main` `44018eb` into the branch with no rebase, force, or
+  amend, on top of `1aa91e97` "Add the R3 rumble backend and wire input.rumble
+  into devserv" and `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd` "Document the
+  DEVICE dependency of the rumble platform detection" (both ancestors were
+  also green), base main, OPEN, MERGEABLE/CLEAN per gh, not a draft.
+  Exact-head CI is 6/6 green per gh: Host tests on push and on the pull
+  request, build-linux, build-macos, and the tg5040 target build twice; the
+  pull_request Feature checks run 43959419409 ran the Host tests job (652
+  passed / 0 failed across 8 suites per the run log) and the tg5040 target
+  build, both success, with Development/Desktop (build-linux and build-macos)
+  success. The source has delivered this exact-head report to the merge owner
+  (T-01a1e2e1) for the independent gate; no independent review result exists
+  yet, so nothing is written as accepted and a source self-test is not
   acceptance.
-  Scope delivered, per the source and the PR body: `device_backend_rumble.{h,c}`
+  Delivered files, per the source: `workspace/all/common/device_backend_rumble.{h,c}`
   as the adapter (argument validation, capability dispatch, JSON responses,
-  read-back) in the R1/R2 and C2 shape, `device_backend_rumble_platform.c` as
-  the production ops (`PLAT_setRumble()` for the write, the platform nodes for
-  the read-back), and `devserv` composing it last
+  read-back) in the R1/R2 and C2 shape,
+  `workspace/all/common/device_backend_rumble_platform.c` as the production
+  ops (`PLAT_setRumble()` for the write, the platform nodes for the
+  read-back), the devserv wiring (`device_backend_rumble_compose` on top of the
+  existing compose chain in `devserv.c`, two source lines in `devserv/makefile`,
+  and the usage text), the host tests `run_rumble_backend_test.sh` wired as the
+  `tests/makefile` target `test-rumble` on its own lines, and the
+  `DEVICE-API.md` contract section. The I1 devserv ownership was respected:
+  the source only composed on top of the existing backend chain, added no
+  second backend, replaced neither the LED nor the display/audio path, and
+  `NEXTUI_DEVSERV_BACKEND_NONE` builds keep the none backend.
+  Semantics kept, not reinvented: the strength domain stays the existing
+  `0..0xFFFF` and is passed to `PLAT_setRumble()` unchanged, with the whole
+  strength-to-voltage map and the Brick Pro
+  2.5 V ceiling staying in `platform.c`; no new voltage or timing is
+  introduced. `devserv` composes the module last
   (`device_backend_rumble_compose(device_backend_display_audio_compose(device_backend_leds()))`)
-  so the service still exposes exactly one `DeviceBackend`. The strength domain
-  stays the existing `0..0xFFFF`; no strength is mapped to a voltage or driver
-  level here, so `PLAT_setRumble()` keeps its own map including the Brick Pro
-  2.5 V ceiling, and no new voltage or timing is introduced. Because `devserv`
+  so the service still exposes exactly one `DeviceBackend`. Because `devserv`
   never runs `GFX_init()` (where `api.c` calls `PLAT_initPlatform()`), the write
   path runs that platform model detection once first (on tg5040 it only reads
   `$DEVICE`); without it `PLAT_setRumble` would apply the 3.3 V ceiling on a
@@ -844,8 +866,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   (they block their caller and belong to the process that ran `VIB_init`), and
   a rumble call never marks the C3 session haptics field dirty because that
   field is the user's haptics preference owned by the config store.
-  Host verification, per the source: `tests/makefile` gains `test-rumble` with
-  two binaries -- the adapter against fake ops (argument and range rejection
+  Host verification, per the source and the run logs: `tests/makefile` gains
+  `test-rumble`, which runs `run_rumble_backend_test.sh` as two binaries -- the
+  adapter against fake ops (argument and range rejection
   without a write, default-allow dispatch with no grant at all, the legacy
   grant path, read-back mismatch, write and read failures, unsupported and
   unconfigured backends, session independence, composition) and the production
@@ -861,11 +884,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `input.rumble` with `unavailable` and the detail `no rumble path on this
   platform`; `device_backend_rumble_platform.c` compiles clean with
   `-Wall -Wextra -Werror -pedantic` for the tg5040, tg5050, h700 and desktop
-  shapes. Not verified: any hardware effect, the real strength-to-voltage map
-  on a device, and nothing on real sysfs, SD, or the power path; grants are not
-  a feature prerequisite here and no permission product, production key, or
-  device operation is involved. Device rumble effect and recovery stay
-  unverified (V1).
+  shapes. Exact-head run-log numbers, per the source: the rumble backend at
+  239 checks, the rumble platform ops at 131152 checks (the Brick Pro
+  exhaustive strength sweep) plus 7 and 7 for the desktop and h700 shapes,
+  devserv default-allow passed, the session adversarial E2E passed, SANITIZE
+  178+103+55+67+56 /0, and the update package at 132/0.
+  Not done, per the source: no device, real sysfs, SD, POWER, or physical key
+  was touched, so the physical rumble effect and its recovery remain V1; the
+  real strength-to-voltage map is compile-verified on the host only (the four
+  platform shapes with `-Werror -pedantic` clean), and the host platform test
+  mirrors that map against an isolated temporary tree rather than proving the
+  device's own map; the tg5040 cross-compile is CI-only because this orb has
+  no Docker; and grants are not a feature gate -- default-allow was verified
+  with no grant at all and the legacy grant path still works for
+  `input.rumble`, with no permission product added. Device rumble effect and
+  recovery stay unverified (V1).
 - Verified 2026-11-16 (next-dispatchable check): the capability is already
   declared (`workspace/all/common/device_caps.c:22` lists `input.rumble`),
   `PLAT_setRumble` is implemented per platform
@@ -1068,10 +1101,64 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   key is supplied; the schedule does not claim signature verification where
   only integrity was checked.
   Still open inside U5 (so the item is not recorded as closed): the release
-  workflow continues on the production-source thread's stacked branch, and
-  the prepare script needs the same kind of `--key-env` validation fix before
-  it is handed to independent review. Nothing is published, and no production
-  key or feed URL is configured.
+  workflow continues on the production-source thread's stacked branch. The
+  source now reports that round in four layers: (1) the completed tooling,
+  merged as PR #46 above; (2) the release-workflow preparation, open as PR #47
+  (https://github.com/4fuu/NextUI/pull/47, branch
+  `feature/release-workflow-prep`, "Prepare the signed release update assets
+  off the release path"), head `3fb794682367b23548fe5a6ab9c2fd40c62768f2`
+  (four commits: `8ac4f532` prepares the signed release update assets off the
+  release path, `a740a4ac` merges `feature/release-source-feed`,
+  `26824615` is a normal merge of `origin/main`, and `3fb79468` hardens the
+  key lookup and the version source), base main, OPEN, MERGEABLE/CLEAN per gh,
+  not a draft; exact-head CI green per gh, whose Feature checks pull_request
+  run 44021307183 ran the Host tests job at 756 passed / 0 failed across 10
+  suites per the run log plus the tg5040 target build, both success, with
+  Development/Desktop (build-linux and build-macos) success; no independent
+  review result yet, so it is not written as accepted and a source self-test
+  is not acceptance. Per the source and the PR body, that layer adds
+  `scripts/prepare-release-update-assets.sh`, which packages every platform
+  through the existing `make update-package` entry, signs each manifest with
+  the production key read from a named environment variable
+  (`sign-manifest.sh --key-env`, so the PEM never touches argv, the
+  repository, or any output), builds the feed with `scripts/generate-feed.py`,
+  and verifies the whole set with the real `nextupd` binary; the `--key-env`
+  name is validated by rejection (empty, a leading digit, or any byte outside
+  `[A-Za-z0-9_]` is refused before the lookup) and the presence check uses
+  `printenv`, so a crafted name cannot execute on the signing host, with a
+  marker-based regression test as the proof; the feed generation passes
+  `--public-key`, so the feed is only written when every set's detached
+  signature verifies against the committed sidecar, closing the gap where a
+  present-but-garbage signature passed the integrity-only check;
+  `--version-source` makes the authoritative version file an explicit input
+  (default: the repository's `VERSION`), so the release tag must match the
+  version the repository names; and the honest gates each fail before
+  anything is written -- a missing key variable, a missing or mismatched
+  public sidecar, a tag that is not `vX.Y.Z`, `min_system` above the version,
+  a tag that disagrees with the version source, an unknown platform, an
+  unreachable previous feed (a definitive 404 is the first-release case), and
+  a package without `min_system`. It never falls back to the test key and
+  publishes nothing: no tag, no release, no upload. Local evidence per the
+  source: `make -C tests test-release-assets` at 38 passed / 0 failed over the
+  real script on a synthetic tree with the test-only key, then the real client
+  path `nextupd feed` -> `fetch` -> `stage` -> `install` into a throwaway root
+  with the installed version and the published boot payload asserted, the
+  next release merging the previous feed (including the older row staying
+  reachable for a system below the new `min_system`), every gate covered, the
+  full host suite green including #46's `test-generate-feed` at 63/63, and
+  mutation checks proving that reverting the `--key-env` validation to the
+  acceptance glob fails the suite; the injection repro
+  (`--key-env 'A-};touch marker;#'`) exits 64 with no marker and no output
+  directory. This branch does not edit `release.yaml`: wiring the workflow
+  step is the remaining slice of this layer and still needs the production
+  key custody procedure. (3) The custody side is unkeyed: the production
+  Ed25519 key pair does not exist and cannot be created from an orb, because
+  the Amp secrets facility is the persistent store but in-orb writes are
+  unauthorized and the only non-echoing channel is owner-private entry, so the
+  one-step procedure in RELEASE-SOURCE.md runs on the owner's machine and no
+  key ever enters a conversation. (4) Nothing is published: no release, no
+  tag, no feed URL, and no client provisioning, so `feed`/`fetch` still report
+  `feed_unconfigured`; no production key or feed URL is configured.
 - Custody side (an infrastructure constraint, not a product choice, and not a
   closed scope): an orb cannot write the Amp secrets facility without the
   private key transiting a transcript, which the custody rules forbid, so the
