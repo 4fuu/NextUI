@@ -501,15 +501,6 @@ int main(int argc, char *argv[])
             []() -> std::any { return CFG_getMenuTransitions(); },
             [](const std::any &value) { CFG_setMenuTransitions(std::any_cast<int>(value)); },
             []() { CFG_setMenuTransitions(CFG_DEFAULT_SHOWMENUTRANSITIONS); }});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Game art corner radius"), TR("Set the radius for the rounded corners of game art"), 0, 24, "px",
-            []() -> std::any{ return CFG_getThumbnailRadius(); },
-            [](const std::any &value) { CFG_setThumbnailRadius(std::any_cast<int>(value)); },
-            []() { CFG_setThumbnailRadius(CFG_DEFAULT_THUMBRADIUS);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Game art width"), TR("Set the percentage of screen width used for game art.\nUI elements might overrule this to avoid clipping."),
-            5, 100, "%",
-            []() -> std::any{ return (int)(CFG_getGameArtWidth() * 100); },
-            [](const std::any &value) { CFG_setGameArtWidth((double)std::any_cast<int>(value) / 100.0); },
-            []() { CFG_setGameArtWidth(CFG_DEFAULT_GAMEARTWIDTH);}});
         appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show folder names at root"), TR("Show folder names at root directory"), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getShowFolderNamesAtRoot(); },
             [](const std::any &value) { CFG_setShowFolderNamesAtRoot(std::any_cast<bool>(value)); },
@@ -522,10 +513,6 @@ int main(int argc, char *argv[])
             []() -> std::any { return CFG_getShowTools(); },
             [](const std::any &value) { CFG_setShowTools(std::any_cast<bool>(value)); },
             []() { CFG_setShowTools(CFG_DEFAULT_SHOWTOOLS);}});
-        appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Show game art"), TR("Show game artwork in the main menu"), {false, true}, on_off_tr,
-            []() -> std::any { return CFG_getShowGameArt(); },
-            [](const std::any &value) { CFG_setShowGameArt(std::any_cast<bool>(value)); },
-            []() { CFG_setShowGameArt(CFG_DEFAULT_SHOWGAMEART);}});
         appearanceItems.push_back(new MenuItem{ListItemType::Generic, TR("Use folder background for ROMs"), TR("If enabled, used the emulator background image. Otherwise uses the default."), {false, true}, on_off_tr,
             []() -> std::any { return CFG_getRomsUseFolderBackground(); },
             [](const std::any &value) { CFG_setRomsUseFolderBackground(std::any_cast<bool>(value)); },

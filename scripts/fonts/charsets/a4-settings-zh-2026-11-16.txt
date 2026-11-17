@@ -16,8 +16,11 @@
 # option i18n keys left orphaned by the built-in emulator removal (276 -> 264),
 # removed together with the RetroAchievements dead cluster. a3-zh is left as the
 # frozen audit snapshot and still lists those characters.
+#
+# 2026-11-17: dropped the three game-art Appearance rows and their six i18n
+# entries, which no longer describe this app desktop (330 -> 324).
 
-# ---- values (330) ----
+# ---- values (324) ----
 最近游玩
 最近
 收藏
@@ -80,18 +83,12 @@ FN 开关设置
 开
 轻快
 舒缓
-游戏图片圆角
-设置游戏图片圆角的半径。
-游戏图片宽度
-游戏图片占屏幕宽度的百分比，界面元素可自行调整以避免裁切。
 根目录显示文件夹名
 在根目录中显示文件夹名称。
 显示最近游玩
 在游戏列表中显示“最近游玩”入口。
 显示工具
 在游戏列表中显示“工具”入口。
-显示游戏图片
-在主菜单中显示游戏图片。
 ROM 使用文件夹背景
 启用时使用模拟器背景图片，否则使用默认背景。
 显示切换器界面

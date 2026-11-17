@@ -82,21 +82,12 @@ static const I18nEntry zhTable[] = {
     {"On", "开"},
     {"Snappy", "轻快"},
     {"Comfy", "舒缓"},
-    {"Game art corner radius", "游戏图片圆角"},
-    {"Set the radius for the rounded corners of game art", "设置游戏图片圆角的半径。"},
-    {"Game art width", "游戏图片宽度"},
-    // Multi-line English hints collapse to one Chinese line: the font subset has
-    // no U+000A glyph and GFX_blitText does not wrap, so a zh value must stay a
-    // single line that fits the description area.
-    {"Set the percentage of screen width used for game art.\nUI elements might overrule this to avoid clipping.", "游戏图片占屏幕宽度的百分比，界面元素可自行调整以避免裁切。"},
     {"Show folder names at root", "根目录显示文件夹名"},
     {"Show folder names at root directory", "在根目录中显示文件夹名称。"},
     {"Show Recents", "显示最近游玩"},
     {"Show \"Recently Played\" menu entry in game list.", "在游戏列表中显示“最近游玩”入口。"},
     {"Show Tools", "显示工具"},
     {"Show \"Tools\" menu entry in game list.", "在游戏列表中显示“工具”入口。"},
-    {"Show game art", "显示游戏图片"},
-    {"Show game artwork in the main menu", "在主菜单中显示游戏图片。"},
     {"Use folder background for ROMs", "ROM 使用文件夹背景"},
     {"If enabled, used the emulator background image. Otherwise uses the default.", "启用时使用模拟器背景图片，否则使用默认背景。"},
     {"Show Quickswitcher UI", "显示切换器界面"},
