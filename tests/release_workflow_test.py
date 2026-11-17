@@ -250,6 +250,16 @@ def main():
                   "$SERVER_URL/$REPOSITORY/releases/download/$RELEASE_TAG"
                   in prepare,
                   "the asset URLs are not derived from the release context")
+            check("the server url uses the github.server_url context key",
+                  "SERVER_URL: ${{ github.server_url }}" in text
+                  and "github.serverUrl" not in text,
+                  "SERVER_URL is empty or misspelled; feed URLs would be "
+                  "root-relative")
+            check("the host nextupd build directory is made writable",
+                  "workspace/all/nextupd/build" in prepare
+                  and "chown" in prepare,
+                  "the root-owned toolchain build directory blocks the host "
+                  "nextupd build")
             check("the previous feed is conditional on a previous tag",
                   "if [ -n \"$PREVIOUS_TAG\" ]" in prepare
                   and "--previous-url" in prepare,

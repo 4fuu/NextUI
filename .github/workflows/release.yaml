@@ -127,9 +127,13 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.next-tag }}
           PREVIOUS_TAG: ${{ needs.prepare.outputs.latest-tag }}
-          SERVER_URL: ${{ github.serverUrl }}
+          SERVER_URL: ${{ github.server_url }}
           REPOSITORY: ${{ github.repository }}
         run: |
+          # The toolchain container built workspace/ as root, so the host
+          # nextupd build needs a writable build directory.
+          sudo mkdir -p workspace/all/nextupd/build/desktop
+          sudo chown -R "$(id -u):$(id -g)" workspace/all/nextupd/build
           previous_args=""
           min_system="$RELEASE_TAG"
           if [ -n "$PREVIOUS_TAG" ]; then
