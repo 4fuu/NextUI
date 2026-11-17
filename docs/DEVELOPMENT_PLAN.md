@@ -439,10 +439,11 @@ Rules:
   first release reachable and the release attach layout-independent", on top of
   `3d62684` (a normal merge of `origin/main` `e314ea9`) and `0cfab52c`, so the
   earlier `0cfab52c` head is superseded rather than rewritten. Post-merge on
-  `e314ea9` all three workflows are success per gh; post-merge on `6feb6cc`,
-  Development/Desktop is success while Feature checks and CI are still in
-  progress per gh, so that CI is recorded as in progress and not written as
-  passing. The source reports the merge owner's independent review at each
+  `e314ea9` all three workflows are success per gh; post-merge on `6feb6cc`
+  all three workflows (Feature checks, Development/Desktop, CI) are success per
+  gh as well, and gh lists the `Release NextUI` workflow
+  (`.github/workflows/release.yaml`) as active, so the wiring slice parses and
+  is live on main -- a malformed workflow file would not be recognized. The source reports the merge owner's independent review at each
   exact head and 63 + 40 + 30 checks green on the merged tree (63 for the feed
   generator, 40 for the preparation script, 30 for the wiring); those counts
   are the source's report, and the review verdicts are recorded as the source's
@@ -1227,9 +1228,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `3d62684` (a normal merge of `origin/main` `e314ea9`) and `0cfab52c`; the
   earlier `0cfab52c` head is superseded rather than rewritten. The source
   reports the merge owner's independent review at that exact head and 30 wiring
-  checks. Post-merge on `6feb6cc`: Development/Desktop is success while Feature
-  checks and CI are still in progress per gh, so that CI is recorded as in
-  progress and not written as passing. The wiring's recorded behavior: it makes
+  checks. Post-merge on `6feb6cc` all three workflows (Feature checks,
+  Development/Desktop, CI) are success per gh, and gh lists the `Release NextUI`
+  workflow (`.github/workflows/release.yaml`) as active, so the wiring parses and
+  is live on main. The wiring's recorded behavior: it makes
   `release.yaml` produce the GitHub Releases update source as
   part of the release and fail closed without a production key -- a guard step
   before any build work fails with a precise message when
@@ -2586,9 +2588,11 @@ as they happen; nothing is reported as passing without a run.
   2026-11-17T05:58:53Z, merged by 4fuu, final head
   `17a6e1f2f8734792dda5b91893c8c89d7b86ab8d`, which supersedes the earlier
   `0cfab52c308eef0c737565641275fcbef38692ec` head); post-merge on `e314ea9` all
-  three workflows are success per gh, while post-merge on `6feb6cc` has
-  Development/Desktop success with Feature checks and CI still in progress per
-  gh, so that CI is not written as passing. The source reports the merge
+  three workflows are success per gh, and post-merge on `6feb6cc` all three
+  workflows (Feature checks, Development/Desktop, CI) are success per gh as
+  well, with gh listing the `Release NextUI` workflow
+  (`.github/workflows/release.yaml`) as active, so the wiring parses and is live
+  on main. The source reports the merge
   owner's independent review at each exact head and 63 + 40 + 30 checks green
   on the merged tree; those verdicts are recorded as the source's relay of the
   merge owner's result. Only the custody and publication layers of U5 remain
