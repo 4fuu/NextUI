@@ -87,16 +87,20 @@ def code_lines(text):
 def test_syntax():
     problems = []
     scripts = list(INSTALL_SCRIPTS.values()) + [H700_SHIM]
-    for shell in ("sh", "dash"):
+    shells = ["sh"]
+    if shutil.which("dash"):
+        shells.append("dash")
+    for shell in shells:
         for path in scripts:
             proc = subprocess.run([shell, "-n", path], capture_output=True, text=True)
             if proc.returncode != 0:
                 problems.append("%s -n rejected %s: %s"
                                 % (shell, os.path.relpath(path, REPO), proc.stderr.strip()))
+    label = "every boot script parses under sh%s" % (" and dash" if "dash" in shells else "")
     if problems:
-        fail("every boot script parses under sh and dash", "; ".join(problems))
+        fail(label, "; ".join(problems))
     else:
-        ok("every boot script parses under sh and dash")
+        ok(label)
 
 
 def test_no_pakz_glob():
@@ -222,6 +226,29 @@ kill -TERM "$PPID" 2>/dev/null
 exit 0
 """
 
+SHIM_UNZIP_SHIM = """#!/bin/sh
+# Host-test unzip shim for the h700 shim call
+# "unzip -o <archive> <pattern> -d <dir>": the first positional is the archive,
+# the glob pattern is ignored, and the payload is extracted with python.
+archive=""
+dir=""
+while [ $# -gt 0 ]; do
+\tcase "$1" in
+\t\t-o) shift ;;
+\t\t-d) shift; dir="$1"; shift ;;
+\t\t-*) shift ;;
+\t\t*) if [ -z "$archive" ]; then archive="$1"; fi; shift ;;
+\tesac
+done
+if [ -z "$dir" ] || [ -z "$archive" ]; then
+\techo "unzip shim: bad args: $*" >&2
+\texit 2
+fi
+python3 -m zipfile -e "$archive" "$dir" || exit 1
+find "$dir" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+exit 0
+"""
+
 
 def write_exec(path, content):
     with open(path, "w") as handle:
@@ -282,6 +309,9 @@ def launch_script(marker):
 
 
 def test_bluetooth_pak_installs():
+    # Proves the boot block extracts the pak and executes its post_install.sh,
+    # using a stand-in post_install. This is not a real BlueZ upgrade: the real
+    # post_install (upgrade_bluez.sh) is a device concern and is not run here.
     work = tempfile.mkdtemp(prefix="nextui-boot-path.")
     try:
         sb, sdcard, bindir = make_sandbox("tg5040", work)
@@ -302,10 +332,11 @@ def test_bluetooth_pak_installs():
             problems.append("the pak was not removed after install")
         if os.path.exists(os.path.join(sdcard, "post_install.sh")):
             problems.append("post_install.sh was not removed after install")
+        label = "the tg5040 Bluetooth pak still extracts and runs post_install (stand-in)"
         if problems:
-            fail("the tg5040 Bluetooth upgrade pak still installs", "; ".join(problems))
+            fail(label, "; ".join(problems))
         else:
-            ok("the tg5040 Bluetooth upgrade pak still installs")
+            ok(label)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -490,6 +521,118 @@ def test_wrong_platform_pakz_ignored():
         shutil.rmtree(work, ignore_errors=True)
 
 
+def extract_shim_gate_block():
+    """The h700 shim's MinUI.zip gate block, verbatim, so its real logic runs.
+
+    The compiled shim cannot run on the host (embedded payload, fixed
+    /mnt/sdcard, and the mount_tf2 gate), so this pulls the actual gate lines
+    out of workspace/h700/boot/boot.sh and executes them with stubs. Returns
+    None if the block is missing or no longer has the installed-system branch.
+    """
+    lines = read(H700_SHIM).splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == 'if [ -f "$UPDATE_PATH" ] && [ ! -d "$SYSTEM_PATH" ]; then':
+            start = i
+            break
+    if start is None:
+        return None
+    for j in range(start + 1, len(lines)):
+        if lines[j] == "fi":  # column-0 fi closes the if/elif gate block
+            block = "\n".join(lines[start:j + 1])
+            if "elif" in block and "ignored on an installed system" in block:
+                return block
+            return None
+    return None
+
+
+def run_shim_gate(block, sdcard, sb, unzip_path):
+    """Execute the extracted shim gate block against a throwaway SD root."""
+    log = os.path.join(sb, "shim.log")
+    wrapper = os.path.join(sb, "run_gate.sh")
+    with open(wrapper, "w") as handle:
+        handle.write("#!/bin/sh\n")
+        handle.write('TF2_PATH="%s"\n' % sdcard)
+        handle.write('SYSTEM_PATH="%s/.system/h700"\n' % sdcard)
+        handle.write('UPDATE_PATH="%s/MinUI.zip"\n' % sdcard)
+        handle.write('PLATFORM="h700"\n')
+        handle.write('LOG_PATH="%s"\n' % log)
+        handle.write('shim_log() { echo "$@" >> "$LOG_PATH"; }\n')
+        handle.write('show_splash() { :; }\n')
+        handle.write('find_unzip() { echo "%s"; }\n' % unzip_path)
+        handle.write('fallback_stock() { echo "fallback_stock" >> "$LOG_PATH"; exit 3; }\n')
+        handle.write(block + "\n")
+    os.chmod(wrapper, 0o755)
+    with open(os.path.join(sb, "gate.stderr"), "w") as err:
+        subprocess.run(["sh", wrapper], stdout=subprocess.DEVNULL, stderr=err)
+    return log
+
+
+def test_h700_shim_gate():
+    # Behavioral coverage for the h700 shim's own gate. The full shim cannot run
+    # on the host, so this executes the shim's real gate block (extracted
+    # verbatim) against throwaway roots. The installer it would invoke
+    # (.tmp_update/h700.sh) is the same script the install tests already drive.
+    block = extract_shim_gate_block()
+    if not block:
+        fail("the h700 shim gate block is extractable with an installed-system branch",
+             "could not find the shim's first-install gate block")
+        return
+    work = tempfile.mkdtemp(prefix="nextui-boot-path.")
+    try:
+        unzip_path = os.path.join(work, "unzip")
+        write_exec(unzip_path, SHIM_UNZIP_SHIM)
+
+        # Installed system: the shim must not bootstrap or run from the zip.
+        sb = os.path.join(work, "sb-installed")
+        sdcard = os.path.join(sb, "sdcard")
+        os.makedirs(os.path.join(sdcard, ".system", "h700", "paks", "MinUI.pak"))
+        pwned = os.path.join(sdcard, ".pwned")
+        build_pak(os.path.join(sdcard, "MinUI.zip"), {
+            ".tmp_update/h700.sh": '#!/bin/sh\necho pwned > "%s"\n' % pwned,
+        })
+        log = run_shim_gate(block, sdcard, sb, unzip_path)
+        log_text = read(log) if os.path.exists(log) else ""
+        problems = []
+        if "ignored on an installed system" not in log_text:
+            problems.append("the shim did not log the ignored zip")
+        if "first-install zip detected" in log_text:
+            problems.append("the shim treated an installed system as a first install")
+        if os.path.exists(os.path.join(sdcard, ".tmp_update", "h700.sh")):
+            problems.append("the shim extracted the boot payload on an installed system")
+        if os.path.exists(pwned):
+            problems.append("the shim ran the zip's installer on an installed system")
+        if not os.path.exists(os.path.join(sdcard, "MinUI.zip")):
+            problems.append("the shim consumed the zip on an installed system")
+        label = "the h700 shim ignores a dropped zip on an installed system"
+        if problems:
+            fail(label, "; ".join(problems))
+        else:
+            ok(label)
+
+        # First install: the shim bootstraps the boot payload and runs it.
+        sb2 = os.path.join(work, "sb-first")
+        sdcard2 = os.path.join(sb2, "sdcard")
+        os.makedirs(sdcard2)
+        ran = os.path.join(sdcard2, ".installer_ran")
+        build_pak(os.path.join(sdcard2, "MinUI.zip"), {
+            ".tmp_update/h700.sh": '#!/bin/sh\necho ran > "%s"\n' % ran,
+        })
+        run_shim_gate(block, sdcard2, sb2, unzip_path)
+        problems2 = []
+        if not os.path.exists(os.path.join(sdcard2, ".tmp_update", "h700.sh")):
+            problems2.append("the shim did not bootstrap the boot payload")
+        if not os.path.exists(ran):
+            problems2.append("the shim did not run the installer on a first install")
+        label2 = "the h700 shim bootstraps and runs the installer on a first install"
+        if problems2:
+            fail(label2, "; ".join(problems2))
+        else:
+            ok(label2)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def main():
     if not os.path.isdir(REPO):
         print("FAIL: no repository at %s" % REPO, file=sys.stderr)
@@ -511,6 +654,7 @@ def main():
     test_first_install_from_minui_zip()
     test_h700_first_install_from_minui_zip()
     test_installed_system_minui_zip_ignored()
+    test_h700_shim_gate()
     test_wrong_platform_pakz_ignored()
     if FAIL:
         print("%d check(s) failed" % FAIL, file=sys.stderr)

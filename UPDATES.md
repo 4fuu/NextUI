@@ -671,13 +671,15 @@ What the boot installer still does:
   zip.
 - On tg5040 only, extracts the one device-compat pak the base package ships,
   named explicitly as `nextui.upgrade_bluez.tg5040.pakz`, and runs its
-  `post_install.sh` to upgrade BlueZ. No other `.pakz` is read; a dropped
-  `evil.pakz` is neither extracted, executed, nor removed.
+  `post_install.sh`. No other `.pakz` is read; a dropped `evil.pakz` is neither
+  extracted, executed, nor removed.
 
 The tg5040 Bluetooth pak is an unsigned device-compat residual: narrowing to
 that exact filename is not content authentication, so it is the one unsigned
-boot install that is still reachable. Everything else an installed system needs
-comes through the signed transaction.
+boot install that is still reachable. The host test proves the pak is extracted
+and its `post_install.sh` executes, using a stand-in script; it does not run the
+real BlueZ upgrade, so that upgrade remains device-unverified. Everything else
+an installed system needs comes through the signed transaction.
 
 App installs and system updates go through the signed nextupd transaction and
 the "Install from file" page. The h700 boot shim likewise bootstraps and runs
