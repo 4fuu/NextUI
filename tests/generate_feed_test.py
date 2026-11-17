@@ -108,6 +108,13 @@ def read_json(path):
         return json.load(handle)
 
 
+def write_file(path, data, mode=0o644):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as handle:
+        handle.write(data)
+    os.chmod(path, mode)
+
+
 def write_json(path, value):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
@@ -469,6 +476,94 @@ def main():
         expect("unreachable previous feed is refused", proc, 65,
                "cannot fetch previous feed")
 
+        # Writer/reader contract: the client's field buffers and its strict
+        # unknown-field rejection bound what the generator may write, and bad
+        # input must exit 65 rather than traceback.
+        extra = os.path.join(WORK, "extra-field-feed.json")
+        entry = {
+            "platform": PLATFORM, "version": "v6.15.0", "min_system": "v6.0.0",
+            "manifest_url": "https://example.invalid/m.json",
+            "signature_url": "https://example.invalid/m.sig",
+            "archive_url": "https://example.invalid/a.zip",
+            "archive_name": "nextui-system-tg5040.zip",
+            "archive_size": 610,
+            "archive_sha256": "89a5" + "0" * 60,
+            "notes": "an extra field the client rejects",
+        }
+        write_json(extra, {"schema": "nextui-feed-v1", "entries": [entry]})
+        merged_extra = os.path.join(WORK, "feed-extra.json")
+        proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                        "--previous", extra, "--out", merged_extra)
+        expect("a previous row with an extra field is rebuilt", proc, 0)
+        rows = read_json(merged_extra).get("entries", [])
+        old = [row for row in rows if row["version"] == "v6.15.0"]
+        if len(rows) != 2 or len(old) != 1 or tuple(old[0]) != ENTRY_FIELDS:
+            fail("rebuilt previous row", rows)
+        else:
+            ok("rebuilt previous row carries only the known fields")
+
+        for name, document, reason in (
+            ("a non-string previous version",
+             {"schema": "nextui-feed-v1", "entries": [dict(entry, version=617)]},
+             "version must be a string"),
+            ("a non-string previous URL",
+             {"schema": "nextui-feed-v1",
+              "entries": [dict(entry, manifest_url=617)]},
+             "manifest_url must be a string"),
+            ("a previous version over the client's buffer",
+             {"schema": "nextui-feed-v1",
+              "entries": [dict(entry, version="v" + "9" * 40)]},
+             "version must be vX.Y.Z"),
+        ):
+            broken = os.path.join(WORK, "broken-previous.json")
+            write_json(broken, document)
+            proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                            "--previous", broken)
+            expect(name + " is refused", proc, 65, reason)
+
+        proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                        "--channel", "c" * 32)
+        expect("an over-long channel is refused", proc, 65, "shorter than 32")
+        proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                        "--generated-at", "t" * 40)
+        expect("an over-long generated_at is refused", proc, 65,
+               "shorter than 40")
+
+        unusable = os.path.join(WORK, "not-executable")
+        write_file(unusable, b"#!/bin/sh\nexit 0\n", 0o644)
+        proc = generate([republished], f"{BASE_URL}/rel-6170-v2",
+                        "--nextupd", unusable)
+        expect("an unusable nextupd binary is refused", proc, 65,
+               "cannot run nextupd")
+
+        # --public-key upgrades the verification to the signature: a
+        # present-but-garbage signature passes an integrity-only check, which
+        # is consistency, not authenticity, and the client rejects the set.
+        garbage = os.path.join(WORK, "garbage-signature")
+        publish(garbage, newer)
+        with open(os.path.join(garbage,
+                               "nextui-system-tg5040.manifest.sig"), "w",
+                  encoding="ascii") as handle:
+            handle.write("not a signature\n")
+        proc = generate([garbage], f"{BASE_URL}/assets/garbage",
+                        "--nextupd", BIN)
+        expect("a garbage signature passes the integrity-only check", proc, 0)
+        proc = generate([garbage], f"{BASE_URL}/assets/garbage",
+                        "--nextupd", BIN, "--public-key", FIXTURE_PUB)
+        expect("--public-key refuses the garbage signature", proc, 65,
+               "signature")
+        proc = generate([release], f"{BASE_URL}/assets/v6.17.0",
+                        "--nextupd", BIN, "--public-key", FIXTURE_PUB)
+        expect("--public-key accepts a signed set", proc, 0)
+        proc = generate([release], f"{BASE_URL}/assets/v6.17.0",
+                        "--public-key", FIXTURE_PUB)
+        expect("--public-key needs --nextupd", proc, 65, "needs --nextupd")
+        proc = generate([release], f"{BASE_URL}/assets/v6.17.0",
+                        "--nextupd", BIN,
+                        "--public-key", os.path.join(WORK, "absent.pub"))
+        expect("a missing public key is refused", proc, 65,
+               "does not exist")
+
         # --nextupd walks every archive with the real verifier, catching a set
         # whose manifest does not list every file it ships: the generator's own
         # hash check cannot see that, and the client would refuse the download.
@@ -541,12 +636,55 @@ def main():
                run(["check", "--package", current["archive"],
                     "--manifest", manifest, "--signature", signature,
                     "--trusted-key", FIXTURE_PUB, "--platform", PLATFORM]), 0)
-        proc = subprocess.run([SIGN_SCRIPT, "--key-env", "NEXTUI_MISSING_KEY",
-                               KEY_ID, manifest, signature],
-                              capture_output=True, text=True,
-                              env={k: v for k, v in os.environ.items()
-                                   if k != "NEXTUI_MISSING_KEY"})
-        expect("unset key env var is refused", proc, 65, "NEXTUI_MISSING_KEY")
+
+        # The variable name is used to look the key up, so it is validated by
+        # rejection: empty, a leading digit, and any byte outside [A-Za-z0-9_]
+        # are refused before the lookup, and the lookup itself evaluates
+        # nothing. The marker file is the proof: a name that survives validation
+        # would execute its payload on the signing host, where the key lives.
+        marker = os.path.join(WORK, "key-env-injection-marker")
+        injection_names = (
+            "A-B",
+            "A B",
+            "A;B",
+            "A-};touch %s;#" % marker,
+            "A{B}",
+            "1A",
+            "",
+            "\n",
+        )
+        for bad_name in injection_names:
+            proc = subprocess.run([SIGN_SCRIPT, "--key-env", bad_name, KEY_ID,
+                                   manifest, signature + ".rejected"],
+                                  capture_output=True, text=True,
+                                  env={**os.environ, "NEXTUI_TEST_KEY":
+                                       pem_text})
+            if not expect("key-env rejects the invalid name %r" % bad_name,
+                          proc, 64, "invalid --key-env name"):
+                break
+        if os.path.exists(marker):
+            fail("key-env name validation blocks command execution",
+                 "the marker file was created")
+        else:
+            ok("key-env name validation blocks command execution")
+        if os.path.exists(signature + ".rejected"):
+            fail("key-env name validation writes nothing",
+                 "a signature was written for an invalid name")
+        else:
+            ok("key-env name validation writes nothing")
+
+        # Unset and set-but-empty are both refusals, and neither signs.
+        for label, environment in (("unset", {}),
+                                   ("empty", {"NEXTUI_MISSING_KEY": ""})):
+            proc_env = {k: v for k, v in os.environ.items()
+                        if k != "NEXTUI_MISSING_KEY"}
+            proc_env.update(environment)
+            proc = subprocess.run([SIGN_SCRIPT, "--key-env",
+                                   "NEXTUI_MISSING_KEY", KEY_ID, manifest,
+                                   signature + ".rejected"],
+                                  capture_output=True, text=True,
+                                  env=proc_env)
+            expect("an %s key variable is refused" % label, proc, 65)
 
         print(f"\n{PASS} passed, {FAIL} failed")
         return 1 if FAIL else 0

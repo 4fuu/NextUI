@@ -50,10 +50,16 @@ Release tags are `vX.Y.Z`, matching the authoritative semver the manifest and
 scripts/generate-feed.py \
     --set-dir releases \
     --base-url https://github.com/4fuu/nextui/releases/download/v6.16.0 \
-    --previous https://github.com/4fuu/nextui/releases/download/v6.16.0/nextui-feed.json \
+    --previous https://github.com/4fuu/nextui/releases/download/v6.15.0/nextui-feed.json \
     --nextupd workspace/all/nextupd/build/desktop/nextupd.elf \
+    --public-key workspace/all/nextupd/release/nextui-release-1.pub \
     --out nextui-feed.json
 ```
+
+For the **first** release there is no previous feed: omit `--previous` and the
+feed starts with this release's rows only. (A URL that 404s is refused, not
+treated as absent; the release-workflow preparation decides when a previous
+feed exists.)
 
 - Every entry field comes from the signed manifest, and the archive bytes are
   hashed here, so the feed cannot advertise a file the release does not
@@ -64,14 +70,21 @@ scripts/generate-feed.py \
   URL), so each release keeps the previous compatible rows: a system too old
   for the newest `min_system` installs the older compatible row, and
   user-initiated downgrades keep working. Rows for the same platform and
-  version are replaced, never duplicated.
-- `--nextupd` runs the real verifier (`check --integrity-only`) over every
-  archive, so a package that cannot install never reaches a feed.
-- The generator reads no key of any kind. It publishes nothing; the release
-  workflow uploads what it writes.
+  version are replaced, never duplicated, and a previous row is rebuilt from
+  the nine known fields, because the client rejects unknown ones.
+- `--nextupd` runs the real verifier over every archive, so a package that
+  cannot install never reaches a feed. On its own that check is
+  archive/manifest/content consistency, **not authenticity**: it does not look
+  at the signature, and a present-but-garbage signature passes it. Adding
+  `--public-key` upgrades the same run to `check --signature --trusted-key`,
+  so the feed is only written when every set's detached signature verifies
+  against the committed sidecar. That needs no private key, and it is what the
+  release procedure uses; see [Signing a release](#signing-a-release).
+- The generator reads no private key of any kind. It publishes nothing; the
+  release workflow uploads what it writes.
 
-The wiring into `ci.yaml`/`release.yaml` belongs to the CI owner and is not
-part of this page.
+The wiring into `ci.yaml`/`release.yaml` is release-workflow preparation and
+a separate follow-up; it is not part of this page.
 
 ## The signing trust chain
 
@@ -141,10 +154,33 @@ amp --no-tui --amp-env sh -c '
 ```
 
 `--key-env` reads the PEM from the named environment variable, so the key
-never appears in argv, in a repository file, or in any output; OpenSSL reads
-it from a private mode-0600 temporary file that is removed on every exit path.
+never appears in argv, in a repository file, or in any output. The variable
+name is validated by rejection before the lookup (empty, a leading digit, or
+any byte outside `[A-Za-z0-9_]` is refused), the lookup itself evaluates
+nothing, and the variable is unset once read so the key is not inherited by
+the openssl process. OpenSSL reads the key from a path, so the PEM is written
+to a private mode-0600 temporary file that is removed on every exit path.
 `package-update.sh` signs in place when given `UPDATE_KEY`/`UPDATE_KEY_ID`
 pointing at a key file on the trusted host.
+
+After signing, verify every manifest against the **committed public key** —
+this needs no private key. `--nextupd` alone is integrity-only (archive,
+manifest and file consistency); with `--public-key` it also verifies the
+detached signature, so this separate post-sign check is a second, independent
+proof against the committed sidecar:
+
+```sh
+nextupd check --package releases/nextui-system-tg5040.zip \
+    --manifest releases/nextui-system-tg5040.manifest.json \
+    --signature releases/nextui-system-tg5040.manifest.sig \
+    --trusted-key workspace/all/nextupd/release/nextui-release-1.pub \
+    --platform tg5040 | grep 'signature: verified'
+```
+
+The release-workflow preparation (a separate follow-up, not part of this
+page) runs exactly this check for every platform and refuses to publish the
+set when it fails, so a release signed with a key the client does not trust
+never reaches the release page.
 
 Signing after packaging, as above, leaves the packaging script's
 `<base>.manifest.set` marker recording the unsigned publish. The marker is an
@@ -184,8 +220,9 @@ Honest boundaries, so nothing here reads as more ready than it is:
 - **No client provisioning.** `NEXTUI_UPDATE_FEED` and
   `NEXTUI_UPDATE_TRUSTED_KEY` are not set anywhere in this repository.
 - **No release workflow wiring.** `ci.yaml`/`release.yaml` do not yet build
-  the update package, sign it, generate the feed, or upload assets; that
-  belongs to the CI owner and needs the key procedure above first.
+  the update package, sign it, generate the feed, or upload assets. The
+  release-workflow preparation is a separate follow-up in this thread's
+  scope and needs the key procedure above first.
 - **No store.** There is no store source, fork, or index, and none is planned.
 
 ## Tests
@@ -198,6 +235,11 @@ The host tests drive the real signer and the real `nextupd` binary over
 synthetic published sets: the generated feed is accepted by `nextupd feed`
 and selects the intended row (`update_available`, `up_to_date`,
 `system_too_old`, per-platform rows, `--previous` merge and replacement),
-every refusal keeps an unusable set out of a feed, and `sign-manifest.sh
---key-env` signs from an environment variable without ever echoing the key.
-They use the committed test-only seed, publish nothing, and touch no device.
+every refusal keeps an unusable set out of a feed, the writer stays inside
+the client's field buffers and its unknown-field rejection, a
+present-but-garbage signature is refused when `--public-key` is given (and
+passes the integrity-only check, which is consistency and not
+authenticity), and `sign-manifest.sh --key-env` signs from an environment
+variable without ever echoing the key, with every invalid variable name
+refused before any lookup and no side effect. They use the committed
+test-only seed, publish nothing, and touch no device.

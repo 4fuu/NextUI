@@ -19,13 +19,6 @@ raw_log() {
 	echo "$@" >> "$LOG_PATH" 2>/dev/null || true
 }
 
-has_pakz() {
-	for pakz in "$TF2_PATH"/*.pakz; do
-		[ -e "$pakz" ] && return 0
-	done
-	return 1
-}
-
 extract_payload() {
 	if [ -x /tmp/nextui-h700-unzip ] && [ -x /tmp/nextui-h700-fbsplash ] && [ -f /tmp/nextui-h700/shim-common.sh ]; then
 		return 0
@@ -110,8 +103,12 @@ fi
 
 ensure_compat_path "$TF2_PATH" "$COMPAT_PATH"
 
-if [ -f "$UPDATE_PATH" ]; then
-	shim_log "install/update zip detected"
+# First install only. On a stock or empty card, bootstrap the boot payload from
+# the zip and run the installer. An already-installed .system/h700 is never
+# touched from a dropped zip: everyday updates and repairs go through the signed
+# nextupd transaction, so the zip is ignored and the installed system boots.
+if [ -f "$UPDATE_PATH" ] && [ ! -d "$SYSTEM_PATH" ]; then
+	shim_log "first-install zip detected"
 	show_splash "INSTALLING NEXTUI"
 	if [ ! -x "$TF2_PATH/.tmp_update/$PLATFORM.sh" ]; then
 		UNZIP_CMD=$(find_unzip)
@@ -124,14 +121,13 @@ if [ -f "$UPDATE_PATH" ]; then
 			fallback_stock
 		fi
 	fi
-fi
 
-if [ -x "$TF2_PATH/.tmp_update/$PLATFORM.sh" ] && { [ -f "$UPDATE_PATH" ] || has_pakz; }; then
-	show_splash "INSTALLING NEXTUI"
-	"$TF2_PATH/.tmp_update/$PLATFORM.sh" >> "$LOG_PATH" 2>&1
-elif [ -x "$SYSTEM_PATH/bin/install.sh" ] && [ -f "$UPDATE_PATH" ]; then
-	show_splash "UPDATING NEXTUI"
-	"$SYSTEM_PATH/bin/install.sh" >> "$LOG_PATH" 2>&1
+	if [ -x "$TF2_PATH/.tmp_update/$PLATFORM.sh" ]; then
+		show_splash "INSTALLING NEXTUI"
+		"$TF2_PATH/.tmp_update/$PLATFORM.sh" >> "$LOG_PATH" 2>&1
+	fi
+elif [ -f "$UPDATE_PATH" ]; then
+	shim_log "install zip ignored on an installed system; update via the signed path"
 fi
 
 if [ -x "$SYSTEM_PATH/paks/MinUI.pak/launch.sh" ]; then
