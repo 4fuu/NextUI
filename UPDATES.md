@@ -609,8 +609,10 @@ The boot payload is not published when:
   not guess that the signed package is newer.
 
 An equal system version returns `already_installed` before any boot work, as
-before. A same-version boot repair is therefore not part of `install`; the
-bootstrap `MinUI.zip` path remains the way to restore a missing live payload.
+before. A same-version boot repair is therefore not part of `install`. On an
+installed system a missing live `.tmp_update` payload is restored by a signed
+system install, which re-synchronizes `.tmp_update`; the bootstrap `MinUI.zip`
+path restores it only as part of a first install.
 
 ## Boot arbitration
 
@@ -646,6 +648,50 @@ rewriting every device path into the root and stubbing device commands. They
 cover no transaction, every crash phase, repeat recovery, missing/corrupt tool,
 corrupt record, missing/corrupt backup, and the ambiguous live tree. They do not
 prove real-device boot or power-cut behavior.
+
+## Boot install path
+
+The install boot scripts no longer treat the card as an unsigned install
+surface. Two old paths are closed:
+
+- The scripts unzipped any `*.pakz` dropped at the card root and ran its
+  `post_install.sh`, which made boot an arbitrary app-install entry. That glob
+  is gone from every platform.
+- The scripts unpacked a dropped `MinUI.zip` on every boot, including over an
+  already-installed system. That write is now gated on "no installed system":
+  the bootstrap `MinUI.zip` is unpacked only for a first install onto a stock
+  or empty card.
+
+What the boot installer still does:
+
+- On a first install only (no `.system/<platform>` yet), unpacks the bootstrap
+  `MinUI.zip` and finishes the install. On an already-installed system the zip
+  is left untouched and the installed system boots; everyday system updates and
+  repairs go through the signed nextupd transaction, never through a dropped
+  zip.
+- On tg5040 only, extracts the one device-compat pak the base package ships,
+  named explicitly as `nextui.upgrade_bluez.tg5040.pakz`, and runs its
+  `post_install.sh`. No other `.pakz` is read; a dropped `evil.pakz` is neither
+  extracted, executed, nor removed.
+
+The tg5040 Bluetooth pak is an unsigned device-compat residual: narrowing to
+that exact filename is not content authentication, so it is the one unsigned
+boot install that is still reachable. The host test proves the pak is extracted
+and its `post_install.sh` executes, using a stand-in script; it does not run the
+real BlueZ upgrade, so that upgrade remains device-unverified. Everything else
+an installed system needs comes through the signed transaction.
+
+App installs and system updates go through the signed nextupd transaction and
+the "Install from file" page. The h700 boot shim likewise bootstraps and runs
+its installer only for a first install, not from a dropped zip or pakz.
+
+The host test `tests/run_boot_install_path_test.sh` proves this against
+throwaway roots and a python `unzip` shim, with the scripts reading the
+`BOOT_TEST_SDCARD` override (unset on the device, so the real card is used
+exactly as before): a rogue `.pakz` does not install, the tg5040 Bluetooth pak
+still installs, a `MinUI.zip` first install still launches, an installed
+`.system` is never overwritten by a dropped `MinUI.zip` (tg5040, tg5050, h700),
+and no pak installs on tg5050. It does not exercise a real device or power-cut.
 
 ## Exit codes
 
