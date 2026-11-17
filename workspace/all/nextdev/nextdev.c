@@ -31,6 +31,7 @@ static void usage(FILE* stream)
             "  app-action <home|overlay>    request an app exit (at_ms is the press time)\n"
             "  app-exit-result              report the launch parent's bounded wait\n"
             "                               (--forced when the grace expired)\n"
+            "  setsid [--] <cmd> [args]     run a command as its own process-group leader\n"
             "\n"
             "options:\n"
             "  --socket PATH      devserv socket (default $NEXTUI_DEVSERV_SOCKET or %s)\n"
@@ -247,6 +248,31 @@ int main(int argc, char* argv[])
         return 2;
     }
     command = argv[argument++];
+
+    if (strcmp(command, "setsid") == 0)
+    {
+        /* Launch the app as the leader of a new process group so the launch
+         * parent can signal the whole app, descendants included, through
+         * -$pid. This is the fallback for devices whose rootfs ships neither
+         * setsid nor busybox; the pid stays the same through exec, so the
+         * parent's $! is the process-group id it supervises. */
+        if (argument < argc && strcmp(argv[argument], "--") == 0) argument++;
+        if (argument >= argc)
+        {
+            fprintf(stderr, "nextdev: setsid needs a command\n");
+            return 2;
+        }
+        /* EPERM means this process already leads its own group, which is the
+         * isolation the caller needs. Any other state is unsafe to signal. */
+        if (setsid() < 0 && getpgrp() != getpid())
+        {
+            fprintf(stderr, "nextdev: setsid: %s\n", strerror(errno));
+            return 3;
+        }
+        execvp(argv[argument], &argv[argument]);
+        fprintf(stderr, "nextdev: exec %s: %s\n", argv[argument], strerror(errno));
+        return 127;
+    }
 
     if (strcmp(command, "ping") == 0)
     {

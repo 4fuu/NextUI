@@ -34,17 +34,19 @@ FAKE_STATUS_ID_FILE="$WORK/status-id"
 export FAKE_LOG SOCKET FAKE_EXIT_FILE FAKE_STATUS_MODE_FILE FAKE_STATUS_ID_FILE
 
 DECOY_PIDS=()
+NEG_CHILD_PID=""
 
 cleanup() {
     local pid
     for pid in "${DECOY_PIDS[@]:-}"; do
-        [ -n "$pid" ] && kill -KILL -- -"$pid" 2>/dev/null || true
+        [ -n "$pid" ] && kill -KILL "-$pid" 2>/dev/null || true
         [ -n "$pid" ] && kill -KILL "$pid" 2>/dev/null || true
     done
+    [ -n "$NEG_CHILD_PID" ] && kill -KILL "$NEG_CHILD_PID" 2>/dev/null || true
     # Any process group this test created must not outlive it.
     local leftover
     for leftover in $(jobs -p 2>/dev/null); do
-        kill -KILL -- -"$leftover" 2>/dev/null || true
+        kill -KILL "-$leftover" 2>/dev/null || true
     done
     rm -rf "$WORK"
 }
@@ -53,6 +55,28 @@ trap cleanup EXIT
 mkdir -p "$SYSTEM/bin" "$WORK/res" "$SHARED" "$LOGS" "$PAK"
 cp "$ROOT/skeleton/SYSTEM/res/nextui-session.sh" "$WORK/res/nextui-session.sh"
 printf '#!/bin/sh\nexit 0\n' > "$PAK/launch.sh"
+
+# The real nextdev is needed for its built-in process-group launcher. The fake
+# nextdev below delegates the launcher (and the --help probe) to this binary;
+# everything else stays a deterministic shell double.
+REAL_NEXTDEV="$WORK/nextdev-real"
+export REAL_NEXTDEV
+"${CC:-cc}" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 \
+    -I"$ROOT/workspace/all/common" \
+    "$ROOT/workspace/all/nextdev/nextdev.c" \
+    "$ROOT/workspace/all/common/device_protocol.c" \
+    "$ROOT/workspace/all/common/device_session.c" \
+    "$ROOT/workspace/all/common/json_lite.c" \
+    -o "$REAL_NEXTDEV"
+
+# An isolated PATH with only the utilities the helper and the fixture need.
+# It deliberately has no setsid and no busybox, matching Brick Pro's rootfs.
+EMPTY_PATH="$WORK/no-external-tools"
+TIMEOUT_BIN="$(command -v timeout)"
+mkdir -p "$EMPTY_PATH"
+for tool in sh sleep sed grep mkdir cat; do
+    ln -s "$(command -v "$tool")" "$EMPTY_PATH/$tool"
+done
 
 # nextdev fake. session-status honours two extra modes used only by these race
 # cases: FAKE_STATUS_MODE=down makes the status query fail outright, and
@@ -65,6 +89,18 @@ cat > "$SYSTEM/bin/nextdev.elf" <<'EOF'
     for argument in "$@"; do printf '|%s' "$argument"; done
     printf '\n'
 } >> "$FAKE_LOG"
+
+# The process-group launcher and the --help capability probe belong to the real
+# nextdev; every session RPC stays in this deterministic fake.
+for argument in "$@"; do
+    case "$argument" in
+        setsid|--help)
+            if [ -n "${REAL_NEXTDEV:-}" ] && [ -x "$REAL_NEXTDEV" ]; then
+                exec "$REAL_NEXTDEV" "$@"
+            fi
+            ;;
+    esac
+done
 
 command=""
 for argument in "$@"; do
@@ -128,6 +164,13 @@ count_lines() {
 }
 
 reset_log() { : > "$FAKE_LOG"; }
+
+# Brick Pro's busybox ash rejects `kill -TERM -- -$pgid` ("invalid number
+# '--'"), so the helper must use the no-`--` form for every group signal. The
+# negative-PATH helper below also enforces this at runtime with a kill wrapper.
+if grep -Eq 'kill[[:space:]]+(-[A-Za-z]+[[:space:]]+)?--[[:space:]]+-' "$WORK/res/nextui-session.sh"; then
+    fail "helper uses kill -- with a negative pgid"
+fi
 
 SESSION_ENV=(
     PLATFORM=tg5040
@@ -374,8 +417,156 @@ if ! kill -0 "$DESKTOP_PID" 2>/dev/null; then
     fail "isolation case: forced cleanup killed an unrelated process group (desktop)"
 fi
 if kill -0 1 2>/dev/null && ! kill -0 1 2>/dev/null; then :; fi
-kill -KILL -- -"$NEXT_SESSION_PID" 2>/dev/null || kill -KILL "$NEXT_SESSION_PID" 2>/dev/null || true
-kill -KILL -- -"$DESKTOP_PID" 2>/dev/null || kill -KILL "$DESKTOP_PID" 2>/dev/null || true
+kill -KILL "-$NEXT_SESSION_PID" 2>/dev/null || kill -KILL "$NEXT_SESSION_PID" 2>/dev/null || true
+kill -KILL "-$DESKTOP_PID" 2>/dev/null || kill -KILL "$DESKTOP_PID" 2>/dev/null || true
 DECOY_PIDS=()
+
+# ---------------------------------------------------------------------------
+# 7. No external setsid and no busybox. Brick Pro's rootfs ships neither, so
+#    the supervisor used to fall back to a foreground eval and never saw the
+#    exit request. nextdev's built-in launcher must create the child process
+#    group instead, with the same TERM -> grace -> KILL contract, the same
+#    app-exit-result/session-stop reports, and the C3 stale-session recovery.
+# ---------------------------------------------------------------------------
+if PATH="$EMPTY_PATH" command -v setsid >/dev/null 2>&1; then
+    fail "no-setsid case: isolated PATH still exposes setsid"
+fi
+if PATH="$EMPTY_PATH" command -v busybox >/dev/null 2>&1; then
+    fail "no-setsid case: isolated PATH still exposes busybox"
+fi
+
+NEGATIVE_ENV=(
+    PATH="$EMPTY_PATH"
+    PLATFORM=tg5040
+    SYSTEM_PATH="$SYSTEM"
+    SHARED_USERDATA_PATH="$SHARED"
+    LOGS_PATH="$LOGS"
+    NEXTUI_DEVSERV_SOCKET="$SOCKET"
+    HOOK_EMU_PATH="$PAK/launch.sh"
+    NEXTDEV_BIN="$SYSTEM/bin/nextdev.elf"
+)
+
+# Same shape as run_supervised, but the child shell only sees EMPTY_PATH. The
+# bounded timeout is the harness guard: on unfixed code the stuck app ignores
+# TERM, no supervisor runs, and this returns 137 instead of DONE.
+run_supervised_without_setsid() {
+    local grace_ms="$1" app="$2" delay_s="$3"
+    set +e
+    OUTPUT="$(
+        env "${NEGATIVE_ENV[@]}" NEXTUI_APP_EXIT_GRACE_MS="$grace_ms" \
+            "$TIMEOUT_BIN" -k 2 8 sh -c '
+            # Brick Pro busybox ash rejects `kill ... -- -$pgid`; reproduce that
+            # exact behavior so a regression fails here instead of on device.
+            kill() {
+                for argument in "$@"; do
+                    if [ "$argument" = "--" ]; then
+                        printf "sh: invalid number --\n" >&2
+                        return 2
+                    fi
+                done
+                command kill "$@"
+            }
+            . "$SYSTEM_PATH/../res/nextui-session.sh"
+            nextui_devserv_start
+            nextui_session_start
+            ( sleep '"$delay_s"'; : > "$FAKE_EXIT_FILE" ) &
+            nextui_session_run "sh '"$app"' >/dev/null 2>&1"
+            nextui_session_stop
+            printf "DONE\n"
+        ' 2>&1
+    )"
+    STATUS=$?
+    set -e
+}
+
+# 7a. A cooperative app gets SIGTERM and exits normally without any external
+#     setsid or busybox on PATH.
+APP="$WORK/app-nosetsid-normal.sh"
+APP_LOG="$WORK/app-nosetsid-normal.log"
+export APP APP_LOG
+write_cooperative_app "$APP"
+rm -f "$FAKE_EXIT_FILE" "$APP_LOG"
+reset_log
+START_MS=$(date +%s%3N)
+run_supervised_without_setsid 600 "$APP" 0.4
+END_MS=$(date +%s%3N)
+[[ "$STATUS" -eq 0 ]] || fail "no-setsid normal supervisor exited $STATUS: $OUTPUT"
+grep -q '^term ' "$APP_LOG" || fail "no-setsid normal case: app never received SIGTERM"
+[[ "$(count_lines '|app-exit-result')" -eq 1 ]] || fail "no-setsid normal case: exit result not reported once"
+if grep -Fq -- '|--forced|app-exit-result' "$FAKE_LOG"; then
+    fail "no-setsid normal case: a normal exit was reported as forced"
+fi
+[[ "$(count_lines '--session-id|0123456789abcdef|session-stop')" -eq 1 ]] \
+    || fail "no-setsid normal case: session did not stop exactly once"
+ELAPSED=$((END_MS - START_MS))
+[[ "$ELAPSED" -lt 5000 ]] || fail "no-setsid normal case: supervisor waited ${ELAPSED}ms"
+
+# 7b. The leader exits on SIGTERM while a descendant that ignores it survives.
+#     The supervisor must keep probing the *group* with kill -0 -$pgid, then
+#     KILL the survivor after the grace. This proves the built-in launcher
+#     created the group the supervisor signals, not just the leader.
+APP="$WORK/app-nosetsid-stuck.sh"
+APP_LOG="$WORK/app-nosetsid-stuck.log"
+CHILD_PID_FILE="$WORK/nosetsid-child.pid"
+export APP APP_LOG CHILD_PID_FILE
+cat > "$APP" <<'APPEOF'
+#!/bin/sh
+echo "start $$" >> "$APP_LOG"
+trap 'echo "term $$" >> "$APP_LOG"; exit 0' TERM
+sh -c 'trap "" TERM; while :; do sleep 0.1; done' &
+echo $! > "$CHILD_PID_FILE"
+while :; do sleep 0.1; done
+APPEOF
+rm -f "$FAKE_EXIT_FILE" "$APP_LOG" "$CHILD_PID_FILE"
+reset_log
+START_MS=$(date +%s%3N)
+run_supervised_without_setsid 600 "$APP" 0.4
+END_MS=$(date +%s%3N)
+[[ "$STATUS" -eq 0 ]] || fail "no-setsid stuck supervisor exited $STATUS: $OUTPUT"
+grep -q '^term ' "$APP_LOG" || fail "no-setsid stuck case: app never received SIGTERM"
+[[ "$(count_lines '|--forced|app-exit-result')" -eq 1 ]] \
+    || fail "no-setsid stuck case: forced exit not reported exactly once"
+[[ "$(count_lines '--session-id|0123456789abcdef|session-stop')" -eq 1 ]] \
+    || fail "no-setsid stuck case: session did not stop exactly once"
+ELAPSED=$((END_MS - START_MS))
+[[ "$ELAPSED" -lt 5000 ]] || fail "no-setsid stuck case: forced cleanup took ${ELAPSED}ms"
+[[ -s "$CHILD_PID_FILE" ]] || fail "no-setsid stuck case: descendant pid was not recorded"
+NEG_CHILD_PID="$(cat "$CHILD_PID_FILE")"
+sleep 0.3
+if kill -0 "$NEG_CHILD_PID" 2>/dev/null; then
+    kill -KILL "$NEG_CHILD_PID" 2>/dev/null || true
+    fail "no-setsid stuck case: descendant $NEG_CHILD_PID survived the forced group cleanup"
+fi
+
+# 7c. C3 recovery still runs in the same stripped environment: a live socket
+#     means the stale session-stop must precede the new session-start, and the
+#     explicit stop must carry the generation id.
+rm -f "$SOCKET"
+python3 - "$SOCKET" <<'PYEOF'
+import socket, sys
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.bind(sys.argv[1])
+sock.listen(1)
+PYEOF
+reset_log
+OUTPUT="$(
+    env "${NEGATIVE_ENV[@]}" "$TIMEOUT_BIN" -k 2 8 sh -c '
+        . "$SYSTEM_PATH/../res/nextui-session.sh"
+        nextui_devserv_start
+        nextui_session_start
+        nextui_session_stop
+        printf "DONE\n"
+    ' 2>&1
+)"
+rm -f "$SOCKET"
+FIRST_OP="$(grep -o 'session-start\|session-stop' "$FAKE_LOG" | head -1)"
+[[ "$FIRST_OP" = "session-stop" ]] \
+    || fail "no-setsid C3 recovery: session-start was not preceded by a stale session-stop"
+STOP_LINE="$(grep -n 'session-stop' "$FAKE_LOG" | head -1 | cut -d: -f1)"
+START_LINE="$(grep -n 'session-start' "$FAKE_LOG" | head -1 | cut -d: -f1)"
+[[ -n "$STOP_LINE" && -n "$START_LINE" && "$STOP_LINE" -lt "$START_LINE" ]] \
+    || fail "no-setsid C3 recovery: stale clear did not precede session-start"
+[[ "$(count_lines '--session-id|0123456789abcdef|session-stop')" -eq 1 ]] \
+    || fail "no-setsid C3 recovery: explicit session-stop missing"
 
 echo "launch session race/exception tests passed"
