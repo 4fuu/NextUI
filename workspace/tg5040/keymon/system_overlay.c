@@ -456,11 +456,22 @@ static void disp_release_memory(void)
 static int set_layer(int enabled, int x, int y, int width, int height, int buffer_width,
 					 int buffer_height);
 
+int SystemOverlay_decodeScanoutAddress(int getadr_result, unsigned long long* physical)
+{
+	/* 0xfc000000 arrives as a negative int through ioctl(); keep its low 32
+	 * bits instead of rejecting it. ioctl() reports every kernel failure as
+	 * -1, and 0 is an empty slot. */
+	if (getadr_result == -1 || getadr_result == 0) return -1;
+	if (physical) *physical = (unsigned int)getadr_result;
+	return 0;
+}
+
 static void* disp_acquire(void* user, size_t size, unsigned long long* physical)
 {
 	int slot;
+	int getadr_result;
 	unsigned long param[4] = {0, 0, 0, 0};
-	long address;
+	unsigned long long physical_address;
 	void* pixels;
 
 	(void)user;
@@ -497,26 +508,32 @@ static void* disp_acquire(void* user, size_t size, unsigned long long* physical)
 
 	memset(param, 0, sizeof param);
 	param[0] = (unsigned long)disp_backend.slot;
-	address = ioctl(disp_backend.descriptor, DISP_MEM_GETADR, param);
-	if (address <= 0)
+	getadr_result = ioctl(disp_backend.descriptor, DISP_MEM_GETADR, param);
+	if (SystemOverlay_decodeScanoutAddress(getadr_result, &physical_address) != 0)
 	{
-		fprintf(stderr, "system-overlay: DISP_MEM_GETADR failed\n");
+		fprintf(stderr, "system-overlay: DISP_MEM_GETADR(slot %d) returned %d\n",
+				disp_backend.slot, getadr_result);
 		disp_release_memory();
 		return NULL;
 	}
 
-	pixels = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, disp_backend.descriptor,
-				  (off_t)address);
+	/* disp_mmap() in the 4.9 BSP maps the slot DISP_MEM_REQUEST just selected
+	 * (g_disp_mem_id) and reads the mmap offset as a byte offset inside that
+	 * slot, rejecting anything >= mem_len. It does not take a physical
+	 * address: offset 0 maps the whole buffer from its physical base. The
+	 * 3.4 BSP used the physical address as the offset, which is why older
+	 * Allwinner samples pass it; that fails with EINVAL on 4.9. */
+	pixels = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, disp_backend.descriptor, 0);
 	if (pixels == MAP_FAILED)
 	{
-		fprintf(stderr, "system-overlay: mmap(%ld) failed: %s\n", address, strerror(errno));
+		fprintf(stderr, "system-overlay: mmap(%zu) failed: %s\n", size, strerror(errno));
 		disp_release_memory();
 		return NULL;
 	}
 
 	disp_backend.pixels = pixels;
 	disp_backend.size = size;
-	disp_backend.physical = (unsigned long long)address;
+	disp_backend.physical = physical_address;
 	if (physical) *physical = disp_backend.physical;
 	return pixels;
 }

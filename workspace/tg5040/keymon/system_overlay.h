@@ -56,6 +56,22 @@ typedef struct
 				  int height, int buffer_width, int buffer_height);
 } SystemOverlayDisplay;
 
+/*
+ * Decode the value returned by ioctl(fd, DISP_MEM_GETADR, param).
+ *
+ * The sunxi disp2 driver returns the slot's physical address as the ioctl
+ * return value (dev_disp.c: "case DISP_MEM_GETADR: return
+ * g_disp_mm[ubuffer[0]].mem_start"); it does not write the address back into
+ * param. ioctl() is declared to return int, so an address with bit 31 set —
+ * the scanout buffer at 0xfc000000 on the Brick Pro — arrives sign-extended
+ * and looks negative. Every kernel failure is reported by libc as -1, so -1
+ * and 0 (the slot has no allocation) are the only error results; everything
+ * else is the low 32 bits of a physical address.
+ *
+ * On success stores the address in *physical and returns 0, else returns -1.
+ */
+int SystemOverlay_decodeScanoutAddress(int getadr_result, unsigned long long* physical);
+
 /* Production /dev/disp backend; returns 0 when the overlay can be drawn. */
 int SystemOverlay_init(int screen_width, int screen_height);
 
