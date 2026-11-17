@@ -6,8 +6,10 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `44018eb` (merge of PR #46, the release-source feed generator and
-  key-env signing, gh 2026-11-17T04:48:30Z; below it PR #45, the boot-path
+  rule): `9d2ce41` (merge of PR #43, the R3 rumble backend through
+  `PLAT_setRumble`, gh 2026-11-17T05:30:36Z; below it PR #46, the release-source
+  feed generator and
+  key-env signing, `44018eb`; PR #45, the boot-path
   convergence to the verified
   transaction, `008ffde`; PR #44 the authoritative VERSION source and the
   hardened forced NEXTUI_SHA256 `5fed2b3`, PR #42 the expected-kind check on
@@ -414,16 +416,17 @@ Rules:
   U5 is still not closed as a whole: the release workflow continues on the
   production-source thread's stacked branch, and the release-workflow
   preparation layer is now open as PR #47 (see below); nothing is published
-  and no production key or feed URL is configured. Still open: PR #43
-  (branch `feature/rumble-backend`, the R3 rumble backend, head
-  `0d4deec85d555b34a978d34106a91a9fcdef2a73` -- a normal merge of
-  `origin/main` on top of `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd`, so the
-  earlier head is superseded rather than rewritten -- OPEN, MERGEABLE/CLEAN
-  per gh, exact-head CI green per gh with the Host tests job at 652 passed / 0
-  failed across 8 suites plus the tg5040 target build and Development/Desktop;
-  the source has delivered the exact-head report to the merge owner for the
-  independent gate and no independent review result exists yet, so it is not
-  written as accepted), PR #47
+  and no production key or feed URL is configured. PR #43 (branch
+  `feature/rumble-backend`, the R3 rumble backend) merged into main as
+  `9d2ce410d1ae299c09f6b257e2868756b52589af` (gh 2026-11-17T05:30:36Z, merged
+  by 4fuu), final head `5387631d1f27bbdd4e7c5d71b2b5df0530ffaeec`, which is the
+  safety fix the merge owner's independent review of `0d4deec8` required; the
+  superseded heads (`bb67f347`, `0d4deec8`) stay ancestors and are recorded as
+  superseded, not rewritten. Exact-head CI on `5387631d` is 6/6 green per gh
+  with the Host tests job at 718 passed / 0 failed across 9 suites plus the
+  tg5040 target build and Development/Desktop; post-merge on `9d2ce41` the
+  three workflows are still in progress per gh, so that CI is not written as
+  passing. Still open: PR #47
   (branch `feature/release-workflow-prep`, the release-workflow preparation
   layer of U5, head `3fb794682367b23548fe5a6ab9c2fd40c62768f2`, OPEN,
   MERGEABLE/CLEAN per gh, exact-head CI green per gh with the Host tests job
@@ -812,24 +815,45 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e60a-171e-70c4-bdd5-5c51a84c75fe
   (Step Medium; dispatched 2026-11-16 after the owner accepted the
   next-dispatchable recommendation).
-- Status: delivered and open for review, not merged and not accepted. PR #43
+- Status: merged into main at host level; not device-verified. PR #43
   (https://github.com/4fuu/NextUI/pull/43, branch `feature/rumble-backend`,
-  "Serve input.rumble through the existing PLAT_setRumble path (R3)"), exact
-  head `0d4deec85d555b34a978d34106a91a9fcdef2a73` per gh, which is a plain
-  merge of `origin/main` `44018eb` into the branch with no rebase, force, or
-  amend, on top of `1aa91e97` "Add the R3 rumble backend and wire input.rumble
-  into devserv" and `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd` "Document the
-  DEVICE dependency of the rumble platform detection" (both ancestors were
-  also green), base main, OPEN, MERGEABLE/CLEAN per gh, not a draft.
-  Exact-head CI is 6/6 green per gh: Host tests on push and on the pull
-  request, build-linux, build-macos, and the tg5040 target build twice; the
-  pull_request Feature checks run 43959419409 ran the Host tests job (652
-  passed / 0 failed across 8 suites per the run log) and the tg5040 target
+  "Serve input.rumble through the existing PLAT_setRumble path (R3)") merged
+  into main as `9d2ce410d1ae299c09f6b257e2868756b52589af` (gh
+  2026-11-17T05:30:36Z, merged by 4fuu), final head
+  `5387631d1f27bbdd4e7c5d71b2b5df0530ffaeec` "Refuse rumble on tg5040 when the
+  model is not identified", pushed on top of `0d4deec8` with no rebase, force,
+  or amend; the head history is `1aa91e97` "Add the R3 rumble backend and wire
+  input.rumble into devserv", `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd`
+  "Document the DEVICE dependency of the rumble platform detection",
+  `0d4deec8` (a plain merge of `origin/main` `44018eb`), and `5387631d`; each
+  superseded head stays an ancestor and is recorded as superseded, not
+  rewritten.
+  Review history, recorded because it changes what the code now does: the merge
+  owner's independent review of `0d4deec8` found a safety blocker -- on tg5040
+  `PLAT_setRumble` picks its ceiling from `is_brickpro`, which
+  `PLAT_initPlatform` derives from `$DEVICE` alone, so a hand-started devserv
+  (or any environment where `DEVICE` is absent or unrecognized) would silently
+  fall through to the 3.3 V ceiling on hardware that may be a Brick Pro, and
+  availability had come from node presence alone, so that write path was
+  reachable. The fix at `5387631d`, with `platform.c` untouched: on tg5040 the
+  capability is unavailable and the write path refuses before `PLAT_setRumble`
+  when `DEVICE` is absent, empty, or names anything other than the models
+  tg5040's `launch.sh` exports (`brick`, `brickpro`, `smartpro`); there is no
+  write and no clamping, a recognized model keeps exactly the voltage
+  `platform.c` chooses for it, tg5050 and h700 are unaffected because their
+  `PLAT_setRumble` does not depend on the model, and the write guard is
+  independent of `available()` so dispatch without an availability check still
+  cannot reach the platform. `DEVICE-API.md` in the same commit now records the
+  `DEVICE` requirement in the availability table and describes the refusal
+  instead of only documenting the dependency.
+  Exact-head CI on `5387631d` is 6/6 green per gh: Host tests on push and on
+  the pull request, build-linux, build-macos, and the tg5040 target build
+  twice; the pull_request Feature checks run 44024001728 ran the Host tests job
+  (718 passed / 0 failed across 9 suites per the run log) and the tg5040 target
   build, both success, with Development/Desktop (build-linux and build-macos)
-  success. The source has delivered this exact-head report to the merge owner
-  (T-01a1e2e1) for the independent gate; no independent review result exists
-  yet, so nothing is written as accepted and a source self-test is not
-  acceptance.
+  success. Post-merge on `9d2ce41`: gh shows the three workflows (Feature
+  checks, Development/Desktop, CI) in progress, so that CI is recorded as in
+  progress and not written as passing.
   Delivered files, per the source: `workspace/all/common/device_backend_rumble.{h,c}`
   as the adapter (argument validation, capability dispatch, JSON responses,
   read-back) in the R1/R2 and C2 shape,
@@ -853,9 +877,13 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   never runs `GFX_init()` (where `api.c` calls `PLAT_initPlatform()`), the write
   path runs that platform model detection once first (on tg5040 it only reads
   `$DEVICE`); without it `PLAT_setRumble` would apply the 3.3 V ceiling on a
-  Brick Pro. Honest degradation: tg5040 and tg5050 are available when the
-  enable and level nodes are present and writable, h700 reports `unavailable`
-  (its `PLAT_setRumble` only switches the motor on and off and drops the
+  Brick Pro, which is why the merged head refuses the write when the model is
+  not identified. Honest degradation: tg5050 is available when the
+  enable and level nodes are present and writable, tg5040 is available only
+  when those nodes are present and writable and `$DEVICE` names a model
+  tg5040's `launch.sh` exports (`brick`, `brickpro`, `smartpro`), h700 reports
+  `unavailable` (its `PLAT_setRumble` only switches the motor on and off and
+  drops the
   strength), desktop reports `unavailable` (its `PLAT_setRumble` is empty).
   Availability also requires the enable node to be readable, since it is both
   the write target and the only read-back source; a write whose read-back
@@ -884,11 +912,22 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `input.rumble` with `unavailable` and the detail `no rumble path on this
   platform`; `device_backend_rumble_platform.c` compiles clean with
   `-Wall -Wextra -Werror -pedantic` for the tg5040, tg5050, h700 and desktop
-  shapes. Exact-head run-log numbers, per the source: the rumble backend at
-  239 checks, the rumble platform ops at 131152 checks (the Brick Pro
-  exhaustive strength sweep) plus 7 and 7 for the desktop and h700 shapes,
-  devserv default-allow passed, the session adversarial E2E passed, SANITIZE
-  178+103+55+67+56 /0, and the update package at 132/0.
+  shapes.
+  The `5387631d` guard has an isolated control in the tree, per the source: the
+  platform test cycles `$DEVICE` itself and the runner starts it with `DEVICE`
+  unset, so every recognized model is covered (Brick Pro still swept
+  exhaustively against 2.5 V, `brick` and `smartpro` against the platform's own
+  3.3 V ceiling) and then the unidentified cases -- unset, empty, `brick-pro`,
+  `BRICKPRO`, a trailing space, `tg5040`, `unknown` -- are each proven
+  unavailable with no platform write and the nodes byte for byte unchanged.
+  Disabling the guard fails that section with 65692 failures, so the guard is
+  load-bearing rather than decorative.
+  Exact-head run-log numbers on `5387631d`, per the source: the rumble backend
+  at 239 checks, the rumble platform ops at 131394 checks including the new
+  per-model and unidentified sections, devserv default-allow passed, the
+  session adversarial E2E passed, SANITIZE 178+103+55+67+56 /0, and the update
+  package at 132/0; gh's Host tests job on the same head recorded 718 passed /
+  0 failed across 9 suites.
   Not done, per the source: no device, real sysfs, SD, POWER, or physical key
   was touched, so the physical rumble effect and its recovery remain V1; the
   real strength-to-voltage map is compile-verified on the host only (the four
@@ -917,9 +956,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Delivery/verification: `input.rumble` served through `PLAT_setRumble` with
   the Brick Pro voltage limit respected; host tests; desktop build; tg5040
   cross-compile.
-- Next: the merge owner's independent review of head `bb67f347` (reported
-  2026-11-17 as not yet handled), then serial merge; any hardware effect and
-  the real strength-to-voltage map stay in the real-machine batch V1.
+- Next: nothing further at host level -- the module is on main at `9d2ce41`
+  and the `5387631d` guard is the merged behavior. Any hardware effect and the
+  real strength-to-voltage map stay in the real-machine batch V1, and the
+  post-merge CI on `9d2ce41` is still running per gh.
 
 #### R4 — LED device verification
 - Owner: single ADB device thread (part of V1).
@@ -2455,11 +2495,18 @@ as they happen; nothing is reported as passing without a run.
   at `1ec6903`) is recorded as verified at the final head, where a malicious
   name is rejected with exit 64 and leaves no execution marker),
   not because a docs head moved, and PR #43 (the R3 rumble backend, branch
-  `feature/rumble-backend`) delivered its head `bb67f347` with exact-head CI
-  green per gh (Host tests 652 passed / 0 failed across 8 suites plus the
-  tg5040 target build, and Development/Desktop), so R3 is no longer recorded
-  as headless; it has no independent review result yet because the merge owner
-  reported it as not yet handled. The previous
+  `feature/rumble-backend`) first delivered head `bb67f347` and then
+  `0d4deec8` and `5387631d1f27bbdd4e7c5d71b2b5df0530ffaeec`; the merge owner's
+  independent review of `0d4deec8` found a safety blocker (on tg5040 an
+  unidentified model would let the write fall through to the 3.3 V ceiling on
+  hardware that may be a Brick Pro), which `5387631d` fixes by refusing the
+  write when `$DEVICE` does not name a model tg5040's `launch.sh` exports, with
+  `platform.c` untouched; PR #43 merged into main as
+  `9d2ce410d1ae299c09f6b257e2868756b52589af` (gh 2026-11-17T05:30:36Z, merged
+  by 4fuu), exact-head CI 6/6 green per gh (Host tests 718 passed / 0 failed
+  across 9 suites plus the tg5040 target build and Development/Desktop), and
+  the post-merge workflows on `9d2ce41` are still in progress per gh. The
+  previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
 - Branch identity evidence (2026-11-16, verified against the remote, because a
@@ -2499,6 +2546,12 @@ as they happen; nothing is reported as passing without a run.
   with `origin/main` is `cb622fa` and it now carries its content commits
   directly on top of that instead of merging main into it every round, so no
   other schedule pull request is created or closed over an older reading.
+  Re-verified 2026-11-17 after the PR #43 merge: `gh pr view 31` and
+  `git ls-remote origin refs/pull/31/head` agree on the branch head (this
+  round's content commit), OPEN and MERGEABLE per gh, UNSTABLE only because the
+  required checks on the new head are still running; the exact head is reported
+  in this round's status message rather than pinned here, and the two commands
+  above remain the ground truth.
 - The current update travels on the branch `docs/schedule-update-11` (earlier
   schedule branches merged as `3ae1ddf`,
   `0385b21`, `471de2c`, `3380fe4`, `c9230cf`, `6594dce`, `07bdf4c`, and
@@ -2508,5 +2561,6 @@ as they happen; nothing is reported as passing without a run.
   the same branch. The schedule baseline moved to `4c5398f` with the PR #37
   merge (PR #38 merged just below it at `1f737c9`), then to `5b66d70` with the
   PR #42 merge, then to `5fed2b3` with the PR #44 merge, then to `008ffde`
-  with the PR #45 merge, and now to `44018eb` with the PR #46 merge
+  with the PR #45 merge, then to `44018eb` with the PR #46 merge, and now to
+  `9d2ce41` with the PR #43 merge
   (2026-11-17 per gh).
