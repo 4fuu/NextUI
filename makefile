@@ -190,9 +190,13 @@ package: tidy
 	rm -rf ./workspace/readmes
 	
 	@if [ -z "$(PROJECT_VERSION)" ]; then \
-		echo "package: VERSION file is missing; it holds the authoritative project version (X.Y.Z)" >&2; \
+		echo "package: VERSION is missing or empty; it holds the authoritative project version (bare X.Y.Z)" >&2; \
 		exit 1; \
 	fi
+	@printf '%s' "$(PROJECT_VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+		echo "package: VERSION '$(PROJECT_VERSION)' is not bare X.Y.Z (no v prefix, not a date)" >&2; \
+		exit 1; \
+	}
 	cd ./build/SYSTEM && printf 'v%s\n' "$(PROJECT_VERSION)" > version.txt
 	./commits.sh > ./build/SYSTEM/commits.txt
 	cd ./build && find . -type f -name '.DS_Store' -delete

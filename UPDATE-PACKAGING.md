@@ -51,7 +51,7 @@ Inputs, all overridable through the matching `UPDATE_*` variables:
 | Input | Default | Meaning |
 | --- | --- | --- |
 | `PLATFORM` | — | `tg5040`, `tg5050`, `h700` or `desktop` |
-| `UPDATE_VERSION` | — | `vX.Y.Z`; becomes the manifest `version` and `.system/version.txt` |
+| `UPDATE_VERSION` | `v$(VERSION)` | `vX.Y.Z`; becomes the manifest `version` and `.system/version.txt`. Defaults to the authoritative `VERSION` file; override only for a deliberate different version |
 | `UPDATE_MIN_SYSTEM` | — | optional `vX.Y.Z`; must not be newer than the version |
 | `UPDATE_SYSTEM_DIR` | `build/SYSTEM/<platform>` | the platform's system content, staged at `.system/<platform>/` |
 | `UPDATE_RES_DIR` | `build/SYSTEM/res` | the shared resource tree, staged at `.system/res` |
@@ -85,10 +85,12 @@ an archive that cannot install:
 - other shared files the bootstrap writes at the `.system` root
   (`commits.txt`, which nothing reads at runtime) are not carried by the
   transactional archive; `install` replaces them with this package's tree
-- `.system/version.txt` is written from `UPDATE_VERSION`, so the package, the
-  manifest, and the installed version always agree. The bootstrap `MinUI.zip`
-  keeps its own `NextUI-<date>-<n>` display format; only the transactional
-  archive carries the `vX.Y.Z` nextupd requires
+- `.system/version.txt` is written from the authoritative version, so the
+  package, the manifest, and the installed version always agree. Both the
+  bootstrap `MinUI.zip` (`make package`) and the transactional archive
+  (`make update-package`) write `v$(VERSION)`, the machine-readable `vX.Y.Z`
+  nextupd requires; the date stays a build identifier only. See
+  [Version source](#version-source)
 - `.tmp_update` must carry the complete boot contract —
   `.tmp_update/updater`, `.tmp_update/nextupd-recover.sh`,
   `.tmp_update/<platform>.sh`, `.tmp_update/<platform>/nextupd.elf` — and the
