@@ -24,8 +24,9 @@ jobs:
   prepare:
     runs-on: ubuntu-24.04
     outputs:
-      next-tag: ${{ steps.next-tag.outputs.version }}
+      next-tag: ${{ steps.release-tag.outputs.version }}
       release-name: ${{ steps.release-name.outputs.RELEASE_NAME }}
+      latest-tag: ${{ steps.latest-tag.outputs.GIT_LATEST_TAG }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -37,17 +38,50 @@ jobs:
         run: |
           echo "RELEASE_NAME=$(make name)" >> "$GITHUB_OUTPUT"
 
+      # No tags is the first-release case: `git describe` would fail here and
+      # block the release before the signing-key guard can run, so the empty
+      # result is explicit and the first version comes from the authoritative
+      # version source below.
       - name: Get Latest Tag
         id: latest-tag
         run: |
-          echo GIT_LATEST_TAG="$(git describe --tags "$(git rev-list --tags --max-count=1)")" >>"$GITHUB_OUTPUT"
+          if git rev-list --tags --max-count=1 | grep -q .; then
+            echo "GIT_LATEST_TAG=$(git describe --tags "$(git rev-list --tags --max-count=1)")" >>"$GITHUB_OUTPUT"
+          else
+            echo "GIT_LATEST_TAG=" >>"$GITHUB_OUTPUT"
+            echo "::notice title=First release::No tags exist yet; the first version comes from the VERSION file."
+          fi
 
       - name: Compute Next Tag
         id: next-tag
+        if: steps.latest-tag.outputs.GIT_LATEST_TAG != ''
         uses: docker://ghcr.io/dokku/semver-generator:latest
         with:
           bump: ${{ github.event.inputs.release_type }}
           input: ${{ steps.latest-tag.outputs.GIT_LATEST_TAG }}
+
+      # The first release is named by the authoritative version source; no
+      # date-to-version mapping is invented and the version policy is
+      # unchanged.
+      - name: First Release Tag
+        id: first-tag
+        if: steps.latest-tag.outputs.GIT_LATEST_TAG == ''
+        run: |
+          echo "version=v$(tr -d ' \t\r\n' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      # The manifest, the tag and the feed all carry vX.Y.Z, so the computed
+      # version is normalized to that form here instead of assumed.
+      - name: Normalize the Tag
+        id: release-tag
+        env:
+          COMPUTED: ${{ steps.next-tag.outputs.version || steps.first-tag.outputs.version }}
+        run: |
+          tag="$COMPUTED"
+          case "$tag" in
+            v*) ;;
+            *) tag="v$tag" ;;
+          esac
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -57,6 +91,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
+
+      # The update source is this repository's signed GitHub Releases assets, so
+      # a release cannot be published without the production signing key. Fail
+      # before any build work instead of publishing a release whose update
+      # assets are missing or unsigned. The key never appears in this file, in
+      # the repository, or in any log; see RELEASE-SOURCE.md for the custody and
+      # injection chain.
+      - name: Check the signing key is configured
+        env:
+          NEXTUI_RELEASE_SIGNING_KEY: ${{ secrets.NEXTUI_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$NEXTUI_RELEASE_SIGNING_KEY" ]; then
+            echo "::error title=No signing key::NEXTUI_RELEASE_SIGNING_KEY is not set for this repository. Store the production signing key in the confidential facility and copy it into this repository's Actions secrets (RELEASE-SOURCE.md), then re-run. Refusing to publish a release without a signed update source." >&2
+            exit 1
+          fi
 
       - name: Install dependencies
         run: |
@@ -84,6 +133,42 @@ jobs:
       - name: Special
         run: make special
 
+      # The signed update source: one package set per platform plus the feed,
+      # built through the same entries the packaging tests drive. It runs before
+      # `make package`, which moves build/SYSTEM into the bootstrap payload.
+      # The script signs with the key from the environment, verifies every
+      # signature against the committed public sidecar, and writes nothing
+      # uploadable when any check fails, so an unsigned set never reaches the
+      # release page.
+      - name: Prepare the signed update assets
+        env:
+          NEXTUI_RELEASE_SIGNING_KEY: ${{ secrets.NEXTUI_RELEASE_SIGNING_KEY }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.next-tag }}
+          PREVIOUS_TAG: ${{ needs.prepare.outputs.latest-tag }}
+          SERVER_URL: ${{ github.serverUrl }}
+          REPOSITORY: ${{ github.repository }}
+          UPDATE_PUBLIC_KEY: workspace/all/nextupd/release/*.pub
+        run: |
+          previous_args=""
+          min_system="$RELEASE_TAG"
+          if [ -n "$PREVIOUS_TAG" ]; then
+            previous_args="--previous-url $SERVER_URL/$REPOSITORY/releases/download/$PREVIOUS_TAG/nextui-feed.json"
+            # A card on the previous release can install this one; a card older
+            # than that updates through the previous release's row, which the
+            # merged feed keeps. For a first release the floor is the release
+            # itself.
+            min_system="$PREVIOUS_TAG"
+          fi
+          # shellcheck disable=SC2086
+          scripts/prepare-release-update-assets.sh \
+            --version "$RELEASE_TAG" \
+            --min-system "$min_system" \
+            --key-env NEXTUI_RELEASE_SIGNING_KEY \
+            --public-key $UPDATE_PUBLIC_KEY \
+            --base-url "$SERVER_URL/$REPOSITORY/releases/download/$RELEASE_TAG" \
+            $previous_args \
+            --out-dir releases/update
+
       - name: Package
         run: make package
 
@@ -105,6 +190,17 @@ jobs:
           name: ${{ env.RELEASE_NAME }}-extras.zip
           path: releases/${{ env.RELEASE_NAME }}-extras.zip
 
+      # The signed update assets: the per-platform sets and the feed.
+      # upload-artifact roots a single-directory artifact at that directory,
+      # so the artifact holds these files at its root and the release job's
+      # download places them directly under releases/ (the flatten step there
+      # makes the release attach them under either layout).
+      - name: Upload Update Assets
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ env.RELEASE_NAME }}-update-assets.zip
+          path: releases/update
+
       - name: Skip Attest for PRs from forks
         id: skip
         if: github.ref != 'refs/heads/main'
@@ -119,6 +215,10 @@ jobs:
             releases/${{ env.RELEASE_NAME }}-all.zip
             releases/${{ env.RELEASE_NAME }}-base.zip
             releases/${{ env.RELEASE_NAME }}-extras.zip
+            releases/update/nextui-feed.json
+            releases/update/nextui-system-*.zip
+            releases/update/nextui-system-*.manifest.json
+            releases/update/nextui-system-*.manifest.sig
 
   release:
     needs:
@@ -137,6 +237,19 @@ jobs:
           path: releases/
           pattern: NextUI-*
           merge-multiple: true
+
+      # upload-artifact roots a single-directory artifact at that directory, so
+      # the update assets arrive directly under releases/. This step makes the
+      # outcome independent of that layout: if a future action version
+      # preserves the update/ directory, its contents are moved up, so the
+      # release step's `files: releases/*` can never silently miss the feed or
+      # the signed sets.
+      - name: Flatten the update assets
+        run: |
+          if [ -d releases/update ]; then
+            mv releases/update/* releases/
+            rmdir releases/update
+          fi
 
       - name: Create and Push Tag
         run: |

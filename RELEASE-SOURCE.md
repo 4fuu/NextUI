@@ -81,10 +81,8 @@ feed exists.)
   against the committed sidecar. That needs no private key, and it is what the
   release procedure uses; see [Signing a release](#signing-a-release).
 - The generator reads no private key of any kind. It publishes nothing; the
-  release workflow uploads what it writes.
-
-The wiring into `ci.yaml`/`release.yaml` is release-workflow preparation and
-a separate follow-up; it is not part of this page.
+  release workflow uploads what it writes. The `release.yaml` wiring that
+  drives it is described under [Signing a release](#signing-a-release).
 
 ## The signing trust chain
 
@@ -139,18 +137,20 @@ the committed sidecar. That proof happens at the first signed release.
 
 ### Signing a release
 
-With the key in the facility, the signing host injects it and never writes it
-to the repository:
+The signing host injects the key and never writes it to the repository. The
+release workflow (`release.yaml`) reads the PEM from the repository's Actions
+secret and passes only the variable **name** to `sign-manifest.sh --key-env`:
 
-```sh
-amp --no-tui --amp-env sh -c '
-    make update-package PLATFORM=tg5040 UPDATE_VERSION=v6.16.0 \
-        UPDATE_MIN_SYSTEM=v6.0.0
-    workspace/all/nextupd/scripts/sign-manifest.sh \
-        --key-env NEXTUI_RELEASE_SIGNING_KEY nextui-release-1 \
-        releases/nextui-system-tg5040.manifest.json \
-        releases/nextui-system-tg5040.manifest.sig
-'
+```yaml
+env:
+  NEXTUI_RELEASE_SIGNING_KEY: ${{ secrets.NEXTUI_RELEASE_SIGNING_KEY }}
+run: |
+  scripts/prepare-release-update-assets.sh \
+      --version "$RELEASE_TAG" --min-system "$min_system" \
+      --key-env NEXTUI_RELEASE_SIGNING_KEY \
+      --public-key workspace/all/nextupd/release/*.pub \
+      --base-url "$SERVER_URL/$REPOSITORY/releases/download/$RELEASE_TAG" \
+      --out-dir releases/update
 ```
 
 `--key-env` reads the PEM from the named environment variable, so the key
@@ -160,6 +160,26 @@ any byte outside `[A-Za-z0-9_]` is refused), the lookup itself evaluates
 nothing, and the variable is unset once read so the key is not inherited by
 the openssl process. OpenSSL reads the key from a path, so the PEM is written
 to a private mode-0600 temporary file that is removed on every exit path.
+
+**The injection chain, end to end.** GitHub Actions cannot read the Amp
+secrets facility, so the signing environment gets its copy through one masked
+bridge, run once on the owner's machine:
+
+```sh
+amp --no-tui --amp-env sh -c \
+    'printf "%s" "$NEXTUI_RELEASE_SIGNING_KEY" \
+     | gh secret set NEXTUI_RELEASE_SIGNING_KEY --repo 4fuu/nextui'
+```
+
+The value flows from the facility into the process environment and straight
+into the repository's Actions secrets; it is never printed, never enters a
+transcript, and never touches the repository. Rotation re-runs the bridge;
+revocation deletes the Actions secret while the facility keeps the
+authoritative copy. The workflow fails closed when the secret is absent: a
+guard step fails before any build work, so a release without a signed update
+source is never published, with or without a key the assets are never
+unsigned.
+
 `package-update.sh` signs in place when given `UPDATE_KEY`/`UPDATE_KEY_ID`
 pointing at a key file on the trusted host.
 
@@ -178,9 +198,27 @@ nextupd check --package releases/nextui-system-tg5040.zip \
 ```
 
 `scripts/prepare-release-update-assets.sh` — the release-workflow preparation
-added with this change — runs exactly this check for every platform and
-refuses to publish the set when it fails, so a release signed with a key the
-client does not trust never reaches the release page.
+— runs exactly this check for every platform and refuses to publish the set
+when it fails, so a release signed with a key the client does not trust never
+reaches the release page.
+
+The release's `min_system` floor is the previous release's tag (a card on the
+previous release can install this one; an older card updates through the
+previous release's row, which the merged feed keeps). A first release uses its
+own version as the floor.
+
+**The first release.** With no tags in the repository, the workflow's
+`Get Latest Tag` step reports an empty previous tag, the bump step is skipped,
+and the first tag comes from the authoritative `VERSION` file (`vX.Y.Z`); the
+computed tag is normalized to that form either way, so the manifest, the tag
+and the feed always agree. No date-to-version mapping is invented and the
+version policy is unchanged.
+
+**The artifact layout.** The signed sets and the feed are uploaded as one
+directory artifact and downloaded into the release job's `releases/`
+directory, where the release step attaches everything with `files: releases/*`.
+A flatten step makes the outcome independent of the artifact layout, so the
+feed and the signed sets can never be silently missed.
 
 Signing after packaging, as above, leaves the packaging script's
 `<base>.manifest.set` marker recording the unsigned publish. The marker is an
@@ -219,10 +257,12 @@ Honest boundaries, so nothing here reads as more ready than it is:
   remains test-only.
 - **No client provisioning.** `NEXTUI_UPDATE_FEED` and
   `NEXTUI_UPDATE_TRUSTED_KEY` are not set anywhere in this repository.
-- **No release workflow wiring.** `ci.yaml`/`release.yaml` do not yet build
-  the update package, sign it, generate the feed, or upload assets. The
-  release-workflow preparation is a separate follow-up in this thread's
-  scope and needs the key procedure above first.
+- **The release workflow is wired but cannot run yet.** `release.yaml` builds
+  the update package, signs it from the injected key, generates the feed, and
+  uploads and attests the assets, with a fail-closed guard when the signing
+  key is absent. It cannot complete until the key procedure above has run and
+  the public sidecar is committed, because a release without a signed update
+  source is refused rather than published.
 - **No store.** There is no store source, fork, or index, and none is planned.
 
 ## Tests
@@ -243,3 +283,12 @@ authenticity), and `sign-manifest.sh --key-env` signs from an environment
 variable without ever echoing the key, with every invalid variable name
 refused before any lookup and no side effect. They use the committed
 test-only seed, publish nothing, and touch no device.
+
+The release workflow's wiring has its own host tests
+(`make -C tests test-release-workflow`): they assert the fail-closed
+signing-key guard, the prepare step's position between `make special` and
+`make package`, and the artifact upload and attestation, then execute the
+wired command with the test-only key over a synthetic build tree and run the
+real client against the feed it writes — and again with the key variable
+empty, which must fail and write nothing. No release is created and no
+production key is involved.
