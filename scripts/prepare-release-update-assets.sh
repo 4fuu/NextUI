@@ -267,6 +267,11 @@ for platform in $platforms; do
     printf 'verified %s (key %s)\n' "$platform" "$key_id"
 done
 
+# The signatures exist and are verified against the public sidecar, so the key
+# is no longer needed. Removing it from the environment keeps it out of every
+# later child process (the feed generator and its verification).
+unset "$key_env" || fail "cannot unset $key_env" 65
+
 # The feed. --previous merges the published feed when one exists, so older
 # compatible rows survive this release; a definitive 404 means this is the
 # first release, and any other fetch failure is an error rather than a silent
@@ -274,7 +279,7 @@ done
 previous_feed=""
 if [ -n "$previous_url" ]; then
     status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-        --max-time 60 "$previous_url" || true)
+        --location --max-time 60 "$previous_url" || true)
     if [ "$status" = "200" ]; then
         previous_feed="$work/previous-feed.json"
         curl --fail --silent --show-error --location --max-time 300 \

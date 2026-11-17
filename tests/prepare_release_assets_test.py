@@ -168,6 +168,15 @@ class FixtureHandler(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        # GitHub release asset URLs redirect to the object store; the previous
+        # feed probe must follow them.
+        if self.path.startswith("/redirect/"):
+            target = self.path[len("/redirect/"):]
+            self.send_response(302)
+            self.send_header("Location", "/" + target)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         path = os.path.realpath(os.path.join(WWW, self.path.lstrip("/")))
         if not path.startswith(os.path.realpath(WWW)) or not os.path.isfile(path):
             self.send_response(404)
@@ -389,6 +398,30 @@ def main():
         else:
             ok("merged feed keeps the previous release's URLs")
         second_release_url = serve(second_out, "rel-6180")
+        # A previous feed behind a redirect is followed, not treated as a
+        # failure: GitHub release asset URLs redirect to the object store, so
+        # the probe must follow them to see the real status.
+        shutil.copy2(os.path.join(second_out, "nextui-feed.json"),
+                     os.path.join(WWW, "merged.json"))
+        redirected = os.path.join(WORK, "out-redirected")
+        proc = prepare(
+            ["--version", NEXT_VERSION], ["--min-system", VERSION],
+            ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
+            ["--base-url", f"{BASE_URL}/rel-6180-redirected"],
+            ["--platforms", PLATFORM],
+            ["--system-dir", system], ["--boot-dir", boot],
+            ["--version-source", version_file(NEXT_VERSION)],
+            ["--previous-url", f"{BASE_URL}/redirect/merged.json"],
+            ["--out-dir", redirected], env=signing_env)
+        expect("a redirected previous feed is followed", proc, 0)
+        rows = [(entry["platform"], entry["version"]) for entry in
+                json.load(open(os.path.join(redirected,
+                                             "nextui-feed.json"),
+                               "r", encoding="utf-8")).get("entries", [])]
+        if rows != [(PLATFORM, NEXT_VERSION), (PLATFORM, VERSION)]:
+            fail("redirected previous feed rows", rows)
+        else:
+            ok("redirected previous feed rows")
         body = expect_json("the merged feed offers the new release",
                            run(["feed", "--feed",
                                 f"{second_release_url}/nextui-feed.json",
