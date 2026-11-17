@@ -2038,18 +2038,25 @@ coordinates the root makefile with PR #38.
   serial merge. Implementation delivered as PR #45
   (https://github.com/4fuu/NextUI/pull/45, branch
   `feature/boot-install-verified-txn`, "Close the arbitrary *.pakz boot install
-  backdoor"), first head `b3a2da9914f656e2fda31dcb84cae75de46fbde7` (delivered
-  per the Space relay): the merge owner's 2026-11-17 03:44 direct report
-  records that it was NOT merged, with three real blockers -- an unsigned
-  `MinUI.zip` can still overwrite an already-installed `.system`, the h700
-  shim can still unpack `.tmp_update`, and the first-install tests do not
-  cover that branch. The fixes were handed back to the source. The head is
-  still `b3a2da9` per gh (OPEN, MERGEABLE and CLEAN, with CI green at the
-  exact head -- Feature checks push and pull_request with Host tests at 652
-  passed / 0 failed per the run log and the tg5040 target build;
-  Development/Desktop with build-linux and build-macos). No independent review
-  result has been reported for it, so nothing is written as accepted and the
-  blockers are not treated as resolved until a review says so.
+  backdoor") with two commits: `b3a2da9914f656e2fda31dcb84cae75de46fbde7`
+  "Close the arbitrary *.pakz boot install backdoor" and
+  `96143a74` "Gate the MinUI.zip boot install on first install". The merge
+  owner's 2026-11-17 03:44 direct report recorded the first head as NOT
+  merged, with three real blockers -- an unsigned `MinUI.zip` can still
+  overwrite an already-installed `.system`, the h700 shim can still unpack
+  `.tmp_update`, and the first-install tests do not cover that branch. The
+  second commit answers the first blocker from the review boundary that
+  everyday system updates must go through the signed transaction while the old
+  boot path keeps only first install plus the tg5040 BlueZ bootstrap: the
+  MinUI.zip boot install is now gated on first install, so a dropped unsigned
+  `MinUI.zip` can no longer overwrite an installed `.system`. The current head
+  is `96143a74` per gh (OPEN, MERGEABLE and CLEAN; CI green at the exact head
+  -- Feature checks push and pull_request with Host tests at 652 passed / 0
+  failed per the run log and the tg5040 target build; Development/Desktop with
+  build-linux and build-macos). The source has handed `96143a74` to the merge
+  owner T-01a1e2e1 for re-review and serial merge; no independent review
+  result has been reported, so nothing is written as accepted and the
+  remaining blockers are not treated as resolved until a review says so.
 - B2 User directories such as `Roms`: I8 kept them, `launch.sh` creates them
   on every boot, and the third-party dependence is unknown; they stay.
 
@@ -2063,8 +2070,9 @@ coordinates the root makefile with PR #38.
   section are the three non-blocking follow-ups listed above. How much the
   third-party paks depend on the `Roms` layout is still unknown.
 - Next: B1 is decided (2026-11-16, owner-delegated; held by thread
-  T-01a1e778-210d, whose first head is PR #45 `b3a2da9` -- not merged, three
-  blockers per the merge owner's 2026-11-17 03:44 report) and the version
+  T-01a1e778-210d, whose PR #45 head advanced to `96143a74` -- `b3a2da9` plus
+  the first-install gate for `MinUI.zip` -- not merged, awaiting the merge
+  owner's re-review after the 03:44 blockers) and the version
   policy is decided (Option 1; held by thread T-01a1e484, whose current head
   is PR #44 `8634991` -- the first head `f758ece` was not merged, four
   blockers per the same report), so neither waits on the user anymore; the
@@ -2213,7 +2221,9 @@ as they happen; nothing is reported as passing without a run.
   `f758ece` not merged with four blockers per the merge owner's 2026-11-17
   03:44 report; current head `8634991`, exact-head CI green, review pending)
   and the boot-path convergence delivered PR #45 (head `b3a2da9`, not merged
-  with three blockers per the same report), and the U5 implementation scope is
+  with three blockers per the same report; the head then advanced to
+  `96143a74`, which gates the MinUI.zip boot install on first install and
+  awaits the merge owner's re-review), and the U5 implementation scope is
   recorded as not closed -- the production-source thread keeps holding the
   key-independent workflow preparation and configuration validation),
   not because a docs head moved. The previous
