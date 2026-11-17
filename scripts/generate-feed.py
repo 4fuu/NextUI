@@ -19,8 +19,11 @@ way:
   - with --nextupd the real verifier also walks every archive
     (`check --integrity-only`), so an archive that cannot install never reaches
     a feed. That check is archive/manifest/content consistency, not
-    authenticity: the release procedure verifies the detached signature
-    against the trusted public key after signing
+    authenticity: a present-but-garbage signature passes it. Adding
+    --public-key upgrades the same run to `check --signature --trusted-key`,
+    which refuses a set whose signature does not verify against the committed
+    sidecar; that needs no private key, and it is what the release procedure
+    uses so authenticity is proven before the feed is written
 
 URLs are the release's asset addresses: --base-url is the release's download
 prefix (for this repository's GitHub Releases,
@@ -269,14 +272,24 @@ def collect_sets(set_dirs):
     return sets
 
 
-def verify_with_nextupd(binary, info):
-    """Run the real verifier over one set in integrity-only mode."""
+def verify_with_nextupd(binary, info, public_key):
+    """Run the real verifier over one set.
+
+    With a public key the run verifies the detached signature against the
+    committed sidecar, so a set whose signature does not verify is refused
+    here. Without one it is integrity-only: archive, manifest and file
+    consistency, which a present-but-garbage signature passes.
+    """
     command = [binary, "check",
                "--package", info["archive_path"],
                "--manifest", info["path"],
-               "--integrity-only",
                "--platform", info["platform"],
                "--expected-kind", "system"]
+    if public_key is not None:
+        command += ["--signature", info["signature_path"],
+                    "--trusted-key", public_key]
+    else:
+        command += ["--integrity-only"]
     try:
         proc = subprocess.run(command, capture_output=True, text=True)
     except OSError as error:
@@ -285,6 +298,9 @@ def verify_with_nextupd(binary, info):
         raise ValueError("nextupd check rejected %s: %s"
                          % (info["archive_path"],
                             (proc.stdout + proc.stderr).strip()))
+    if public_key is not None and "signature: verified" not in proc.stdout:
+        raise ValueError("nextupd check accepted %s without verifying its "
+                         "signature" % info["archive_path"])
 
 
 def join_url(base_url, name):
@@ -437,7 +453,14 @@ def main():
                              "an http(s) URL")
     parser.add_argument("--nextupd", metavar="BIN",
                         help="nextupd binary; when given, every set is also "
-                             "verified with check --integrity-only")
+                             "verified with check. Without --public-key that "
+                             "check is integrity-only (archive, manifest and "
+                             "file consistency, not authenticity)")
+    parser.add_argument("--public-key", metavar="FILE",
+                        help="the committed nextui-public-key-v1 sidecar; with "
+                             "--nextupd, every set's detached signature is "
+                             "verified against it, so a set that does not "
+                             "verify is refused. Needs no private key")
     parser.add_argument("--generated-at", metavar="ISO8601",
                         help="optional feed timestamp, recorded verbatim")
     parser.add_argument("--out", metavar="FILE",
@@ -458,12 +481,19 @@ def main():
 
     try:
         sets = collect_sets(args.set_dir)
+        if args.public_key is not None:
+            if args.nextupd is None:
+                raise ValueError("--public-key needs --nextupd: the signature "
+                                 "is verified by the real client binary")
+            if not os.path.isfile(args.public_key):
+                raise ValueError("public key %s does not exist"
+                                 % args.public_key)
         if args.nextupd is not None:
             if not os.path.isfile(args.nextupd):
                 raise ValueError("nextupd binary %s does not exist"
                                  % args.nextupd)
             for info in sets:
-                verify_with_nextupd(args.nextupd, info)
+                verify_with_nextupd(args.nextupd, info, args.public_key)
         fresh = [build_entry(info, base_url) for info in sets]
         previous = []
         if args.previous is not None:

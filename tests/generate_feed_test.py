@@ -536,6 +536,34 @@ def main():
         expect("an unusable nextupd binary is refused", proc, 65,
                "cannot run nextupd")
 
+        # --public-key upgrades the verification to the signature: a
+        # present-but-garbage signature passes an integrity-only check, which
+        # is consistency, not authenticity, and the client rejects the set.
+        garbage = os.path.join(WORK, "garbage-signature")
+        publish(garbage, newer)
+        with open(os.path.join(garbage,
+                               "nextui-system-tg5040.manifest.sig"), "w",
+                  encoding="ascii") as handle:
+            handle.write("not a signature\n")
+        proc = generate([garbage], f"{BASE_URL}/assets/garbage",
+                        "--nextupd", BIN)
+        expect("a garbage signature passes the integrity-only check", proc, 0)
+        proc = generate([garbage], f"{BASE_URL}/assets/garbage",
+                        "--nextupd", BIN, "--public-key", FIXTURE_PUB)
+        expect("--public-key refuses the garbage signature", proc, 65,
+               "signature")
+        proc = generate([release], f"{BASE_URL}/assets/v6.17.0",
+                        "--nextupd", BIN, "--public-key", FIXTURE_PUB)
+        expect("--public-key accepts a signed set", proc, 0)
+        proc = generate([release], f"{BASE_URL}/assets/v6.17.0",
+                        "--public-key", FIXTURE_PUB)
+        expect("--public-key needs --nextupd", proc, 65, "needs --nextupd")
+        proc = generate([release], f"{BASE_URL}/assets/v6.17.0",
+                        "--nextupd", BIN,
+                        "--public-key", os.path.join(WORK, "absent.pub"))
+        expect("a missing public key is refused", proc, 65,
+               "does not exist")
+
         # --nextupd walks every archive with the real verifier, catching a set
         # whose manifest does not list every file it ships: the generator's own
         # hash check cannot see that, and the client would refuse the download.
