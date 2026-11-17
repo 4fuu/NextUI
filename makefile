@@ -34,6 +34,15 @@ RELEASE_BASE=NextUI-$(RELEASE_TIME)$(RELEASE_BETA)
 RELEASE_DOT:=$(shell find ./releases/. -regex ".*/${RELEASE_BASE}-[0-9]+-base\.zip" | wc -l | sed 's/ //g')
 RELEASE_NAME ?= $(RELEASE_BASE)-$(RELEASE_DOT)
 
+# Authoritative project version: the single source of truth. The bootstrap
+# (`make package`) and the transactional update (`make update-package`) both
+# write this vX.Y.Z into .system/version.txt, so the artifacts and the installed
+# version never disagree and nextupd can parse the target version. The date
+# (RELEASE_TIME) is a build identifier only -- it stays in the release file
+# name -- not the version. Bump the VERSION file deliberately for a release; it
+# is not derived from the date.
+PROJECT_VERSION := $(shell cat VERSION 2>/dev/null || true)
+
 # No vendored packages are downloaded or preinstalled. The build ships only what
 # this repository produces: the third-party Pak Store download that used to be
 # staged into the base package was removed, so a fresh card carries no
@@ -180,7 +189,15 @@ package: tidy
 	cp ./workspace/readmes/EXTRAS-out.txt ./build/EXTRAS/README.txt
 	rm -rf ./workspace/readmes
 	
-	cd ./build/SYSTEM && echo "$(RELEASE_NAME)\n$(BUILD_HASH)" > version.txt
+	@if [ -z "$(PROJECT_VERSION)" ]; then \
+		echo "package: VERSION is missing or empty; it holds the authoritative project version (bare X.Y.Z)" >&2; \
+		exit 1; \
+	fi
+	@printf '%s' "$(PROJECT_VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+		echo "package: VERSION '$(PROJECT_VERSION)' is not bare X.Y.Z (no v prefix, not a date)" >&2; \
+		exit 1; \
+	}
+	cd ./build/SYSTEM && printf 'v%s\n' "$(PROJECT_VERSION)" > version.txt
 	./commits.sh > ./build/SYSTEM/commits.txt
 	cd ./build && find . -type f -name '.DS_Store' -delete
 	mkdir -p ./build/PAYLOAD
@@ -226,10 +243,14 @@ package: tidy
 # later; never commit a production key to this repo.
 UPDATE_BOOT ?= 1
 UPDATE_RES ?= 1
+# The transactional update shares the bootstrap's authoritative version by
+# default; override UPDATE_VERSION only for a deliberate different version (the
+# manifest version must still match .system/version.txt).
+UPDATE_VERSION ?= $(if $(PROJECT_VERSION),v$(PROJECT_VERSION),)
 .PHONY: update-package
 update-package:
 	@if [ -z "$(UPDATE_VERSION)" ]; then \
-		echo "update-package: set UPDATE_VERSION=vX.Y.Z; the manifest version must match .system/version.txt" >&2; \
+		echo "update-package: no version; set UPDATE_VERSION=vX.Y.Z or add a VERSION file (the authoritative project version)" >&2; \
 		exit 1; \
 	fi
 	@if [ -n "$(UPDATE_KEY)" ] && [ -z "$(UPDATE_KEY_ID)" ]; then \
