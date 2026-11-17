@@ -424,15 +424,24 @@ Rules:
   superseded heads (`bb67f347`, `0d4deec8`) stay ancestors and are recorded as
   superseded, not rewritten. Exact-head CI on `5387631d` is 6/6 green per gh
   with the Host tests job at 718 passed / 0 failed across 9 suites plus the
-  tg5040 target build and Development/Desktop; post-merge on `9d2ce41` the
-  three workflows are still in progress per gh, so that CI is not written as
-  passing. Still open: PR #47
+  tg5040 target build and Development/Desktop; the merge owner's explicit
+  independent verdict for `5387631d` is recorded (see the R3 entry) and
+  post-merge on `9d2ce41` all three workflows are success per gh, with the
+  rumble suites re-run on main. Still open: PR #47
   (branch `feature/release-workflow-prep`, the release-workflow preparation
-  layer of U5, head `3fb794682367b23548fe5a6ab9c2fd40c62768f2`, OPEN,
-  MERGEABLE/CLEAN per gh, exact-head CI green per gh with the Host tests job
-  at 756 passed / 0 failed across 10 suites plus the tg5040 target build and
-  Development/Desktop; no independent review result yet, so it is not written
-  as accepted), and this schedule's own PR #31.
+  layer of U5, head `55e7e21fd61a121740b8e5504c28097da7b166f0`, OPEN,
+  MERGEABLE/CLEAN per gh, exact-head CI green per gh; the source reports the
+  independent review's two findings (the previous-feed probe not following
+  redirects; the key staying in the environment for the whole run) fixed and
+  covered by tests, and reports handing it to the merge owner for serial merge,
+  but no independent review result is reported for this head, so it is not
+  written as accepted) and PR #48
+  (branch `feature/release-workflow-wiring`, the release-workflow wiring layer
+  of U5, head `0cfab52c308eef0c737565641275fcbef38692ec`, OPEN,
+  MERGEABLE/CLEAN per gh, exact-head CI green per gh; stacked on #47's earlier
+  head and to be rebased normally onto the new main once #47 lands; no
+  independent review result is reported, so it is not written as accepted), and
+  this schedule's own PR #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -815,7 +824,8 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e60a-171e-70c4-bdd5-5c51a84c75fe
   (Step Medium; dispatched 2026-11-16 after the owner accepted the
   next-dispatchable recommendation).
-- Status: merged into main at host level; not device-verified. PR #43
+- Status: merged into main with the merge owner's independent PASS at the
+  final head; not device-verified. PR #43
   (https://github.com/4fuu/NextUI/pull/43, branch `feature/rumble-backend`,
   "Serve input.rumble through the existing PLAT_setRumble path (R3)") merged
   into main as `9d2ce410d1ae299c09f6b257e2868756b52589af` (gh
@@ -851,9 +861,19 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   twice; the pull_request Feature checks run 44024001728 ran the Host tests job
   (718 passed / 0 failed across 9 suites per the run log) and the tg5040 target
   build, both success, with Development/Desktop (build-linux and build-macos)
-  success. Post-merge on `9d2ce41`: gh shows the three workflows (Feature
-  checks, Development/Desktop, CI) in progress, so that CI is recorded as in
-  progress and not written as passing.
+  success. Post-merge on `9d2ce41`: gh shows all three workflows (Feature
+  checks, Development/Desktop, CI) success, so the post-merge CI is recorded as
+  all green. The merge owner (T-01a1e2e1) also sent an explicit independent
+  verdict for `5387631d`, quoted by the source: "I independently ran the rumble
+  target (239 adapter, 131394 platform checks including unidentified DEVICE
+  no-write controls), the full host suite exit 0, and verified all six
+  exact-head checks", followed by the merge at that exact head; that is a
+  merge-owner review result, not the source's self-report, and it does not
+  extend to the device. The post-merge Host tests job on main re-ran the rumble
+  suites (rumble backend 239 checks; the tg5040 platform ops for
+  `DEVICE=brickpro`, `DEVICE=brick`, `DEVICE=smartpro` and the unidentified
+  `DEVICE`, totaling 131394 checks), so the guard is exercised on every push to
+  main and not only on the branch.
   Delivered files, per the source: `workspace/all/common/device_backend_rumble.{h,c}`
   as the adapter (argument validation, capability dispatch, JSON responses,
   read-back) in the R1/R2 and C2 shape,
@@ -957,9 +977,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   the Brick Pro voltage limit respected; host tests; desktop build; tg5040
   cross-compile.
 - Next: nothing further at host level -- the module is on main at `9d2ce41`
-  and the `5387631d` guard is the merged behavior. Any hardware effect and the
-  real strength-to-voltage map stay in the real-machine batch V1, and the
-  post-merge CI on `9d2ce41` is still running per gh.
+  with the merge owner's independent PASS at `5387631d` and the post-merge CI
+  all green per gh. Any hardware effect and the
+  real strength-to-voltage map stay in the real-machine batch V1.
 
 #### R4 — LED device verification
 - Owner: single ADB device thread (part of V1).
@@ -1146,23 +1166,28 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   merged as PR #46 above; (2) the release-workflow preparation, open as PR #47
   (https://github.com/4fuu/NextUI/pull/47, branch
   `feature/release-workflow-prep`, "Prepare the signed release update assets
-  off the release path"), head `3fb794682367b23548fe5a6ab9c2fd40c62768f2`
-  (four commits: `8ac4f532` prepares the signed release update assets off the
-  release path, `a740a4ac` merges `feature/release-source-feed`,
-  `26824615` is a normal merge of `origin/main`, and `3fb79468` hardens the
-  key lookup and the version source), base main, OPEN, MERGEABLE/CLEAN per gh,
-  not a draft; exact-head CI green per gh, whose Feature checks pull_request
-  run 44021307183 ran the Host tests job at 756 passed / 0 failed across 10
-  suites per the run log plus the tg5040 target build, both success, with
-  Development/Desktop (build-linux and build-macos) success; no independent
-  review result yet, so it is not written as accepted and a source self-test
-  is not acceptance. Per the source and the PR body, that layer adds
-  `scripts/prepare-release-update-assets.sh`, which packages every platform
-  through the existing `make update-package` entry, signs each manifest with
-  the production key read from a named environment variable
+  off the release path"), head `55e7e21fd61a121740b8e5504c28097da7b166f0`
+  (on top of `3fb794682367b23548fe5a6ab9c2fd40c62768f2` it adds `14a1f158`
+  "Follow redirects when probing the previous feed, and drop the key early"
+  and a normal merge of `origin/main` `9d2ce41`; the earlier history is
+  `8ac4f532` preparing the signed release update assets off the release path,
+  `a740a4ac` merging `feature/release-source-feed`, `26824615` a normal merge
+  of `origin/main`, and `3fb79468` hardening the key lookup and the version
+  source), base main, OPEN, MERGEABLE/CLEAN per gh, not a draft; exact-head CI
+  green per gh (Feature checks push and pull_request, Development/Desktop); no
+  independent review result is reported, so it is not written as accepted and a
+  source self-test is not acceptance. Per the source, that layer adds
+  `scripts/prepare-release-update-assets.sh` and 40 checks -- the real script
+  over a synthetic tree, the real client path (`nextupd feed` -> `fetch` ->
+  `stage` -> `install`), and every fail-closed gate -- and the independent
+  review's two findings are fixed and covered by tests: the previous-feed probe
+  now follows redirects, and the key no longer stays in the environment for the
+  whole run. The layer keeps the properties recorded earlier: packaging every
+  platform through the existing `make update-package` entry, signing each
+  manifest with the production key read from a named environment variable
   (`sign-manifest.sh --key-env`, so the PEM never touches argv, the
-  repository, or any output), builds the feed with `scripts/generate-feed.py`,
-  and verifies the whole set with the real `nextupd` binary; the `--key-env`
+  repository, or any output), building the feed with `scripts/generate-feed.py`,
+  and verifying the whole set with the real `nextupd` binary; the `--key-env`
   name is validated by rejection (empty, a leading digit, or any byte outside
   `[A-Za-z0-9_]` is refused before the lookup) and the presence check uses
   `printenv`, so a crafted name cannot execute on the signing host, with a
@@ -1179,19 +1204,59 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   unreachable previous feed (a definitive 404 is the first-release case), and
   a package without `min_system`. It never falls back to the test key and
   publishes nothing: no tag, no release, no upload. Local evidence per the
-  source: `make -C tests test-release-assets` at 38 passed / 0 failed over the
-  real script on a synthetic tree with the test-only key, then the real client
-  path `nextupd feed` -> `fetch` -> `stage` -> `install` into a throwaway root
-  with the installed version and the published boot payload asserted, the
-  next release merging the previous feed (including the older row staying
-  reachable for a system below the new `min_system`), every gate covered, the
-  full host suite green including #46's `test-generate-feed` at 63/63, and
-  mutation checks proving that reverting the `--key-env` validation to the
-  acceptance glob fails the suite; the injection repro
+  source: `make -C tests test-release-assets` green over the real script on a
+  synthetic tree with the test-only key, then the real client path into a
+  throwaway root with the installed version and the published boot payload
+  asserted, the next release merging the previous feed (including the older row
+  staying reachable for a system below the new `min_system`), every gate
+  covered, the full host suite green including #46's `test-generate-feed` at
+  63/63, and mutation checks proving that reverting the `--key-env` validation
+  to the acceptance glob fails the suite; the injection repro
   (`--key-env 'A-};touch marker;#'`) exits 64 with no marker and no output
-  directory. This branch does not edit `release.yaml`: wiring the workflow
-  step is the remaining slice of this layer and still needs the production
-  key custody procedure. (3) The custody side is unkeyed: the production
+  directory.
+  (2b) The workflow wiring is a separate open layer: PR #48
+  (https://github.com/4fuu/NextUI/pull/48, branch
+  `feature/release-workflow-wiring`, "Wire the signed update source into the
+  release workflow"), head `0cfab52c308eef0c737565641275fcbef38692ec`, base
+  main, OPEN, MERGEABLE/CLEAN per gh, not a draft; it is stacked on #47's
+  earlier head `3fb79468` (its history is `8ac4f532`, `a740a4ac`, `26824615`,
+  `3fb79468`, `14a1f158`, `0cfab52c`) and will be rebased normally onto the new
+  main once #47 lands, per the source. Exact-head CI green per gh (Feature
+  checks push and pull_request, Development/Desktop); no independent review
+  result is reported, so it is not written as accepted. Per the source and the
+  PR body, it makes `release.yaml` produce the GitHub Releases update source as
+  part of the release and fail closed without a production key: a guard step
+  before any build work fails with a precise message when
+  `NEXTUI_RELEASE_SIGNING_KEY` is absent (a release without a signed update
+  source is refused rather than published, with no `continue-on-error`, no
+  unsigned fallback and no test-key fallback); the prepare step runs after
+  `make special` and before `make package` (which moves `build/SYSTEM` away);
+  the release tag, previous tag and repository context come from the
+  workflow's own outputs, with `min_system` the previous release's tag (a first
+  release uses its own version) and `--previous-url` passed only when a
+  previous tag exists so the feed merges across releases; and the signed sets
+  and feed are uploaded as an artifact, merged into the release job's existing
+  download, attached to the GitHub Release beside the bootstrap archives, and
+  attested with them. The injection chain is documented in `RELEASE-SOURCE.md`:
+  GitHub Actions cannot read the Amp secrets facility, so the signing
+  environment's copy comes from a one-time masked bridge on the owner's machine
+  (`amp --no-tui --amp-env` into `gh secret set`), after which the workflow
+  reads only the variable name and passes it to `--key-env`. Local evidence per
+  the source: `make -C tests test-release-workflow` at 20 passed / 0 failed --
+  the wiring's invariants (guard, step order, secret, base-URL derivation,
+  conditional previous feed, upload, attestation) plus the wired command
+  executed with the committed test-only key over a synthetic three-platform
+  build tree, where it writes the uploadable set, the real `nextupd feed`
+  accepts the feed it wrote, and with the key variable empty the same command
+  fails and writes nothing; the guard step is executed both ways; the full host
+  suite is green including #46's 63/63 generator suite and #47's 40/40
+  preparation suite; and a mutation check proves that moving the prepare step
+  after `make package` fails the suite. Out of scope by design: the workflow
+  cannot complete until the owner runs the custody procedure and commits the
+  public sidecar, the guard makes that a loud failure rather than a silent
+  unsigned release, and this change triggers no release, pushes no tag,
+  uploads no asset and touches no device -- it only edits the workflow
+  definition and its tests. (3) The custody side is unkeyed: the production
   Ed25519 key pair does not exist and cannot be created from an orb, because
   the Amp secrets facility is the persistent store but in-orb writes are
   unauthorized and the only non-echoing channel is owner-private entry, so the
@@ -2504,9 +2569,16 @@ as they happen; nothing is reported as passing without a run.
   `platform.c` untouched; PR #43 merged into main as
   `9d2ce410d1ae299c09f6b257e2868756b52589af` (gh 2026-11-17T05:30:36Z, merged
   by 4fuu), exact-head CI 6/6 green per gh (Host tests 718 passed / 0 failed
-  across 9 suites plus the tg5040 target build and Development/Desktop), and
-  the post-merge workflows on `9d2ce41` are still in progress per gh. The
-  previous
+  across 9 suites plus the tg5040 target build and Development/Desktop), with
+  the merge owner's explicit independent verdict for `5387631d` recorded, and
+  the post-merge workflows on `9d2ce41` all success per gh with the rumble
+  suites re-run on main. The U5 production-source round also advanced: PR #47's
+  head moved to `55e7e21fd61a121740b8e5504c28097da7b166f0` (the independent
+  review's two findings fixed and covered by tests) and the release-workflow
+  wiring opened as PR #48 at head
+  `0cfab52c308eef0c737565641275fcbef38692ec`; both are OPEN with green
+  exact-head CI and no independent review result reported, so neither is written
+  as accepted. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
 - Branch identity evidence (2026-11-16, verified against the remote, because a
