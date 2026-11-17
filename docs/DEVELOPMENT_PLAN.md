@@ -63,6 +63,31 @@ history; its top section mirrors the current schedule in this file.
   the batch7 baseline, and branch dependencies/conflicts/merges). Not included:
   releases, deployments, force operations, and device operations. No other
   thread merges main concurrently.
+- Owner-delegated decisions (2026-11-16, Space post
+  https://ampcode.com/threads/T-01a1da7b-3aa8-70d6-860d-b71ab8e1cb68/M-034yvWThfeib6rCuqFIZtH;
+  the owner said "这个都你自己决定，都授权给你" for these scopes, so they are no
+  longer recorded as awaiting the owner): (1) the bootstrap version policy is
+  decided as Option 1 -- future bootstrap and transaction packages carry a
+  unified authoritative semver, the date is only a build identifier, and no
+  version mapping is fabricated for old cards; (2) the production source is
+  this fork's own GitHub Releases signed assets, with the private key kept
+  persistently secret, the public key shipped to clients, and test keys never
+  promoted to production; (3) the old boot install path converges so daily use
+  goes through the verified transaction while the necessary first install and
+  BlueZ compatibility are retained; (4) NEXTUI_SHA256 hardening proceeds under
+  the same delegation; (5) no application store -- no store fork or index is
+  created and the removed store is not restored. Holding threads: the version
+  and SHA fixes continue on
+  https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652, the
+  production source and key custody on
+  https://ampcode.com/threads/T-01a1e778-16d4-7580-94f5-99ef3331785f, and the
+  old boot path convergence on
+  https://ampcode.com/threads/T-01a1e778-210d-7545-b37f-88a77b9c62c4. These are
+  recorded decisions and dispatches, not implementation completion; if the
+  secure custody facility lacks permission in the actual infrastructure, that
+  is recorded as an infrastructure blocker rather than re-asked as a product
+  choice. This round still performs no release, deployment, real-device,
+  real-SD, or POWER operation.
 
 ## Status model
 
@@ -912,11 +937,21 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   downgrade.
 
 #### U5 — Signature policy and key custody
-- Owner: owner decision plus updater thread implementation.
-- Status: verification code exists with test-only keys; production key custody
-  and release authorization are undecided.
-- Depends on: owner decision on key custody and who may sign or trigger
-  releases. This decision blocks only U5 and F5; it does not block U1-U4.
+- Owner: decided 2026-11-16 by the owner's delegation (see the
+  owner-delegated decisions at the top of this file); the production source and
+  key custody are held by
+  https://ampcode.com/threads/T-01a1e778-16d4-7580-94f5-99ef3331785f.
+- Status: decided. The production source is this fork's own GitHub Releases
+  signed assets; the private key is kept persistently secret, the public key
+  ships to clients, and test keys are never promoted to production.
+  Verification code exists with test-only keys; the custody implementation and
+  the release authorization flow now proceed under the decision rather than
+  waiting on an owner choice. If the secure custody facility lacks permission
+  in the actual infrastructure, that is recorded as an infrastructure blocker,
+  not re-asked as a product choice.
+- Depends on: nothing owner-side anymore; the remaining work is
+  implementation. This decision blocks only U5 and F5; it does not block
+  U1-U4.
 - Delivery/verification: updater verifies manifest signature before unpacking;
   abort keeps the current version; key custody documented without this repo
   generating or storing production keys.
@@ -926,7 +961,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Owner: any thread; low risk.
 - Status: not started; release body and skeleton READMEs still point at
   upstream docs. The makefile's default third-party updater pak download was
-  removed by PR #17 (U4 packaging cleanup, now merged into main).
+  removed by PR #17 (U4 packaging cleanup, now merged into main). The
+  production source decision (U5, this fork's own GitHub Releases signed
+  assets) removes the last owner-side dependency, so this task is dispatchable.
 - Depends on: none (independent).
 - Delivery/verification: release workflow body and skeleton BASE/EXTRAS
   READMEs point at this repo's documentation entry; NOTICE and the upstream
@@ -1016,8 +1053,10 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   publish/deploy; production feed/signing key and the install UI are separate
   undelivered items and are not prerequisites for this task's host-level
   verification.
-- Next: the install UI (a separate slice); production feed/signing key custody
-  stays with the owner decision (U5).
+- Next: the install UI (a separate slice); the production feed and signing key
+  custody are decided (U5, 2026-11-16 owner-delegated: this fork's GitHub
+  Releases signed assets, private key persistently secret, public key to
+  clients, test keys never promoted) and are held by thread T-01a1e778-16d4.
 
 #### U8 — Transactional system update package build (packaging side of U7)
 - Owner thread: https://ampcode.com/threads/T-01a1e3be-8cb6-7331-b5d1-0cb254ba73fa
@@ -1324,15 +1363,20 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   `target_version_missing` (exit 13) and the trees are untouched, while a
   valid `vX.Y.Z` target installs the same package; downgrade refusal and the
   old system-only behavior are unchanged.
-- Remaining boundary (gated on an owner decision, not code): how a
-  bootstrapped card gets a real machine-readable version so the first
-  transactional update can apply. Three options are documented with evidence
-  in `UPDATE-PACKAGING.md` (a real version source, an explicit legacy mapping
-  policy, or a one-time migration). No date-to-semver mapping was invented and
-  no unknown version was treated as `v0.0.0`, so the `min_system` and
-  downgrade constraints are not bypassed; until the owner picks an option,
-  the first update onto a bootstrapped card stays clearly refused rather than
-  applied against an unknown version.
+- Remaining boundary — decided 2026-11-16 (owner-delegated, Option 1): the
+  owner authorized this scope's decision and implementation, and the decision
+  is Option 1 -- future bootstrap and transaction packages carry a unified
+  authoritative semver, the date is only a build identifier, and no version
+  mapping is fabricated for old cards. The thread
+  https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652 continues
+  with the version and SHA fixes on that basis (the SHA hardening is
+  NEXTUI_SHA256 failing loudly on a forced-but-missing backend instead of
+  writing an empty-hash marker). The recorded constraints stand: no fabricated
+  mapping, no unknown-version default of `v0.0.0`, no relaxation of signature
+  verification, and a clear distinction between new bootstrap improvements and
+  old-card support. This is a recorded decision and dispatch, not
+  implementation completion; delivery goes through the sole merge owner's
+  independent review and serial merge.
 - Constraints (owner-set): no fabricated version mapping, no unknown default
   of `v0`, no relaxation of signature verification, and a clear distinction
   between new bootstrap improvements and old-card support. Isolated-root tests
@@ -1346,14 +1390,14 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   without a pull request is not a delivery. At the merged head the
   atomic-output suite is 55/55 (it was 36/36 at `ed7b9de` and fails 6 against
   the pre-fix script) and `test-update-package` is 132 passed / 0 failed.
-- Next: the only remaining gate for this workstream is the bootstrap version
-  policy -- an owner decision among the three documented options (a real
-  version source, an explicit legacy mapping, or a one-time migration), with no
-  date-to-semver mapping invented and no unknown version treated as `v0.0.0`.
-  It blocks only the first transactional update onto an already-bootstrapped
-  card, not other desktop work. Option 1 is recorded as the recommendation and
-  is a recommendation only, not user-approved. There is no ETA; it waits on the
-  owner's choice.
+- Next: the bootstrap version policy is decided (2026-11-16, owner-delegated,
+  Option 1): future bootstrap and transaction packages carry a unified
+  authoritative semver, the date is only a build identifier, and no version
+  mapping is fabricated for old cards. It had blocked only the first
+  transactional update onto an already-bootstrapped card, not other desktop
+  work; the thread
+  https://ampcode.com/threads/T-01a1e484-f167-7532-8d4a-514422c67652 continues
+  the version and SHA implementation under that decision.
 - Minor follow-up noted for the next packaging or version change (not
   scheduled separately): harden `NEXTUI_SHA256` so a forced-but-missing backend
   fails instead of writing an empty-hash marker.
@@ -1794,10 +1838,12 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   launcher tests plus the real launcher evidence F6b is to deliver.
 
 #### F5 — Application release pipeline
-- Owner: unassigned; blocked on owner repository authorization and U5 keys.
+- Owner: unassigned; the owner-side gates are now decided (2026-11-16
+  owner-delegated: the repository authorization and the U5 key custody
+  decision), so it is dispatchable but not started.
 - Status: not started.
-- Depends on: U4 feed, U5 signature policy, owner authorization for the app
-  repository.
+- Depends on: U4 feed, U5 signature policy (both in main or decided), owner
+  authorization for the app repository (delegated).
 - Delivery/verification: `pak.json` version -> git tag -> release assets named
   per `release_filename` with a SHA-256 manifest in the shared format family.
 - Next: none (closes application delivery).
@@ -1937,13 +1983,16 @@ coordinates the root makefile with PR #38.
   replaces `/usr/trimui/bin/runtrimui.sh`, so the one-time patch keeps its
   use and A3 stays.
 
-#### D2 — Items needing a user decision (B class; not authorized by the 15:13 approval)
+#### D2 — B-class items (B1 decided under the 2026-11-16 delegation; B2 stays)
 - B1 The old update bypass: the `MinUI.zip` and bare `*.pakz` boot-time
-  unzip path installs without signature or manifest verification. It still
-  needs a user decision on retention scope and verification, and it sits at
-  the same decision point as the pending bootstrap version policy (U10), so
-  the two should be decided together. The 15:13 approval explicitly does not
-  authorize removing it, and the old install path stays until then.
+  unzip path installs without signature or manifest verification. Decided
+  2026-11-16 under the owner's delegation: the path converges so daily use
+  goes through the verified transaction, while the necessary first install and
+  BlueZ compatibility are retained. The holding thread is
+  https://ampcode.com/threads/T-01a1e778-210d-7545-b37f-88a77b9c62c4; the
+  decision is recorded with its dispatch, not as implementation completion,
+  and delivery goes through the sole merge owner's independent review and
+  serial merge.
 - B2 User directories such as `Roms`: I8 kept them, `launch.sh` creates them
   on every boot, and the third-party dependence is unknown; they stay.
 
@@ -1956,7 +2005,9 @@ coordinates the root makefile with PR #38.
 - Not done: both cleanup lines are merged; the only remainders from this
   section are the three non-blocking follow-ups listed above. How much the
   third-party paks depend on the `Roms` layout is still unknown.
-- Next: B1 and the version policy still wait on the user; the A-class debt is
+- Next: B1 is decided (2026-11-16, owner-delegated; held by thread
+  T-01a1e778-210d) and the version policy is decided (Option 1; held by thread
+  T-01a1e484), so neither waits on the user anymore; the A-class debt is
   closed except for the recorded follow-ups, which ride the next real change
   in the same files instead of a separate schedule pull request.
 
@@ -2023,6 +2074,10 @@ coordinates the root makefile with PR #38.
   https://ampcode.com/threads/T-01a1e5c2-0302-71cd-b14f-828546632bc9
 - Rumble backend thread (R3):
   https://ampcode.com/threads/T-01a1e60a-171e-70c4-bdd5-5c51a84c75fe
+- Production source and key custody thread (U5, owner-delegated):
+  https://ampcode.com/threads/T-01a1e778-16d4-7580-94f5-99ef3331785f
+- Old boot path convergence thread (B1, owner-delegated):
+  https://ampcode.com/threads/T-01a1e778-210d-7545-b37f-88a77b9c62c4
 - Apostrophe co-rendering harness thread: `T-01a1e05b` (full URL to be filled
   in once confirmed; ran the exact libsamplerate co-render regression on main
   `1d9aea2` with `a6-host-adapter` @
@@ -2079,7 +2134,15 @@ as they happen; nothing is reported as passing without a run.
   F6c at host level, and the I7 and R3 entries were verified for the next
   dispatchable block; the owner then confirmed I7's source gap closed in the
   earlier PR #1 merge (no re-dispatch, HOME scope check concluded) and
-  dispatched R3 to thread T-01a1e60a),
+  dispatched R3 to thread T-01a1e60a; and the owner then delegated the
+  bootstrap version policy, NEXTUI_SHA256, production source and key custody,
+  old boot install path, and store scope ("这个都你自己决定，都授权给你"),
+  which this schedule records as decided -- Option 1 for the version policy,
+  this fork's GitHub Releases signed assets with a persistently secret private
+  key and client-side public key, the old boot path converging to the verified
+  transaction with first-install and BlueZ compatibility retained, and no
+  store -- with the holding threads T-01a1e484, T-01a1e778-16d4, and
+  T-01a1e778-210d recorded as dispatches, not implementation completion),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
