@@ -941,14 +941,36 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   owner-delegated decisions at the top of this file); the production source and
   key custody are held by
   https://ampcode.com/threads/T-01a1e778-16d4-7580-94f5-99ef3331785f.
-- Status: decided. The production source is this fork's own GitHub Releases
-  signed assets; the private key is kept persistently secret, the public key
-  ships to clients, and test keys are never promoted to production.
-  Verification code exists with test-only keys; the custody implementation and
-  the release authorization flow now proceed under the decision rather than
-  waiting on an owner choice. If the secure custody facility lacks permission
-  in the actual infrastructure, that is recorded as an infrastructure blocker,
-  not re-asked as a product choice.
+- Status: split into a delivered source side and an infrastructure-blocked
+  custody side. The source-side tooling is delivered as PR #46
+  (https://github.com/4fuu/NextUI/pull/46, branch
+  `feature/release-source-feed`, "Add the release-source feed generator and
+  key-env signing"), head `21a1fa7cd0d788722c11b8298701e185895f5137`, cut
+  from `origin/main` `5b66d70`, OPEN, MERGEABLE and CLEAN per gh; CI at the
+  exact head is green per gh (Feature checks push and pull_request with Host
+  tests at 691 passed / 0 failed per the run log and the tg5040 target build;
+  Development/Desktop with build-linux and build-macos). Delivered, per the
+  source: the release-source feed generator `scripts/generate-feed.py` (with
+  `--previous` merge and `--nextupd` self-verification), the
+  `sign-manifest.sh --key-env` confidential-store input path, `RELEASE-SOURCE.md`
+  (asset layout, feed URL pattern, custody procedure, client provisioning, and
+  honest boundaries), and 39 host checks against the real `nextupd` binary and
+  the real signer; the full host suite and the nextupd suites (plain and
+  SANITIZE) pass, and mutation checks prove the new tests have teeth. Not
+  merged; awaiting the merge owner's independent review, so nothing is written
+  as accepted and a source self-test is not acceptance.
+- Custody side (an infrastructure blocker, not a product choice): an orb
+  cannot write the Amp secrets facility without the private key transiting a
+  transcript, which the custody rules forbid, so the production Ed25519 key
+  pair is not generated and the public sidecar is not committed.
+  Consequently no release exists yet (the repo has no tags), no feed URL is
+  live, `feed`/`fetch` still report `feed_unconfigured`, and the client's
+  `NEXTUI_UPDATE_FEED` / `NEXTUI_UPDATE_TRUSTED_KEY` are not provisioned. The
+  owner step is documented in RELEASE-SOURCE.md and runs on the owner's own
+  machine: keygen on a trusted host, store the private key in the Amp secrets
+  facility, and commit the public sidecar; after that the first signed release
+  publishes the feed and the CI owner can wire the workflow. This round
+  performed no release, deploy, device, or SD action.
 - Depends on: nothing owner-side anymore; the remaining work is
   implementation. This decision blocks only U5 and F5; it does not block
   U1-U4.
@@ -2142,7 +2164,13 @@ as they happen; nothing is reported as passing without a run.
   key and client-side public key, the old boot path converging to the verified
   transaction with first-install and BlueZ compatibility retained, and no
   store -- with the holding threads T-01a1e484, T-01a1e778-16d4, and
-  T-01a1e778-210d recorded as dispatches, not implementation completion),
+  T-01a1e778-210d recorded as dispatches, not implementation completion; and
+  the U5 production-source thread delivered its source-side tooling as PR #46
+  (head `21a1fa7`, exact-head CI green, awaiting the merge owner's independent
+  review), with the key-custody half recorded as an infrastructure blocker --
+  an orb cannot write the Amp secrets facility without the private key
+  transiting a transcript -- awaiting the owner's one-step keygen-and-store
+  procedure),
   not because a docs head moved. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
