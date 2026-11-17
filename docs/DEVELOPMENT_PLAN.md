@@ -6,8 +6,10 @@ Space coordination artifact "NextUI 通用桌面改造计划" carries the full r
 history; its top section mirrors the current schedule in this file.
 
 - Baseline (schedule code baseline, fixed per the 2026-11-16 maintenance
-  rule): `008ffde` (merge of PR #45, the boot-path convergence to the verified
-  transaction; below it PR #44 the authoritative VERSION source and the
+  rule): `44018eb` (merge of PR #46, the release-source feed generator and
+  key-env signing, gh 2026-11-17T04:48:30Z; below it PR #45, the boot-path
+  convergence to the verified
+  transaction, `008ffde`; PR #44 the authoritative VERSION source and the
   hardened forced NEXTUI_SHA256 `5fed2b3`, PR #42 the expected-kind check on
   the tool `5b66d70`, PR #41 the local-file app install settings page
   `cb622fa`, PR #40 the RetroAchievements dead-cluster
@@ -20,7 +22,7 @@ history; its top section mirrors the current schedule in this file.
   System Update install UI, PR #34 the Off/On labels slice and the in-repo
   i18n fixture value test, PR #30 the About page Unknown zh entry -- which
   also carries PR #27 the transactional update package build -- and PR #29 the
-  I9 settings abnormal-data fixes; fetched 2026-11-16).
+  I9 settings abnormal-data fixes; fetched 2026-11-17).
   Docs-only main heads do not move this baseline; the last
   docs-only tip was `8e4f744` (merge of PR #28). Landing points on
   main, oldest first: PR #5
@@ -396,12 +398,30 @@ Rules:
   the three post-merge workflows on `008ffde` (event push, started
   2026-11-17T04:26:29Z) all success, so the post-merge CI is recorded as all
   green per gh rather than in progress. The explicit BlueZ pak is still unsigned and device behavior is
-  unverified, so no complete boot-path certification is claimed. Still open:
-  PR #46 (branch `feature/release-source-feed`, head `f7ccf2c` after the
-  `--key-env` command-injection fix at `1ec6903` and the normal merge of
-  `008ffde`; exact-head CI green per gh; the B2/B3 documentation and
-  write-read contract issues remain open, awaiting a new exact head plus CI
-  plus the merge owner's re-review) and this schedule's own PR #31.
+  unverified, so no complete boot-path certification is claimed. PR #46
+  (branch `feature/release-source-feed`) merged into main as
+  `44018eb7c710bde306a9ed9c4ce22b99a6cc5a76` (2026-11-17T04:48:30Z per gh),
+  final head `8f55e0790c65404df5d657d6651f2178acac43e5`, with the merge
+  owner's direct report recording the independent review and the serial merge,
+  the six exact-head checks green, the generator at 63/63, the merged tree's
+  full host suite at 0 failures, and the post-merge workflows all success; gh
+  confirms the three post-merge workflows on `44018eb` are success. The
+  `--key-env` command injection the merge owner had found and reproduced is
+  fixed and verified at the final head (a malicious name is rejected with exit
+  64 and leaves no execution marker), and the post-sign check's role is
+  conditional on `--public-key`, so integrity mode can still accept a garbage
+  signature while the same call refuses it with the public key supplied.
+  U5 is still not closed as a whole: the release workflow continues on the
+  production-source thread's stacked branch and the prepare script needs the
+  same kind of `--key-env` validation fix before independent review; nothing
+  is published and no production key or feed URL is configured. Still open:
+  PR #43 (branch `feature/rumble-backend`, the R3 rumble backend, head
+  `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd`, OPEN, MERGEABLE/CLEAN per gh,
+  exact-head CI green per gh with the Host tests job at 652 passed / 0 failed
+  across 8 suites plus the tg5040 target build and Development/Desktop; the
+  merge owner reported on 2026-11-17 that it is not yet handled, so it has no
+  independent review result and is not written as accepted) and this
+  schedule's own PR #31.
 - Target compile: tg5040 passes on batch7 and now also through the Feature
   checks workflow on main and on feature branches; the runtime branch's
   `be88c2028...` commit has a formal PASS from the toolchain thread (own
@@ -784,16 +804,68 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   https://ampcode.com/threads/T-01a1e60a-171e-70c4-bdd5-5c51a84c75fe
   (Step Medium; dispatched 2026-11-16 after the owner accepted the
   next-dispatchable recommendation).
-- Status: dispatched; no head delivered, so nothing is recorded as done. The
-  scope: an R1/R2-pattern rumble module plus the devserv action, capability,
-  and status wiring, along the established `PLAT_setRumble`/`VIB_` semantics,
-  honoring the Brick Pro 2.5V ceiling; fake-sysfs host verification of the
-  write guards, read-back, range refusal, and honest `unavailable`; desktop
-  and tg5040 real CI. Boundaries: no real device, sysfs, SD, or POWER work; no
-  permission product; grants are not a default feature gate. That thread owns
-  the code; this schedule owns the record; delivery goes to the sole merge
-  owner's independent gate. Device rumble effect and recovery stay unverified
-  (V1).
+- Status: delivered and open for review, not merged and not accepted. PR #43
+  (https://github.com/4fuu/NextUI/pull/43, branch `feature/rumble-backend`,
+  "Serve input.rumble through the existing PLAT_setRumble path (R3)"), head
+  `bb67f347064f9cac96ed8d1a94b0c8d37190fbfd` (two commits: `1aa91e97` "Add the
+  R3 rumble backend and wire input.rumble into devserv" and `bb67f347`
+  "Document the DEVICE dependency of the rumble platform detection"), base
+  main, OPEN, MERGEABLE/CLEAN per gh, not a draft. Exact-head CI green per gh:
+  Feature checks push and pull_request, whose pull_request run 43959419409 ran
+  the Host tests job (652 passed / 0 failed across 8 suites per the run log)
+  and the tg5040 target build (both success), plus Development/Desktop
+  (build-linux and build-macos). No independent review result exists for this
+  head yet -- the merge owner reported on 2026-11-17 that PR #43 is not yet
+  handled -- so nothing is written as accepted and a source self-test is not
+  acceptance.
+  Scope delivered, per the source and the PR body: `device_backend_rumble.{h,c}`
+  as the adapter (argument validation, capability dispatch, JSON responses,
+  read-back) in the R1/R2 and C2 shape, `device_backend_rumble_platform.c` as
+  the production ops (`PLAT_setRumble()` for the write, the platform nodes for
+  the read-back), and `devserv` composing it last
+  (`device_backend_rumble_compose(device_backend_display_audio_compose(device_backend_leds()))`)
+  so the service still exposes exactly one `DeviceBackend`. The strength domain
+  stays the existing `0..0xFFFF`; no strength is mapped to a voltage or driver
+  level here, so `PLAT_setRumble()` keeps its own map including the Brick Pro
+  2.5 V ceiling, and no new voltage or timing is introduced. Because `devserv`
+  never runs `GFX_init()` (where `api.c` calls `PLAT_initPlatform()`), the write
+  path runs that platform model detection once first (on tg5040 it only reads
+  `$DEVICE`); without it `PLAT_setRumble` would apply the 3.3 V ceiling on a
+  Brick Pro. Honest degradation: tg5040 and tg5050 are available when the
+  enable and level nodes are present and writable, h700 reports `unavailable`
+  (its `PLAT_setRumble` only switches the motor on and off and drops the
+  strength), desktop reports `unavailable` (its `PLAT_setRumble` is empty).
+  Availability also requires the enable node to be readable, since it is both
+  the write target and the only read-back source; a write whose read-back
+  disagrees becomes `backend_error`, never a success; responses keep
+  `hardware_ack:false` because the motor itself is unobservable, and a
+  response's `strength` is the service's own record (`applied` says whether it
+  wrote). `VIB_singlePulse`/`VIB_doublePulse`/`VIB_triplePulse` are not exposed
+  (they block their caller and belong to the process that ran `VIB_init`), and
+  a rumble call never marks the C3 session haptics field dirty because that
+  field is the user's haptics preference owned by the config store.
+  Host verification, per the source: `tests/makefile` gains `test-rumble` with
+  two binaries -- the adapter against fake ops (argument and range rejection
+  without a write, default-allow dispatch with no grant at all, the legacy
+  grant path, read-back mismatch, write and read failures, unsupported and
+  unconfigured backends, session independence, composition) and the production
+  platform ops against an isolated temporary sysfs tree (never `/sys`) for the
+  Brick Pro shape, the non-Brick-Pro tg5040 shape, desktop and h700, asserting
+  the nodes, the read-back, the missing and unreadable-node refusals, and
+  exhaustively that no strength from 1 to 65535 maps the Brick Pro driver above
+  2.5 V; the session E2E suite gains a case proving the composed real service
+  reports `input.rumble` `unavailable` instead of a fake success; `make -C
+  tests test` and `make setup && make common PLATFORM=desktop` both exit 0; the
+  real desktop `devserv.elf` prints
+  `backend nextui-rumble+nextui-display-audio+nextui-leds` and answers
+  `input.rumble` with `unavailable` and the detail `no rumble path on this
+  platform`; `device_backend_rumble_platform.c` compiles clean with
+  `-Wall -Wextra -Werror -pedantic` for the tg5040, tg5050, h700 and desktop
+  shapes. Not verified: any hardware effect, the real strength-to-voltage map
+  on a device, and nothing on real sysfs, SD, or the power path; grants are not
+  a feature prerequisite here and no permission product, production key, or
+  device operation is involved. Device rumble effect and recovery stay
+  unverified (V1).
 - Verified 2026-11-16 (next-dispatchable check): the capability is already
   declared (`workspace/all/common/device_caps.c:22` lists `input.rumble`),
   `PLAT_setRumble` is implemented per platform
@@ -812,7 +884,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
 - Delivery/verification: `input.rumble` served through `PLAT_setRumble` with
   the Brick Pro voltage limit respected; host tests; desktop build; tg5040
   cross-compile.
-- Next: real-machine batch V1.
+- Next: the merge owner's independent review of head `bb67f347` (reported
+  2026-11-17 as not yet handled), then serial merge; any hardware effect and
+  the real strength-to-voltage map stay in the real-machine batch V1.
 
 #### R4 — LED device verification
 - Owner: single ADB device thread (part of V1).
@@ -966,37 +1040,38 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   owner-delegated decisions at the top of this file); the production source and
   key custody are held by
   https://ampcode.com/threads/T-01a1e778-16d4-7580-94f5-99ef3331785f.
-- Status: split into a delivered source side and an infrastructure-blocked
-  custody side. The source-side tooling is delivered as PR #46
-  (https://github.com/4fuu/NextUI/pull/46, branch
+- Status: the source side is merged; the item is still not closed as a whole.
+  PR #46 (https://github.com/4fuu/NextUI/pull/46, branch
   `feature/release-source-feed`, "Add the release-source feed generator and
-  key-env signing"), head `21a1fa7cd0d788722c11b8298701e185895f5137`, cut
-  from `origin/main` `5b66d70`, OPEN, MERGEABLE and CLEAN per gh; CI at the
-  exact head is green per gh (Feature checks push and pull_request with Host
-  tests at 691 passed / 0 failed per the run log and the tg5040 target build;
-  Development/Desktop with build-linux and build-macos). Delivered, per the
-  source: the release-source feed generator `scripts/generate-feed.py` (with
-  `--previous` merge and `--nextupd` self-verification), the
-  `sign-manifest.sh --key-env` confidential-store input path, `RELEASE-SOURCE.md`
-  (asset layout, feed URL pattern, custody procedure, client provisioning, and
-  honest boundaries), and 39 host checks against the real `nextupd` binary and
-  the real signer; the full host suite and the nextupd suites (plain and
-  SANITIZE) pass, and mutation checks prove the new tests have teeth. Not
-  merged; awaiting the merge owner's independent review, so nothing is written
-  as accepted and a source self-test is not acceptance. Since that record the
-  merge owner independently found and reproduced a `--key-env` name command
-  injection in the delivered tooling; the source fixed it at `1ec6903`
-  ("Validate the --key-env name by rejection, never by eval", with 50 generator
-  checks green locally per the source) and then normally merged
-  `origin/main` `008ffde` into the branch, so the current exact head is now
-  `f7ccf2c` per gh (OPEN, MERGEABLE and CLEAN; CI green at the exact head --
-  Feature checks push and pull_request with Host tests at 705 passed / 0
-  failed across 9 suites per the run log and the tg5040 target build;
-  Development/Desktop with build-linux and build-macos). The B2/B3 documentation and write-read contract
-  issues from the review remain open, so the pull request still needs a new
-  exact head plus CI plus the merge owner's re-review; no independent review
-  result has been reported for the current head, and nothing is written as
-  accepted.
+  key-env signing") merged into main as
+  `44018eb7c710bde306a9ed9c4ce22b99a6cc5a76` (2026-11-17T04:48:30Z per gh),
+  final head `8f55e0790c65404df5d657d6651f2178acac43e5`. The head history on
+  top of `21a1fa7` is `beb4e0d` (a normal merge of `origin/main` `008ffde`),
+  `e89804f` "Let the generator verify signatures when given the public key",
+  `de26cba` "Correct the release-source doc's three ownership and 404
+  claims", and `8f55e07` "Make the post-sign check's role conditional on
+  --public-key". The merge owner's 2026-11-17 direct report records the
+  independent review and the serial merge at the final head, the six checks
+  green at the exact head, the generator at 63/63, the merged tree's full host
+  suite at 0 failures, and the post-merge workflows all success; gh confirms
+  the merge and that the three post-merge workflows on `44018eb` (Feature
+  checks, Development/Desktop, CI) are success. That is a merge-owner review
+  result, not the source's self-report, and it does not extend to the device
+  or to a published release.
+  The `--key-env` name command injection the merge owner independently found
+  and reproduced in the delivered tooling is fixed and verified at the final
+  head: a malicious name is rejected with exit 64 and leaves no execution
+  marker (fixed at `1ec6903`, "Validate the --key-env name by rejection,
+  never by eval"). Recorded by the actual verification mode: the post-sign
+  check's role is conditional on `--public-key`, so integrity mode can still
+  accept a garbage signature while the same call refuses it once the public
+  key is supplied; the schedule does not claim signature verification where
+  only integrity was checked.
+  Still open inside U5 (so the item is not recorded as closed): the release
+  workflow continues on the production-source thread's stacked branch, and
+  the prepare script needs the same kind of `--key-env` validation fix before
+  it is handed to independent review. Nothing is published, and no production
+  key or feed URL is configured.
 - Custody side (an infrastructure constraint, not a product choice, and not a
   closed scope): an orb cannot write the Amp secrets facility without the
   private key transiting a transcript, which the custody rules forbid, so the
@@ -2264,8 +2339,11 @@ as they happen; nothing is reported as passing without a run.
   store -- with the holding threads T-01a1e484, T-01a1e778-16d4, and
   T-01a1e778-210d recorded as dispatches, not implementation completion; and
   the U5 production-source thread delivered its source-side tooling as PR #46
-  (head `21a1fa7`, exact-head CI green, awaiting the merge owner's independent
-  review), with the key-custody half recorded as an infrastructure blocker --
+  (first head `21a1fa7`; the merge owner independently found and reproduced a
+  `--key-env` name command injection in it, fixed at `1ec6903` and verified at
+  the final head `8f55e07`, where a malicious name is rejected with exit 64 and
+  leaves no execution marker), with the key-custody half recorded as an
+  infrastructure blocker --
   an orb cannot write the Amp secrets facility without the private key
   transiting a transcript -- awaiting the owner's one-step keygen-and-store
   procedure; the version/SHA implementation delivered PR #44 (first head
@@ -2280,12 +2358,21 @@ as they happen; nothing is reported as passing without a run.
   owner's final report; the post-merge CI on `008ffde` is all success per gh
   and the explicit BlueZ pak is unsigned, so no complete boot-path
   certification is claimed), and the U5 implementation scope is
-  recorded as not closed -- the production-source thread keeps holding the
-  key-independent workflow preparation and configuration validation, and PR
-  #46's head advanced to `f7ccf2c` after the merge owner independently found
-  and reproduced a `--key-env` name command injection (fixed at `1ec6903`),
-  with the B2/B3 documentation and write-read contract issues still open),
-  not because a docs head moved. The previous
+  recorded as not closed even though PR #46 merged into main as `44018eb`
+  (final head `8f55e07`, the merge owner's independent review and serial merge
+  at that head) -- the production-source thread keeps holding the
+  key-independent workflow preparation and configuration validation on its
+  stacked branch, the prepare script still needs the same kind of `--key-env`
+  name validation fix before independent review, and the `--key-env` name
+  command injection the merge owner independently found and reproduced (fixed
+  at `1ec6903`) is recorded as verified at the final head, where a malicious
+  name is rejected with exit 64 and leaves no execution marker),
+  not because a docs head moved, and PR #43 (the R3 rumble backend, branch
+  `feature/rumble-backend`) delivered its head `bb67f347` with exact-head CI
+  green per gh (Host tests 652 passed / 0 failed across 8 suites plus the
+  tg5040 target build, and Development/Desktop), so R3 is no longer recorded
+  as headless; it has no independent review result yet because the merge owner
+  reported it as not yet handled. The previous
   schedule pull request (PR #28) is merged, so this update travels on a new
   branch.
 - Branch identity evidence (2026-11-16, verified against the remote, because a
@@ -2333,5 +2420,6 @@ as they happen; nothing is reported as passing without a run.
   the PR #32, PR #33, PR #34, PR #35, PR #36, U10, F6, and merge facts ride
   the same branch. The schedule baseline moved to `4c5398f` with the PR #37
   merge (PR #38 merged just below it at `1f737c9`), then to `5b66d70` with the
-  PR #42 merge, then to `5fed2b3` with the PR #44 merge, and now to `008ffde`
-  with the PR #45 merge (2026-11-17 per gh).
+  PR #42 merge, then to `5fed2b3` with the PR #44 merge, then to `008ffde`
+  with the PR #45 merge, and now to `44018eb` with the PR #46 merge
+  (2026-11-17 per gh).
