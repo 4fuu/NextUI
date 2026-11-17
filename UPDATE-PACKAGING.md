@@ -229,8 +229,10 @@ Nothing here installs to a device.
 
 ## Version source
 
-The authoritative project version is the `VERSION` file at the repo root (a bare
-`X.Y.Z`, currently `6.16.0`). Both artifacts read it, so the bootstrap and the
+The authoritative project version is the `VERSION` file at the repo root: a
+bare CalVer `YYYY.MDD.REVISION` (year, month without a leading zero + two-digit
+day, same-day revision starting at 0; e.g. `2026.1117.0`), following
+`4fuu/uri-agent`. Both artifacts read it, so the bootstrap and the
 transactional update never disagree on version:
 
 - `make package` writes `v$(VERSION)` into the bootstrap's `.system/version.txt`.
@@ -238,10 +240,11 @@ transactional update never disagree on version:
   only for a deliberate different version, and the manifest version must still
   match `.system/version.txt`.
 
-The date (`RELEASE_TIME`) is a build identifier only — it stays in the release
-file name (`NextUI-<date>-<n>-base.zip`) and is no longer the version. Bump
-`VERSION` deliberately for a release: it is not derived from the date, a build
-number, or the git hash, and no date-to-semver mapping is invented. No unknown
+The build date (`RELEASE_TIME`) stays a build identifier in the release file
+name (`NextUI-<date>-<n>-base.zip`), separate from the version. Bump `VERSION`
+deliberately before a release to that day's CalVer (`YYYY.MDD.0`, or the next
+free revision for a same-day re-release); the release workflow validates the
+date prefix against the release day in `Asia/Hong_Kong`. No unknown
 version is treated as `v0.0.0` (which would bypass a package's `min_system`), and
 signature, ZIP, platform and root validation are unchanged.
 

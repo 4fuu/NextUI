@@ -4,16 +4,10 @@ name: Release NextUI
 # yamllint disable-line rule:truthy
 on:
   workflow_dispatch:
-    inputs:
-      release_type:
-        description: "release type"
-        default: "patch"
-        required: true
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   attestations: write
@@ -25,6 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       next-tag: ${{ steps.release-tag.outputs.version }}
+      release-version: ${{ steps.release-tag.outputs.bare-version }}
       release-name: ${{ steps.release-name.outputs.RELEASE_NAME }}
       latest-tag: ${{ steps.latest-tag.outputs.GIT_LATEST_TAG }}
     steps:
@@ -38,9 +33,9 @@ jobs:
         run: |
           echo "RELEASE_NAME=$(make name)" >> "$GITHUB_OUTPUT"
 
-      # No tags is the first-release case: `git describe` would fail here, so
-      # the empty result is explicit and the first version comes from the
-      # authoritative version source below.
+      # The previous tag feeds min_system and the merged feed. No tags is the
+      # first-release case: `git describe` would fail here, so the empty
+      # result is explicit.
       - name: Get Latest Tag
         id: latest-tag
         run: |
@@ -51,36 +46,39 @@ jobs:
             echo "::notice title=First release::No tags exist yet; the first version comes from the VERSION file."
           fi
 
-      - name: Compute Next Tag
-        id: next-tag
-        if: steps.latest-tag.outputs.GIT_LATEST_TAG != ''
-        uses: docker://ghcr.io/dokku/semver-generator:latest
-        with:
-          bump: ${{ github.event.inputs.release_type }}
-          input: ${{ steps.latest-tag.outputs.GIT_LATEST_TAG }}
-
-      # The first release is named by the authoritative version source; no
-      # date-to-version mapping is invented and the version policy is
-      # unchanged.
-      - name: First Release Tag
-        id: first-tag
-        if: steps.latest-tag.outputs.GIT_LATEST_TAG == ''
-        run: |
-          echo "version=v$(tr -d ' \t\r\n' < VERSION)" >> "$GITHUB_OUTPUT"
-
-      # The manifest, the tag and the feed all carry vX.Y.Z, so the computed
-      # version is normalized to that form here instead of assumed.
-      - name: Normalize the Tag
+      # CalVer, following 4fuu/uri-agent: VERSION holds YYYY.MDD.REVISION
+      # (year, month without a leading zero + two-digit day, same-day
+      # revision starting at 0). The version is bumped deliberately before
+      # the release; this step only validates it. The prefix must match
+      # today's Asia/Hong_Kong date, and an existing tag must point at this
+      # exact commit so a failed release can be resumed.
+      - name: Validate Release Version
         id: release-tag
-        env:
-          COMPUTED: ${{ steps.next-tag.outputs.version || steps.first-tag.outputs.version }}
         run: |
-          tag="$COMPUTED"
-          case "$tag" in
-            v*) ;;
-            *) tag="v$tag" ;;
-          esac
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+            echo "Run releases from main, not $GITHUB_REF" >&2
+            exit 1
+          }
+          VERSION=$(tr -d ' \t\r\n' < VERSION)
+          [[ "$VERSION" =~ ^[0-9]{4}\.[0-9]{3,4}\.[0-9]+$ ]] || {
+            echo "VERSION must use YYYY.MDD.REVISION (CalVer), got '$VERSION'" >&2
+            exit 1
+          }
+          EXPECTED_PREFIX=$(TZ=Asia/Hong_Kong date '+%Y.%-m%d')
+          [[ "$VERSION" == "$EXPECTED_PREFIX".* ]] || {
+            echo "VERSION $VERSION does not match today's Asia/Hong_Kong date $EXPECTED_PREFIX; bump VERSION to today's date (revision 0, or the next free revision for a same-day re-release)" >&2
+            exit 1
+          }
+          if tag_sha=$(git rev-list -n 1 "v$VERSION" 2>/dev/null); then
+            [[ "$tag_sha" == "$GITHUB_SHA" ]] || {
+              echo "Tag v$VERSION points to $tag_sha instead of $GITHUB_SHA; bump the revision for a new release" >&2
+              exit 1
+            }
+            echo "Resuming release v$VERSION"
+          fi
+          echo "version=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "bare-version=$VERSION" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare
@@ -237,8 +235,21 @@ jobs:
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-          git tag "$GIT_NEXT_TAG"
-          git push origin "$GIT_NEXT_TAG"
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" != "$GITHUB_SHA" ]; then
+            echo "main moved from $GITHUB_SHA during the release; re-run from the new head with a bumped revision" >&2
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$GIT_NEXT_TAG" >/dev/null; then
+            if [ "$(git rev-list -n 1 "$GIT_NEXT_TAG")" != "$GITHUB_SHA" ]; then
+              echo "Tag $GIT_NEXT_TAG points elsewhere; refusing to move it" >&2
+              exit 1
+            fi
+            echo "Tag $GIT_NEXT_TAG already points at this commit; resuming"
+          else
+            git tag "$GIT_NEXT_TAG"
+            git push origin "$GIT_NEXT_TAG"
+          fi
         env:
           GIT_NEXT_TAG: ${{ needs.prepare.outputs.next-tag }}
 
@@ -249,6 +260,7 @@ jobs:
           generate_release_notes: true
           append_body: true
           tag_name: ${{ needs.prepare.outputs.next-tag }}
+          name: NextUI ${{ needs.prepare.outputs.release-version }}
           make_latest: "true"
           body: |
             

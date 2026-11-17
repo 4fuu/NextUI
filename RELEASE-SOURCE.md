@@ -49,8 +49,11 @@ Release assets carry no `.sig` file by default. `generate-feed.py` still
 records a `signature_url` when a signature sidecar is present, for clients that
 were built with a trusted key; the official release does not publish one.
 
-Release tags are `vX.Y.Z`, matching the authoritative semver in the manifest
-and `.system/version.txt`.
+Release tags are `vYYYY.MDD.REVISION` (CalVer, following `4fuu/uri-agent`):
+year, month without a leading zero plus two-digit day, and a same-day revision
+starting at 0 (e.g. `v2026.1117.0`, `v2026.1117.1`). The numeric triple is
+semver-compatible, so the manifest, `.system/version.txt` and the client's
+version comparison all carry it unchanged.
 
 ## Building the feed
 
@@ -84,10 +87,15 @@ absent here; the release workflow decides when a previous feed exists.)
 
 ## Release workflow
 
-`release.yaml` keeps the version/tag logic unchanged. With no tags, the first
-release tag comes from the root `VERSION` file (`v$(cat VERSION)`); later tags
-are computed from the latest tag and normalized to `vX.Y.Z`. There is no
-date-to-version mapping.
+`release.yaml` validates the version instead of computing it. The root
+`VERSION` file holds the CalVer `YYYY.MDD.REVISION`, bumped deliberately before
+the release (revision 0 for the day's first release, the next free revision for
+a same-day re-release). The `Validate Release Version` step refuses to run
+outside `main`, refuses a version that is not `YYYY.MDD.REVISION`, refuses a
+date prefix other than today's `Asia/Hong_Kong` date, and refuses an existing
+`v$VERSION` tag that points at another commit — an existing tag at the same
+commit means the release is being resumed. The tag step likewise refuses to
+move a tag and aborts if `main` advanced during the release.
 
 The build job runs `scripts/prepare-release-update-assets.sh` after
 `make special` and before `make package` (which moves `build/SYSTEM` away).
