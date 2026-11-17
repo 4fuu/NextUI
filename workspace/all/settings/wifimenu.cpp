@@ -1,5 +1,6 @@
 #include "wifimenu.hpp"
 #include "keyboardprompt.hpp"
+#include "wifi_ssid.h"
 
 extern "C" {
 #include "i18n.h"
@@ -7,6 +8,7 @@ extern "C" {
 
 #include <unordered_set>
 #include <map>
+#include <cstring>
 
 #include <mutex>
 #include <shared_mutex>
@@ -16,6 +18,105 @@ typedef std::shared_lock<Lock> ReadLock;
 
 using namespace Wifi;
 using namespace std::placeholders;
+
+namespace
+{
+    // The font the app uses for Chinese UI text. It is bundled with NextUI
+    // (skeleton/SYSTEM/res/font3.ttf), so nothing new ships for SSIDs.
+    TTF_Font *openCjkFont(int size)
+    {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/font3.ttf", RES_PATH);
+        TTF_Font *font = TTF_OpenFont(path, size);
+        if (font)
+            TTF_SetFontStyle(font, CFG_getFontStyle());
+        return font;
+    }
+
+    TTF_Font *cjkSmallFont()
+    {
+        static TTF_Font *font = openCjkFont(SCALE1(FONT_SMALL));
+        return font;
+    }
+
+    bool nameNeedsCjkGlyph(TTF_Font *active, TTF_Font *cjk, const std::string &name)
+    {
+        const char *p = name.c_str();
+        size_t remaining = name.size();
+        while (remaining > 0)
+        {
+            uint32_t cp = 0;
+            size_t len = wifi_utf8Next(p, remaining, &cp);
+            if (len == 0)
+            {
+                p++;
+                remaining--;
+                continue;
+            }
+            if (cp < 0x20 || cp == 0x7f || cp > 0xffff)
+            {
+                p += len;
+                remaining -= len;
+                continue;
+            }
+            if (!TTF_GlyphIsProvided(active, (Uint16)cp) && TTF_GlyphIsProvided(cjk, (Uint16)cp))
+                return true;
+            p += len;
+            remaining -= len;
+        }
+        return false;
+    }
+
+    // Network names are raw bytes from the air. Only valid UTF-8 can be drawn,
+    // so invalid sequences and control characters become '?' in the row label
+    // while net.ssid keeps the bytes used for connecting.
+    std::string displaySsid(const char *ssid)
+    {
+        char display[SSID_MAX * 3 + 1];
+        wifi_ssidDisplay(ssid, display, sizeof(display));
+        return std::string(display);
+    }
+}
+
+bool Wifi::networkNamesNeedCjkFont(const std::vector<AbstractMenuItem *> &items)
+{
+    // The CJK face is already active for the Chinese UI; nothing to swap.
+    if (strcmp(CFG_getFontFile(), "font3.ttf") == 0)
+        return false;
+
+    TTF_Font *active = font.small;
+    TTF_Font *cjk = cjkSmallFont();
+    if (!active || !cjk || active == cjk)
+        return false;
+
+    for (auto *item : items)
+    {
+        if (item && nameNeedsCjkGlyph(active, cjk, item->getName()))
+            return true;
+    }
+    return false;
+}
+
+Wifi::NetworkFontGuard::NetworkFontGuard(bool enabled)
+{
+    if (!enabled)
+        return;
+
+    TTF_Font *small = cjkSmallFont();
+    if (!small || small == font.small)
+        return;
+
+    savedSmall = font.small;
+    font.small = small;
+    active = true;
+}
+
+Wifi::NetworkFontGuard::~NetworkFontGuard()
+{
+    if (!active)
+        return;
+    font.small = savedSmall;
+}
 
 Menu::Menu(const int &globalQuit, int &globalDirty) : MenuList(MenuItemType::Fixed, TR("Network"), {}), globalQuit(globalQuit), globalDirty(globalDirty)
 {
@@ -54,6 +155,17 @@ InputReactionHint Menu::handleInput(int &dirty, int &quit)
         //LOG_info("collected workerDirty\n");
     }
     return ret;
+}
+
+void Menu::draw(SDL_Surface *surface, const SDL_Rect &dst, const SDL_Rect &dstTitle)
+{
+    bool needCjk;
+    {
+        ReadLock r(itemLock);
+        needCjk = networkNamesNeedCjkFont(items);
+    }
+    NetworkFontGuard guard(needCjk);
+    MenuList::draw(surface, dst, dstTitle);
 }
 
 std::any Menu::getWifToggleState() const
@@ -238,22 +350,16 @@ ForgetItem::ForgetItem(WIFI_network n, bool& dirty)
 
 
 NetworkItem::NetworkItem(WIFI_network n, bool connected, MenuList* submenu)
-    : MenuItem(ListItemType::Custom, n.ssid, n.bssid, DeferToSubmenu, submenu), net(n), connected(connected)
+    : MenuItem(ListItemType::Custom, displaySsid(n.ssid), n.bssid, DeferToSubmenu, submenu), net(n), connected(connected)
 {}
 
 void NetworkItem::drawCustomItem(SDL_Surface *surface, const SDL_Rect &dst, const AbstractMenuItem &item, bool selected) const
 {
-    SDL_Color text_color = uintToColour(THEME_COLOR4_255);
-    SDL_Surface *text = TTF_RenderUTF8_Blended(font.tiny, item.getLabel().c_str(), COLOR_WHITE); // always white
-
-    // hack - this should be correlated to max_width
-    int mw = dst.w;
-
-    if (selected)
-    {
-        // gray pill
-        GFX_blitPillLightCPP(ASSET_BUTTON, surface, {dst.x, dst.y, mw, SCALE1(BUTTON_SIZE)});
-    }
+    // The row's name and selection pill are drawn by MenuList::drawFixedItem
+    // with the active font (font3 while a CJK name is visible); this only adds
+    // the icons at the right edge.
+    (void)item;
+    (void)selected;
 
     // wifi icon
     auto asset =
@@ -282,18 +388,4 @@ void NetworkItem::drawCustomItem(SDL_Surface *surface, const SDL_Rect &dst, cons
         SDL_Rect tgt{ix, y};
         GFX_blitAssetColor(ASSET_LOCK, NULL, surface, &tgt, THEME_COLOR6);
     }
-
-    if (selected)
-    {
-        // white pill
-        int w = 0;
-        TTF_SizeUTF8(font.small, item.getName().c_str(), &w, NULL);
-        w += SCALE1(OPTION_PADDING * 2);
-        GFX_blitPillDarkCPP(ASSET_BUTTON, surface, {dst.x, dst.y, w, SCALE1(BUTTON_SIZE)});
-        text_color = uintToColour(THEME_COLOR5_255);
-    }
-
-    text = TTF_RenderUTF8_Blended(font.small, item.getName().c_str(), text_color);
-    SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y + SCALE1(1)});
-    SDL_FreeSurface(text);
 }
