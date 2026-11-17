@@ -380,6 +380,18 @@ static const I18nEntry zhTable[] = {
     {"This package cannot be installed.", "此安装包无法安装。"},
     {"Install failed.", "安装失败。"},
 
+    // Shared hardware overlay hints (common/api.c GFX_blitHardwareHints): the
+    // brightness and color temperature pills, plus the MENU/SELECT combo hints
+    // shown while the volume pill is up. The button labels ("+ -", "MNU",
+    // "SEL") are hardware names and stay English, matching the repo convention;
+    // only the hint words are translated. "BRGHT"/"CLTMP" are the combo-pill
+    // abbreviations of the two full hints above and share their translations,
+    // which are two characters and therefore narrower than the English.
+    {"BRIGHTNESS", "亮度"},
+    {"COLOR TEMP", "色温"},
+    {"BRGHT", "亮度"},
+    {"CLTMP", "色温"},
+
     // First-batch built-in Tools: launcher labels. The pak directory and the
     // pak.json name stay English on disk; nextui.c translates only this fixed
     // set of display names, so a third-party pak is never renamed.

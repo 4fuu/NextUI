@@ -17,7 +17,7 @@
 # removed together with the RetroAchievements dead cluster. a3-zh is left as the
 # frozen audit snapshot and still lists those characters.
 
-# ---- values (326) ----
+# ---- values (330) ----
 最近游玩
 最近
 收藏
@@ -309,6 +309,10 @@ USB 连接时保持唤醒
 正在扫描安装包...
 此安装包不适用于本设备。
 无法读取已安装应用的版本。
+亮度
+色温
+亮度
+色温
 时钟
 设置
 灯光控制
