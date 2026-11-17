@@ -150,6 +150,11 @@ if [ -z "$sha256_tool" ]; then
     else fail "need sha256sum, shasum or openssl for the commit marker" 69
     fi
 fi
+# A forced NEXTUI_SHA256 skips the existence checks above; confirm the chosen
+# tool is installed so a missing backend fails here instead of silently writing
+# an empty-hash commit marker.
+command -v "$sha256_tool" >/dev/null 2>&1 \
+    || fail "SHA-256 tool '$sha256_tool' not found" 69
 
 # Hex SHA-256 of a file through the selected tool.
 sha256_file() {

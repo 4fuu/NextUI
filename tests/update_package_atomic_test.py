@@ -43,6 +43,7 @@ import os
 import shutil
 import subprocess
 import sys
+import zipfile
 
 BIN = os.path.abspath(sys.argv[1])
 REPO = os.path.abspath(sys.argv[2])
@@ -665,6 +666,45 @@ def test_sha256_backends():
             ok("sha256 %s: marker hashes match the files" % backend)
 
 
+def test_sha256_forced_missing():
+    """Forcing a NEXTUI_SHA256 backend that is not installed must fail loudly.
+
+    It must exit non-zero naming the tool and write no commit marker, rather
+    than silently producing an empty-hash marker.
+    """
+    forced = "openssl"
+    restricted = os.path.join(WORK, "restricted-bin")
+    os.makedirs(restricted, exist_ok=True)
+    # Symlink every tool the script needs EXCEPT the forced one, so the script
+    # runs to the SHA-256 selection but the forced backend is genuinely absent.
+    for tool in ("zip", "find", "mktemp", "awk", "readlink", "cut", "grep", "sed",
+                 "basename", "dirname", "cp", "mv", "rm", "chmod", "rmdir",
+                 "mkdir", "cat", "head", "tail", "tr", "base64", "sha256sum",
+                 "shasum"):
+        found = shutil.which(tool)
+        if found:
+            os.symlink(found, os.path.join(restricted, tool))
+    if not shutil.which(forced):
+        skip("sha256 forced-missing", "%s is not installed to hide" % forced)
+        return
+
+    system = build_source_tree("build-sha-missing")
+    out_dir = fresh("sha-missing")
+    proc = run(package_args(system, out_dir),
+               env={"NEXTUI_SHA256": forced, "PATH": restricted})
+    if proc.returncode == 0:
+        fail("sha256 forced-missing", "the run succeeded with a missing backend", proc)
+        return
+    combined = proc.stdout + proc.stderr
+    if forced not in combined or "not found" not in combined:
+        fail("sha256 forced-missing", "the failure did not name the missing tool", proc)
+        return
+    if os.path.exists(final_paths(out_dir)["marker"]):
+        fail("sha256 forced-missing", "a commit marker was written despite the failure")
+        return
+    ok("sha256 forced-missing: forced missing backend fails and writes no marker")
+
+
 def make_target(name, version_text):
     target = fresh(name)
     write_file(os.path.join(target, ".system", PLATFORM, "bin", "nextui.elf"),
@@ -748,6 +788,45 @@ def test_legacy_version_target_refused(key_pem):
         ok("legacy version: the same package installs onto a valid vX.Y.Z target")
 
 
+def test_version_source_default(key_pem):
+    """`make update-package` with no UPDATE_VERSION uses the VERSION file.
+
+    This is the single-source wiring behind Option 1: the bootstrap and the
+    transactional update read the same authoritative version, so the manifest
+    version and the archive's .system/version.txt agree with the VERSION file.
+    """
+    version_file = os.path.join(REPO, "VERSION")
+    if not os.path.isfile(version_file):
+        skip("version source", "no VERSION file at the repo root")
+        return
+    authoritative = "v" + open(version_file, encoding="ascii").read().strip()
+
+    system = build_source_tree("build-version-default")
+    releases = os.path.join(fresh("version-default"), "releases")
+    proc = run(["make", "-C", REPO, "update-package",
+                "PLATFORM=" + PLATFORM,
+                "UPDATE_BOOT=0", "UPDATE_RES=0",
+                "UPDATE_SYSTEM_DIR=" + system,
+                "UPDATE_OUT_DIR=" + releases,
+                "UPDATE_KEY=" + key_pem, "UPDATE_KEY_ID=" + KEY_ID],
+               env={"MAKEFLAGS": ""})
+    if not expect("version source: make update-package default", proc, 0):
+        return
+    archive = os.path.join(releases, "nextui-system-%s.zip" % PLATFORM)
+    manifest = os.path.join(releases, "nextui-system-%s.manifest.json" % PLATFORM)
+    if read_json(manifest).get("version") != authoritative:
+        fail("version source", "manifest version is %s, VERSION says %s"
+             % (read_json(manifest).get("version"), authoritative))
+        return
+    with zipfile.ZipFile(archive) as handle:
+        vtxt = handle.read(".system/version.txt").decode("ascii").strip()
+    if vtxt != authoritative:
+        fail("version source", "archive .system/version.txt is %r, VERSION says %s"
+             % (vtxt, authoritative))
+        return
+    ok("version source: make update-package defaults to VERSION (%s)" % authoritative)
+
+
 def main():
     global PUBLIC_KEY
     os.makedirs(WORK, exist_ok=True)
@@ -765,6 +844,8 @@ def main():
     test_bad_input_preserves_previous(key_pem)
     test_stale_staging_swept()
     test_sha256_backends()
+    test_sha256_forced_missing()
+    test_version_source_default(key_pem)
     test_legacy_version_target_refused(key_pem)
 
     print("%d passed, %d failed, %d skipped" % (PASS, FAIL, SKIPPED))
