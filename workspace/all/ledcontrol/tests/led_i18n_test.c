@@ -13,6 +13,7 @@
 #include "defines.h"
 #include "config.h"
 #include "led_i18n.c"
+#include "led_ui.h"
 
 static int failures = 0;
 
@@ -146,6 +147,34 @@ static void checkTable(void)
     }
 }
 
+// Palette names are handed to TR() by the picker at runtime, so they do not
+// show up as TR("...") call sites. Check every name the same way the runner
+// checks the extracted keys.
+static void checkPaletteNames(void)
+{
+    CHECK(LED_UI_COLOR_COUNT > 0, "palette is empty");
+
+    for (int i = 0; i < LED_UI_COLOR_COUNT; i++)
+    {
+        const char* key = led_ui_palette_names[i];
+        CHECK(key && key[0], "palette name %d is empty", i);
+        if (!key || !key[0]) continue;
+
+        for (int j = i + 1; j < LED_UI_COLOR_COUNT; j++)
+            CHECK(strcmp(key, led_ui_palette_names[j]) != 0,
+                  "duplicate palette name '%s'", key);
+
+        writeSettings("lang=en\n");
+        loadSettings();
+        CHECK(strcmp(TR(key), key) == 0, "en should render palette name '%s' unchanged", key);
+
+        writeSettings("lang=zh\n");
+        loadSettings();
+        CHECK(strcmp(TR(key), key) != 0, "zh should translate palette name '%s'", key);
+        CHECK(TR(key)[0] != '\0', "zh palette name '%s' is empty", key);
+    }
+}
+
 int main(int argc, char** argv)
 {
     // CFG_init reads the compiled desktop path, while CFG_sync uses the
@@ -180,6 +209,8 @@ int main(int argc, char** argv)
     loadSettings();
     CHECK(strcmp(CFG_getLanguage(), "en") == 0, "lang=fr should fall back to en");
     CHECK(strcmp(TR("BACK"), "BACK") == 0, "an unknown language must render English");
+
+    checkPaletteNames();
 
     // Call-site coverage: every key the runner extracted from ledcontrol.c and
     // the platform LED tables must translate under zh and pass through under en.

@@ -6,19 +6,14 @@
 #include "api.h"
 #include "config.h"
 #include "led_i18n.h"
+#include "led_render.h"
+#include "led_ui.h"
 #include "fn_bridge.h"
 #include "i18n.h"
 #include "utils.h"
 
 
-#define NUM_OPTIONS 4
-#define NUM_MAIN_OPTIONS 5
-#define MAX_NAME_LEN 255
-
 const char *lightnames[5];
-#define NROF_TRIGGERS 14
-const char *triggernames[] = {
-    "B", "A", "Y", "X", "L", "R", "FN1", "FN2", "MENU", "SELECT", "START", "ALL", "LR", "DPAD"};
 
 const char *effect_names[] = {
     "Linear", "Breathe", "Interval Breathe", "Static",
@@ -32,18 +27,6 @@ const char *lr_effect_names[] = {
     "Linear", "Breathe", "Interval Breathe", "Static",
     "Blink 1", "Blink 2", "Blink 3", "Rainbow", "Twinkle",
     "Fire", "Glitter", "NeonGlow", "Firefly", "Aurora", "Reactive", "LR Rainbow", "LR Reactive"};
-
-// Resolves an effect id to the index the platform's effect list holds it at,
-// so left/right walk the list the hardware actually supports. Falls back to the
-// first entry for ids that aren't offered here (a settings file carried over
-// from another device, or one of the profile-only ids).
-static int effect_index_of(int effect_id) {
-    int count = PLAT_getLedEffectCount();
-    for (int i = 0; i < count; ++i) {
-        if (PLAT_getLedEffectId(i) == effect_id) return i;
-    }
-    return 0;
-}
 
 // Platforms that don't name their own effects keep the historical tables below.
 static const char *effect_name_for(int light_index, int effect_id) {
@@ -95,153 +78,6 @@ void save_settings() {
 
         fclose(file);
     }
-}
-    
-void handle_light_input(LightSettings *light, SDL_Event *event, int selected_setting)
-{
-    const uint32_t bright_colors[] = {
-        // Blues
-        0x000011, 0x000022, 0x000033, 0x000044, 0x000055, 0x000066, 0x000077, 0x000088, 0x000099, 0x0000AA, 0x0000BB, 0x0000CC, 0x3366FF, 0x4D7AFF, 0x6699FF, 0x80B3FF, 0x99CCFF, 0xB3D9FF, 0x0000FF,
-        // Cyan
-        0x001111, 0x002222, 0x003333, 0x004444, 0x005555, 0x006666, 0x007777, 0x008888, 0x009999, 0x00AAAA, 0x00BBBB, 0x00CCCC, 0x33FFFF, 0x4DFFFF, 0x66FFFF, 0x80FFFF, 0x99FFFF, 0xB3FFFF, 0x00FFFF,
-        // Green
-        0x001100, 0x002200, 0x003300, 0x004400, 0x005500, 0x006600, 0x007700, 0x008800, 0x009900, 0x00AA00, 0x00BB00, 0x00CC00, 0x33FF33, 0x4DFF4D, 0x66FF66, 0x80FF80, 0x99FF99, 0xB3FFB3, 0x00FF00,
-        // Magenta
-        0x110011, 0x220022, 0x330033, 0x440044, 0x550055, 0x660066, 0x770077, 0x880088, 0x990099, 0xAA00AA, 0xBB00BB, 0xCC00CC, 0xFF33FF, 0xFF4DFF, 0xFF66FF, 0xFF80FF, 0xFF99FF, 0xFFB3FF, 0xFF00FF,
-        // Purple
-        0x220044, 0x330066, 0x440088, 0x5500AA, 0x6600CC, 0x7700DD, 0x8800EE, 0x9900FF, 0xAA00FF, 0xBB00FF, 0xCC00FF, 0x8833FF, 0x994DFF, 0xAA66FF, 0xBB80FF, 0xCC99FF, 0xDDB3FF,
-        // Red
-        0x220000, 0x440000, 0x660000, 0x880000, 0xAA0000, 0xCC0000, 0xFF3333, 0xFF4D4D, 0xFF6666, 0xFF8080, 0xFF9999, 0xFFB3B3, 0xFF0000,
-        // Yellow
-        0x222200, 0x444400, 0x666600, 0x888800, 0xAAAA00, 0xCCCC00, 0xFFFF33, 0xFFFF4D, 0xFFFF66, 0xFFFF80, 0xFFFF99, 0xFFFFB3, 0xFFFF00,
-        // Orange
-        0x331100, 0x662200, 0x993300, 0xCC4400, 0xFF5500, 0xFF6600, 0xFF7711, 0xFF8822, 0xFF9933, 0xFFAA44, 0xFFBB55, 0xFFCC66, 0xFFDD77, 0xFFEE88,
-        // White to Black Gradient
-        0x000000, 0x111111, 0x222222, 0x333333, 0x444444, 0x555555, 0x666666, 0x777777, 0x888888, 0x999999, 0xAAAAAA, 0xBBBBBB, 0xCCCCCC, 0xDDDDDD, 0xFFFFFF
-    };
-    
-    const int num_bright_colors = sizeof(bright_colors) / sizeof(bright_colors[0]);
-
-    switch (selected_setting)
-    {
-    case 0: // Effect
-    {
-        int effect_count = PLAT_getLedEffectCount();
-        if (effect_count > 0 && PAD_justPressed(BTN_RIGHT))
-        {
-            int index = (effect_index_of(light->effect) + 1) % effect_count;
-            light->effect = PLAT_getLedEffectId(index);
-        }
-        else if (effect_count > 0 && PAD_justPressed(BTN_LEFT))
-        {
-            int index = (effect_index_of(light->effect) - 1 + effect_count) % effect_count;
-            light->effect = PLAT_getLedEffectId(index);
-        }
-        break;
-    }
-    case 1: // Color
-    if (PAD_justPressed(BTN_RIGHT))
-        {
-            int current_index = -1;
-            for (int i = 0; i < num_bright_colors; i++)
-            {
-                if (bright_colors[i] == light->color1)
-                {
-                    current_index = i;
-                    break;
-                }
-            }
-            light->color1 = bright_colors[(current_index + 1) % num_bright_colors];
-        }
-        else if (PAD_justPressed(BTN_LEFT))
-        {
-            int current_index = -1;
-            for (int i = 0; i < num_bright_colors; i++)
-            {
-                if (bright_colors[i] == light->color1)
-                {
-                    current_index = i;
-                    break;
-                }
-            }
-            light->color1 = bright_colors[(current_index - 1 + num_bright_colors) % num_bright_colors];
-        }
-        break;
-    // case 2: // Color2
-    //     if (PAD_justPressed(BTN_RIGHT))
-    //     {
-    //         int current_index = -1;
-    //         for (int i = 0; i < num_bright_colors; i++)
-    //         {
-    //             if (bright_colors[i] == light->color2)
-    //             {
-    //                 current_index = i;
-    //                 break;
-    //             }
-    //         }
-    //         SDL_Log("saved settings to disk and shm %d", current_index);
-    //         light->color2 = bright_colors[(current_index + 1) % num_bright_colors];
-    //     }
-    //     else if (PAD_justPressed(BTN_LEFT))
-    //     {
-    //         int current_index = -1;
-    //         for (int i = 0; i < num_bright_colors; i++)
-    //         {
-    //             if (bright_colors[i] == light->color2)
-    //             {
-    //                 current_index = i;
-    //                 break;
-    //             }
-    //         }
-    //         light->color2 = bright_colors[(current_index - 1 + num_bright_colors) % num_bright_colors];
-    //     }
-    //     break;
-    case 2: // Duration
-    if (PAD_justPressed(BTN_RIGHT))
-        {
-            light->speed = (light->speed + 100) % 5000; // Increase duration
-        }
-        else if (PAD_justPressed(BTN_LEFT))
-        {
-            light->speed = (light->speed - 100 + 5000) % 5000; // Decrease duration
-        }
-        break;
-    case 3: // Brightness
-    if (PAD_justPressed(BTN_RIGHT))
-        {
-            light->brightness = (light->brightness + 5) % 105; // Increase duration
-        }
-        else if (PAD_justPressed(BTN_LEFT))
-        {
-            light->brightness = (light->brightness - 5 + 105) % 105; // Decrease duration
-        }
-        break;
-    case 4: // Info Brightness
-    if (PAD_justPressed(BTN_RIGHT))
-        {
-            light->inbrightness = (light->inbrightness + 5) % 105; // Increase duration
-        }
-        else if (PAD_justPressed(BTN_LEFT))
-        {
-            light->inbrightness = (light->inbrightness - 5 + 105) % 105; // Decrease duration
-        }
-        break;
-    case 5: // trigger
-    if (PAD_justPressed(BTN_RIGHT))
-        {
-            light->trigger = (light->trigger % NROF_TRIGGERS) + 1; // Increase effect (1 to 8)
-        }
-        else if (PAD_justPressed(BTN_LEFT))
-        {
-            light->trigger = (light->trigger - 2 + NROF_TRIGGERS) % NROF_TRIGGERS + 1; // Decrease effect (1 to 8)
-        }
-        break;
-    }
-
-    // Save settings after each change
-    LEDS_setProfile(LIGHT_PROFILE_DEFAULT);
-    LEDS_updateLeds(false);
-    save_settings();
 }
 
 // First-batch Tools wiring: FN3/HOME opens the shared overlay in this process
@@ -364,11 +200,18 @@ int main(int argc, char *argv[])
         if (name) lightnames[i] = name;
     }
 
-    bool running = true;
-    int selected_light = 0;
-    int selected_setting = 0;
-    SDL_Event event;
-	int dirty = 1;
+    // The picker only walks effects the platform says it supports; the model
+    // never has to translate an id back into a platform index.
+    int effect_count = PLAT_getLedEffectCount();
+    if (effect_count > LED_UI_MAX_EFFECTS) effect_count = LED_UI_MAX_EFFECTS;
+    int effect_ids[LED_UI_MAX_EFFECTS];
+    for (int i = 0; i < effect_count; ++i)
+        effect_ids[i] = PLAT_getLedEffectId(i);
+
+    LedUiState ui;
+    led_ui_init(&ui, numOfLights, effect_ids, effect_count);
+
+    int dirty = 1;
     int show_setting = 0; // 1=brightness,2=volume,3=colortemp
     int was_online = PWR_isOnline();
     int had_bt = PLAT_btIsConnected();
@@ -376,8 +219,7 @@ int main(int argc, char *argv[])
     while (!quit)
     {
         GFX_startFrame();
-        uint32_t frame_start = SDL_GetTicks();
-		
+
 		PAD_poll();
 
         FnBridgeActions fn_actions = {
@@ -400,121 +242,54 @@ int main(int argc, char *argv[])
         had_bt = has_bt;
 
         if (!system_input) {
-        if (PAD_justPressed(BTN_B)) {
-            quit = 1;
-        }
-        else if(PAD_justPressed(BTN_DOWN)) {
-            selected_setting = (selected_setting + 1) % NUM_MAIN_OPTIONS;
-            dirty = 1;
-        }
-        else if(PAD_justPressed(BTN_UP)) {
-            selected_setting = (selected_setting - 1 + NUM_MAIN_OPTIONS) % NUM_MAIN_OPTIONS;
-            dirty = 1;
-        }
-        else if(PAD_justPressed(BTN_L1)) {
-            selected_light = (selected_light - 1 + numOfLights) % numOfLights;
-            dirty = 1;
-        }
-        else if(PAD_justPressed(BTN_R1)) {
-            selected_light = (selected_light + 1) % numOfLights;
-            dirty = 1;
-        }
-        else if(PAD_justPressed(BTN_LEFT) || PAD_justPressed(BTN_RIGHT)) {
-            handle_light_input(&lightsDefault[selected_light],&event, selected_setting);
-            dirty = 1;
-        }
+            LedUiAction action = LED_UI_ACTION_NONE;
+
+            if (PAD_justPressed(BTN_B)) action = LED_UI_ACTION_CANCEL;
+            else if (PAD_justPressed(BTN_A)) action = LED_UI_ACTION_CONFIRM;
+            else if (PAD_justPressed(BTN_UP)) action = LED_UI_ACTION_UP;
+            else if (PAD_justPressed(BTN_DOWN)) action = LED_UI_ACTION_DOWN;
+            else if (PAD_justPressed(BTN_LEFT)) action = LED_UI_ACTION_LEFT;
+            else if (PAD_justPressed(BTN_RIGHT)) action = LED_UI_ACTION_RIGHT;
+            else if (PAD_justPressed(BTN_L1)) action = LED_UI_ACTION_PREV_ZONE;
+            else if (PAD_justPressed(BTN_R1)) action = LED_UI_ACTION_NEXT_ZONE;
+
+            if (action != LED_UI_ACTION_NONE) {
+                int result = led_ui_input(&ui, lightsDefault, action);
+                if (result & LED_UI_RESULT_EXIT) quit = 1;
+                if (result & LED_UI_RESULT_CHANGED) {
+                    LEDS_setProfile(LIGHT_PROFILE_DEFAULT);
+                    LEDS_updateLeds(false);
+                    save_settings();
+                }
+                if (result & LED_UI_RESULT_REDRAW) dirty = 1;
+            }
         }
 
         if (dirty || overlay_open) {
             GFX_clear(screen);
 
-            int ow = GFX_blitHardwareGroup(screen, show_setting);
-
-            if (show_setting) GFX_blitHardwareHints(screen, show_setting);
-
-            GFX_blitButtonGroup((char*[]){ "B", (char*)TR("BACK"), NULL }, 1, screen, 1);
-            GFX_blitButtonGroup((char*[]){ "L/R", (char*)TR("Select light"), NULL }, 0, screen, 0);
-
-
-            int max_width = screen->w - SCALE1(PADDING * 2) - ow;
-            // Display light name
-            char light_name_text[256];
-            snprintf(light_name_text, sizeof(light_name_text), "%s", TR(lightnames[selected_light]));
-
-            char title[256];
-            int text_width = GFX_truncateText(font.medium, light_name_text, title, max_width, SCALE1(BUTTON_PADDING * 2));
-            max_width = MIN(max_width, text_width);
-
-            SDL_Surface *text;
-            text = TTF_RenderUTF8_Blended(font.medium, title, COLOR_WHITE);
-            GFX_blitPill(ASSET_BLACK_PILL, screen, &(SDL_Rect){SCALE1(PADDING), SCALE1(PADDING), max_width, SCALE1(PILL_SIZE)});
-            SDL_BlitSurface(text, &(SDL_Rect){0, 0, max_width - SCALE1(BUTTON_PADDING * 2), text->h}, screen, &(SDL_Rect){SCALE1(PADDING + BUTTON_PADDING), SCALE1(PADDING + 4)});
-            SDL_FreeSurface(text);
-
-            // Display settings
-            // const char *settings_labels[6] = {"Effect", "Color", "Color2", "Speed", "Brightness", "Trigger"};
-            // this stuff is really not multiplatform at all, need to figure out a way so its not so TrimUI specific
-            const char *settings_labels[5]; // Define array with correct size
-            if (combinedBrightness) {
-                const char *non_brick_labels[] = {TR("Effect"), TR("Color"), TR("Speed"), TR("Brightness (All Leds)"), TR("Info brightness (All Leds)")};
-                memcpy(settings_labels, non_brick_labels, sizeof(non_brick_labels)); // Copy values
-            } else {
-                const char *brick_labels[] = {TR("Effect"), TR("Color"), TR("Speed"), TR("Brightness"), TR("Info brightness")};
-                memcpy(settings_labels, brick_labels, sizeof(brick_labels)); // Copy values
+            LightSettings* light = &lightsDefault[ui.zone];
+            if (ui.view == LED_UI_VIEW_COLOR) {
+                LedRenderColor view = {
+                    .zone_name = TR(lightnames[ui.zone]),
+                    .cursor = ui.color_cursor,
+                    .show_setting = show_setting,
+                };
+                LEDRender_color(screen, &view);
             }
-            int settings_values[5] = {
-                lightsDefault[selected_light].effect,
-                lightsDefault[selected_light].color1,
-                lightsDefault[selected_light].speed,
-                lightsDefault[selected_light].brightness,
-                lightsDefault[selected_light].inbrightness
-            };
-
-            for (int j = 0; j < 5; ++j)
-            {
-                char setting_text[256];
-                bool selected = (j == selected_setting);
-                SDL_Color current_color = selected ? COLOR_BLACK : COLOR_WHITE;
-
-                int y = SCALE1(PADDING + PILL_SIZE * (j + 1));
-
-                if (j == 0) { // Display effect name instead of number
-                    snprintf(setting_text, sizeof(setting_text), "%s: %s", TR(settings_labels[j]), TR(effect_name_for(selected_light, settings_values[j])));
-                    SDL_Surface *text = TTF_RenderUTF8_Blended(font.medium, setting_text, current_color);
-                    int text_width = text->w + SCALE1(BUTTON_PADDING * 2);
-                    GFX_blitPill(selected ? ASSET_WHITE_PILL : ASSET_BLACK_PILL, screen,
-                                    &(SDL_Rect){SCALE1(PADDING), y, text_width, SCALE1(PILL_SIZE)});
-                    SDL_BlitSurface(text, 
-                        &(SDL_Rect){0, 0, text->w, text->h}, screen, 
-                        &(SDL_Rect){SCALE1(PADDING + BUTTON_PADDING), y + SCALE1(4)});
-                    SDL_FreeSurface(text);
-                } else if (j == 1) { // Display color as hex code
-                    snprintf(setting_text, sizeof(setting_text), "%s", settings_labels[j]);
-                    SDL_Surface *text = TTF_RenderUTF8_Blended(font.medium, setting_text, current_color);
-                    int text_width = text->w + SCALE1(BUTTON_PADDING * 2);
-                    GFX_blitPill(selected ? ASSET_WHITE_PILL : ASSET_BLACK_PILL, screen, 
-                        &(SDL_Rect){SCALE1(PADDING), y, text_width + SCALE1(BUTTON_MARGIN + BUTTON_SIZE), SCALE1(PILL_SIZE)});
-                    SDL_BlitSurface(text, 
-                        &(SDL_Rect){0, 0, text->w, text->h}, screen, 
-                        &(SDL_Rect){SCALE1(PADDING + BUTTON_PADDING), y + SCALE1(4)});
-                    SDL_FreeSurface(text);
-
-                    // color1 is stored as 0xRRGGBB; GFX_blitAssetColor expects 0xRRGGBBAA
-                    GFX_blitAssetColor(ASSET_BUTTON, NULL, screen, &(SDL_Rect){
-                        SCALE1(PADDING) + text_width,
-                        y + SCALE1(BUTTON_MARGIN)
-                    }, ((uint32_t)settings_values[j] << 8) | 0xFF);
-                } else  {
-                    snprintf(setting_text, sizeof(setting_text), "%s: %d", settings_labels[j], settings_values[j]);
-                    SDL_Surface *text = TTF_RenderUTF8_Blended(font.medium, setting_text, current_color);
-                    int text_width = text->w + SCALE1(BUTTON_PADDING * 2);
-                    GFX_blitPill(selected ? ASSET_WHITE_PILL : ASSET_BLACK_PILL, screen, 
-                        &(SDL_Rect){SCALE1(PADDING), y, text_width, SCALE1(PILL_SIZE)});
-                    SDL_BlitSurface(text, 
-                        &(SDL_Rect){0, 0, text->w, text->h}, screen, 
-                        &(SDL_Rect){SCALE1(PADDING + BUTTON_PADDING), y + SCALE1(4)});
-                    SDL_FreeSurface(text);
-                }
+            else {
+                LedRenderMain view = {
+                    .zone_name = TR(lightnames[ui.zone]),
+                    .effect_name = TR(effect_name_for(ui.zone, light->effect)),
+                    .selected_row = ui.row,
+                    .color = light->color1,
+                    .speed = light->speed,
+                    .brightness = light->brightness,
+                    .inbrightness = light->inbrightness,
+                    .combined_brightness = combinedBrightness,
+                    .show_setting = show_setting,
+                };
+                LEDRender_main(screen, &view);
             }
 
             FnBridge_draw(fn_bridge, screen);

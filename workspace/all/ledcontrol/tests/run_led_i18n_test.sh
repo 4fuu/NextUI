@@ -2,9 +2,10 @@
 # Host-only test for the LedControl pak's dedicated i18n table. It verifies the
 # table invariants, the English fallback and the zh path (the same contract the
 # shared tests/i18n_test.c checks for common/i18n.c), and proves call-site
-# coverage: every TR() key compiled into ledcontrol.c and every display name
-# the platform LED tables hand to it must resolve under zh and pass through
-# under en. It preserves any existing desktop minuisettings.txt around the run.
+# coverage: every TR() key compiled into ledcontrol.c and led_render.c, every
+# palette name the picker translates at runtime, and every display name the
+# platform LED tables hand to it must resolve under zh and pass through under
+# en. It preserves any existing desktop minuisettings.txt around the run.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -49,10 +50,17 @@ mkdir -p "$SETTINGS_DIR"
 # platform LED tables feed through TR() at runtime (h700 labels and effects).
 mapfile -t CALL_SITE_KEYS < <(
     {
-        grep -o 'TR("[^"]*")' "$ROOT/workspace/all/ledcontrol/ledcontrol.c" |
+        grep -ho 'TR("[^"]*")' \
+            "$ROOT/workspace/all/ledcontrol/ledcontrol.c" \
+            "$ROOT/workspace/all/ledcontrol/led_render.c" |
             sed -e 's/^TR("//' -e 's/")$//'
         grep -ho '"Left"\|"Right"\|"Rainbow Multi"' \
             "$ROOT"/workspace/*/platform/led.c 2>/dev/null | tr -d '"' || true
+        # These labels are passed to TR() through the combined/per-zone
+        # ternary in led_render.c, so the TR("...") regex above does not see
+        # them as call sites.
+        printf '%s\n' "Brightness" "Info brightness" \
+            "Brightness (All Leds)" "Info brightness (All Leds)"
     } | sort -u
 )
 
@@ -71,6 +79,7 @@ CC="${CC:-cc}"
     -I"$ROOT/workspace/desktop/platform" \
     $(pkg-config --cflags sdl2 SDL2_image SDL2_ttf) \
     "$ROOT/workspace/all/ledcontrol/tests/led_i18n_test.c" \
+    "$ROOT/workspace/all/ledcontrol/led_ui.c" \
     "$ROOT/workspace/all/common/config.c" \
     "$ROOT/workspace/all/common/utils.c" \
     -o "$BUILD_DIR/led_i18n_test"
@@ -83,6 +92,8 @@ mapfile -t TABLE_KEYS < <(
 )
 for key in "${TABLE_KEYS[@]}"; do
     if ! grep -Fq "\"$key\"" "$ROOT/workspace/all/ledcontrol/ledcontrol.c" \
+        "$ROOT/workspace/all/ledcontrol/led_render.c" \
+        "$ROOT/workspace/all/ledcontrol/led_ui.c" \
         "$ROOT"/workspace/*/platform/led.c 2>/dev/null; then
         echo "FAIL: table key '$key' is not used by any call site" >&2
         exit 1
