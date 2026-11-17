@@ -379,6 +379,61 @@ static const I18nEntry zhTable[] = {
     {"That package is no longer in the folder.", "该安装包已不在目录中。"},
     {"This package cannot be installed.", "此安装包无法安装。"},
     {"Install failed.", "安装失败。"},
+
+    // First-batch built-in Tools: launcher labels. The pak directory and the
+    // pak.json name stay English on disk; nextui.c translates only this fixed
+    // set of display names, so a third-party pak is never renamed.
+    {"Clock", "时钟"},
+    {"Settings", "设置"},
+    {"LedControl", "灯光控制"},
+    {"Battery", "电池"},
+    {"Input", "按键测试"},
+    {"Bootlogo", "开机画面"},
+    {"Files", "文件"},
+    {"Remove Loading", "移除加载画面"},
+
+    // Clock: time-format toggle and its button hints.
+    {"12 HOUR", "12 小时制"},
+    {"24 HOUR", "24 小时制"},
+    {"CANCEL", "取消"},
+    {"SET", "设定"},
+
+    // Battery: title, the zoom windows in it, the four stats rows and the
+    // initial "no data yet" value.
+    {"Battery usage: Last %s", "电池用量：最近 %s"},
+    {"16 hours", "16 小时"},
+    {"8 hours", "8 小时"},
+    {"4 hours", "4 小时"},
+    {"Since Charge: %s", "本次充电：%s"},
+    {"Current: %s", "当前：%s"},
+    {"Remaining: %s", "预计剩余：%s"},
+    {"Longest: %s", "最长续航：%s"},
+    {"calculating", "计算中"},
+    {"SCROLL", "滚动"},
+    {"ZOOM", "缩放"},
+
+    // Input test: the one non-hardware label on the screen.
+    {"QUIT", "退出"},
+
+    // Bootlogo: the empty-preset message and its apply hint ("SCROLL" and
+    // "SET" are shared with Battery and Clock above).
+    {"No presets found in\n%s", "未找到预设位置：\n%s"},
+
+    // Shared UIOverlay copy. Apps pass I18N_overlayStrings() so the side panel
+    // speaks the same language as the rest of the interface; keys that already
+    // exist above (System, Bluetooth, Exit to desktop, Ready, On, Off) are
+    // intentionally not repeated. "Wi-Fi" reads the same in both languages.
+    {"Resume", "继续"},
+    {"Save state", "保存进度"},
+    {"Close", "关闭"},
+    {"Select", "选择"},
+    {"No saved state", "无存档"},
+    {"No changes", "无更改"},
+    {"Unavailable", "不可用"},
+    {"Not connected", "未连接"},
+    {"Saved", "已保存"},
+    {"Resumed", "已继续"},
+    {"Failed", "失败"},
 };
 
 #define ZH_TABLE_COUNT ((int)(sizeof(zhTable) / sizeof(zhTable[0])))
@@ -420,4 +475,31 @@ const char* I18N_translate(const char* key)
 
     logMissing(key);
     return key;
+}
+
+UIOverlayStrings I18N_overlayStrings(void)
+{
+    UIOverlayStrings strings = {
+        .title = TR("System"),
+        .resume = TR("Resume"),
+        .save = TR("Save state"),
+        // "Wi-Fi" reads the same in both languages; skipping TR also keeps the
+        // missing-translation log free of an intentional identity value.
+        .wifi = "Wi-Fi",
+        .bluetooth = TR("Bluetooth"),
+        .exit_to_desktop = TR("Exit to desktop"),
+        .close = TR("Close"),
+        .select = TR("Select"),
+        .ready = TR("Ready"),
+        .no_state = TR("No saved state"),
+        .no_changes = TR("No changes"),
+        .unavailable = TR("Unavailable"),
+        .not_connected = TR("Not connected"),
+        .on = TR("On"),
+        .off = TR("Off"),
+        .saved = TR("Saved"),
+        .resumed = TR("Resumed"),
+        .failed = TR("Failed"),
+    };
+    return strings;
 }

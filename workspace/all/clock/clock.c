@@ -11,6 +11,7 @@
 #include "api.h"
 #include "config.h"
 #include "fn_bridge.h"
+#include "i18n.h"
 #include "utils.h"
 
 enum {
@@ -95,10 +96,11 @@ int main(int argc , char* argv[]) {
 	CFG_init(NULL, NULL);
 
 	int quit = 0;
+	UIOverlayStrings overlay_strings = I18N_overlayStrings();
 	OverlayAppHooks overlay_hooks = {0};
 	overlay_hooks.user = &quit;
 	overlay_hooks.capabilities = UI_OVERLAY_CAP_EXIT;
-	overlay_hooks.app_name = "Clock";
+	overlay_hooks.app_name = TR("Clock");
 	overlay_hooks.exit_to_desktop = clock_request_exit;
 	overlay_hooks.input_reset = clock_reset_input;
 
@@ -106,6 +108,7 @@ int main(int argc , char* argv[]) {
 	bridge_config.user = &quit;
 	bridge_config.exit_to_home = clock_request_exit;
 	bridge_config.overlay_hooks = &overlay_hooks;
+	bridge_config.overlay_strings = &overlay_strings;
 	FnBridge* fn_bridge = FnBridge_create(&bridge_config);
 
 	const char* report_path = NULL;
@@ -396,9 +399,9 @@ int main(int argc , char* argv[]) {
 			GFX_blitHardwareGroup(screen, show_setting);
 			
 			if (show_setting) GFX_blitHardwareHints(screen, show_setting);
-			else GFX_blitButtonGroup((char*[]){ "SELECT",show_24hour?"12 HOUR":"24 HOUR", NULL }, 0, screen, 0);
+			else GFX_blitButtonGroup((char*[]){ "SELECT",(char*)(show_24hour?TR("12 HOUR"):TR("24 HOUR")), NULL }, 0, screen, 0);
 
-			GFX_blitButtonGroup((char*[]){ "B","CANCEL", "A","SET", NULL }, 1, screen, 1);
+			GFX_blitButtonGroup((char*[]){ "B",(char*)TR("CANCEL"), "A",(char*)TR("SET"), NULL }, 1, screen, 1);
 		
 			// 376 or 446 (@2x)
 			// 188 or 223 (@1x)

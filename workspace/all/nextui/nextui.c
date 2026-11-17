@@ -142,6 +142,22 @@ typedef struct Entry {
 	int alpha; // index in parent Directory's alphas Array, which points to the index of an Entry in its entries Array :sweat_smile:
 } Entry;
 
+// The shipped Tools paks keep their English directory and manifest names on
+// disk. Only this fixed set gets a localized launcher label, so a third-party
+// pak is never renamed just because TR() happens to know its name; an unknown
+// language still returns the English key unchanged.
+static const char* localizedBuiltinPakName(const char* name) {
+	static const char* const builtins[] = {
+		"Clock", "Settings", "LedControl", "Battery",
+		"Input", "Bootlogo", "Files", "Remove Loading",
+	};
+	if (!name) return name;
+	for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
+		if (!strcmp(name, builtins[i])) return TR(name);
+	}
+	return name;
+}
+
 static Entry* Entry_new(char* path, int type) {
 	char display_name[256];
 	getDisplayName(path, display_name);
@@ -175,6 +191,16 @@ static Entry* Entry_new(char* path, int type) {
 					if (len>0 && (size_t)len<sizeof(icon_path)) self->icon = strdup(icon_path);
 				}
 			}
+		}
+	}
+
+	// Localized label only for the shipped first-batch Tools. The path, the
+	// manifest and the launch command keep the English name.
+	if (type==ENTRY_PAK) {
+		const char* localized = localizedBuiltinPakName(self->name);
+		if (localized != self->name) {
+			free(self->name);
+			self->name = strdup(localized);
 		}
 	}
 	return self;

@@ -4,7 +4,10 @@
 #include "sdl.h"
 #include "defines.h"
 #include "api.h"
+#include "config.h"
 #include "led_i18n.h"
+#include "fn_bridge.h"
+#include "i18n.h"
 #include "utils.h"
 
 
@@ -241,6 +244,31 @@ void handle_light_input(LightSettings *light, SDL_Event *event, int selected_set
     save_settings();
 }
 
+// First-batch Tools wiring: FN3/HOME opens the shared overlay in this process
+// and FN2 asks the app to leave its main loop normally.
+static int ledcontrol_request_exit(void* user)
+{
+    if (user) *(int*)user = 1;
+    return 1;
+}
+
+static void ledcontrol_reset_input(void* user)
+{
+    (void)user;
+    PAD_reset();
+}
+
+// Desktop preview has no physical FN keys; these are the same host stand-ins
+// the Clock reference uses. Device builds keep the platform macros.
+static const FnBridgeButtons* ledcontrol_fn_buttons(void)
+{
+    static const FnBridgeButtons host = {BTN_NONE, BTN_START, BTN_MENU};
+    const char* platform = getenv("PLATFORM");
+
+    if (platform && strcmp(platform, "desktop") == 0) return &host;
+    return NULL;
+}
+
 int main(int argc, char *argv[])
 {
     char* device = getenv("DEVICE");
@@ -252,6 +280,25 @@ int main(int argc, char *argv[])
 	PAD_init();
 	PWR_init();
 
+    int quit = 0;
+    int overlay_was_open = 0;
+    UIOverlayStrings overlay_strings = I18N_overlayStrings();
+    OverlayAppHooks overlay_hooks = {0};
+    overlay_hooks.user = &quit;
+    overlay_hooks.capabilities = UI_OVERLAY_CAP_EXIT;
+    // The pak keeps its own TR table for its UI copy; this label comes from the
+    // shared table so it reads the same as the launcher.
+    overlay_hooks.app_name = I18N_translate("LedControl");
+    overlay_hooks.exit_to_desktop = ledcontrol_request_exit;
+    overlay_hooks.input_reset = ledcontrol_reset_input;
+
+    FnBridgeConfig bridge_config = {0};
+    bridge_config.user = &quit;
+    bridge_config.exit_to_home = ledcontrol_request_exit;
+    bridge_config.overlay_hooks = &overlay_hooks;
+    bridge_config.overlay_strings = &overlay_strings;
+    FnBridge* fn_bridge = FnBridge_create(&bridge_config);
+
     GFX_clearAll();
 	GFX_clearLayers(0);
 	GFX_flip(screen);
@@ -262,23 +309,32 @@ int main(int argc, char *argv[])
 
     if (numOfLights == 0) {
         // devices in this platform's family that simply have no RGB lights
-        int quit_msg = 0;
         int msg_dirty = 1;
-        while (!quit_msg) {
+        while (!quit) {
             GFX_startFrame();
             PAD_poll();
-            if (PAD_justPressed(BTN_B)) quit_msg = 1;
 
-            if (msg_dirty) {
+            FnBridgeActions fn_actions = {
+                CFG_getFnAction(0), CFG_getFnAction(1), CFG_getFnAction(2),
+            };
+            int system_input = FnBridge_poll(fn_bridge, &fn_actions, ledcontrol_fn_buttons());
+            int overlay_open = FnBridge_overlayOpen(fn_bridge);
+            if (overlay_open != overlay_was_open) msg_dirty = 1;
+            if (!system_input && PAD_justPressed(BTN_B)) quit = 1;
+
+            if (msg_dirty || overlay_open) {
                 GFX_clear(screen);
                 GFX_blitMessage(font.large, (char*)TR("This device has no RGB lights."), screen,
                     &(SDL_Rect){0, 0, screen->w, screen->h});
                 GFX_blitButtonGroup((char*[]){ "B", (char*)TR("BACK"), NULL }, 1, screen, 1);
+                FnBridge_draw(fn_bridge, screen);
                 GFX_flip(screen);
                 msg_dirty = 0;
             }
             else GFX_sync();
+            overlay_was_open = overlay_open;
         }
+        FnBridge_destroy(fn_bridge);
         PWR_quit();
         PAD_quit();
         GFX_quit();
@@ -312,7 +368,6 @@ int main(int argc, char *argv[])
     int selected_light = 0;
     int selected_setting = 0;
     SDL_Event event;
-    int quit = 0;
 	int dirty = 1;
     int show_setting = 0; // 1=brightness,2=volume,3=colortemp
     int was_online = PWR_isOnline();
@@ -324,6 +379,13 @@ int main(int argc, char *argv[])
         uint32_t frame_start = SDL_GetTicks();
 		
 		PAD_poll();
+
+        FnBridgeActions fn_actions = {
+            CFG_getFnAction(0), CFG_getFnAction(1), CFG_getFnAction(2),
+        };
+        int system_input = FnBridge_poll(fn_bridge, &fn_actions, ledcontrol_fn_buttons());
+        int overlay_open = FnBridge_overlayOpen(fn_bridge);
+        if (overlay_open != overlay_was_open) dirty = 1;
 
         PWR_update(&dirty, &show_setting, NULL, NULL);
         
@@ -337,6 +399,7 @@ int main(int argc, char *argv[])
             dirty = 1;
         had_bt = has_bt;
 
+        if (!system_input) {
         if (PAD_justPressed(BTN_B)) {
             quit = 1;
         }
@@ -360,8 +423,9 @@ int main(int argc, char *argv[])
             handle_light_input(&lightsDefault[selected_light],&event, selected_setting);
             dirty = 1;
         }
+        }
 
-        if (dirty) {
+        if (dirty || overlay_open) {
             GFX_clear(screen);
 
             int ow = GFX_blitHardwareGroup(screen, show_setting);
@@ -453,11 +517,14 @@ int main(int argc, char *argv[])
                 }
             }
 
+            FnBridge_draw(fn_bridge, screen);
             GFX_flip(screen);
             dirty = 0;
         }
         else GFX_sync();
+        overlay_was_open = overlay_open;
     }
+    FnBridge_destroy(fn_bridge);
 	PWR_quit();
 	PAD_quit();
 	GFX_quit();
