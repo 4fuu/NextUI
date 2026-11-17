@@ -392,9 +392,10 @@ Rules:
   owner's final report recording the six checks green at the final head, 17
   boot tests and the full host suite passing locally, and the installed-system
   MinUI.zip overwrite blocked on tg5040, tg5050, and h700 as well as at the
-  h700 shim; the report gives no post-merge final all-green and gh shows the
-  post-merge runs on `008ffde` still in progress, so that CI is recorded as in
-  progress. The explicit BlueZ pak is still unsigned and device behavior is
+  h700 shim; the report gives no post-merge final all-green, and gh now shows
+  the three post-merge workflows on `008ffde` (event push, started
+  2026-11-17T04:26:29Z) all success, so the post-merge CI is recorded as all
+  green per gh rather than in progress. The explicit BlueZ pak is still unsigned and device behavior is
   unverified, so no complete boot-path certification is claimed. Still open:
   PR #46 (branch `feature/release-source-feed`, head `f7ccf2c` after the
   `--key-env` command-injection fix at `1ec6903` and the normal merge of
@@ -989,9 +990,9 @@ are coordinated with the runtime thread (I1 owner), which holds devserv.
   checks green locally per the source) and then normally merged
   `origin/main` `008ffde` into the branch, so the current exact head is now
   `f7ccf2c` per gh (OPEN, MERGEABLE and CLEAN; CI green at the exact head --
-  Feature checks push and pull_request with Host tests at 691 passed / 0
-  failed per the run log and the tg5040 target build; Development/Desktop with
-  build-linux and build-macos). The B2/B3 documentation and write-read contract
+  Feature checks push and pull_request with Host tests at 705 passed / 0
+  failed across 9 suites per the run log and the tg5040 target build;
+  Development/Desktop with build-linux and build-macos). The B2/B3 documentation and write-read contract
   issues from the review remain open, so the pull request still needs a new
   exact head plus CI plus the merge owner's re-review; no independent review
   result has been reported for the current head, and nothing is written as
@@ -2098,8 +2099,9 @@ coordinates the root makefile with PR #38.
   the final head, 17 boot tests and the full host suite passing locally, and
   the installed-system MinUI.zip overwrite blocked on tg5040, tg5050, and h700
   as well as at the h700 shim. The report does not give #45's post-merge final
-  all-green, and gh shows the post-merge runs on `008ffde` still in progress,
-  so the post-merge CI is recorded as in progress and not written as passing.
+  all-green, and gh now shows the three post-merge workflows on `008ffde`
+  (event push, started 2026-11-17T04:26:29Z) all success, so the post-merge CI
+  is recorded as all green per gh.
   The explicit BlueZ pak is still unsigned and device behavior is unverified,
   so no complete boot-path certification is claimed.
 - B2 User directories such as `Roms`: I8 kept them, `launch.sh` creates them
@@ -2118,8 +2120,9 @@ coordinates the root makefile with PR #38.
   T-01a1e778-210d, whose PR #45 merged into main as `008ffde` with final head
   `58cc0e37` -- the installed-system MinUI.zip overwrite is blocked on
   tg5040, tg5050, and h700 as well as at the h700 shim per the merge owner's
-  final report; the post-merge CI is still in progress and the explicit BlueZ
-  pak is unsigned, so no complete boot-path certification is claimed) and the
+  final report; the post-merge CI on `008ffde` is all success per gh and the
+  explicit BlueZ pak is unsigned, so no complete boot-path certification is
+  claimed) and the
   version policy is decided (Option 1; held by thread T-01a1e484, whose PR #44
   merged into main as `5fed2b3` with final head `8634991` and the merge
   owner's final report confirming the independent review and six exact-head
