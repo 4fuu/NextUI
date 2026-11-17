@@ -65,6 +65,11 @@ typedef struct
 	unsigned capabilities; /* UI_OVERLAY_CAP_* mask; 0 means no app actions */
 	const char* app_name;  /* optional; shown in the panel header */
 
+	/* Resident system overlay: put Continue/Close first, then Exit, as in the
+	 * system fallback layout. Adapted apps leave this 0 and keep the shared
+	 * overlay's action order. */
+	int close_first;
+
 	/* B3-aligned state callbacks. The overlay only asks whether an action is
 	 * currently valid and then invokes the action. All callbacks may be NULL.
 	 * Return 1 for success/valid, 0 for unavailable/invalid.
@@ -122,6 +127,12 @@ typedef struct
 	const char* saved;
 	const char* resumed;
 	const char* failed;
+	/* Optional footer override. The defaults keep the adapted-app B/A copy;
+	 * a resident host that owns different keys can pass its own labels. */
+	const char* footer_left_button;
+	const char* footer_left_hint;
+	const char* footer_right_button;
+	const char* footer_right_hint;
 } UIOverlayStrings;
 
 typedef enum
@@ -192,6 +203,15 @@ int UIOverlay_pollInput(UIOverlay* overlay);
 
 /* Draw the overlay over an app frame. The app must call this last. */
 void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen);
+
+/* Update the optional app name shown at the right of the panel header. The
+ * pointer must outlive the overlay; NULL clears it. */
+void UIOverlay_setAppName(UIOverlay* overlay, const char* app_name);
+
+/* The resident host may draw its own bottom hint bar (for example because it
+ * owns the actual key set). Hiding the built-in footer leaves the panel and
+ * dim in place. The default is visible. */
+void UIOverlay_setFooterVisible(UIOverlay* overlay, int visible);
 
 /* Read-only row state, useful to tests and to apps that mirror the panel. */
 int UIOverlay_actionVisible(const UIOverlay* overlay, UIOverlayAction action);

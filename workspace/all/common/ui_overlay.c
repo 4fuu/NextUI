@@ -35,6 +35,7 @@ struct UIOverlay
 	SDL_Surface* dim;
 	int dim_width;
 	int dim_height;
+	int footer_visible;
 };
 
 static const UIOverlayStrings default_strings = {
@@ -56,6 +57,10 @@ static const UIOverlayStrings default_strings = {
 	.saved = "Saved",
 	.resumed = "Resumed",
 	.failed = "Failed",
+	.footer_left_button = "B",
+	.footer_left_hint = "Close",
+	.footer_right_button = "A",
+	.footer_right_hint = "Select",
 };
 
 const UIOverlayStrings* UIOverlay_defaultStrings(void)
@@ -91,6 +96,10 @@ static void copy_strings(UIOverlayStrings* dst, const UIOverlayStrings* src)
 	dst->saved = pick_string(src->saved, fallback->saved);
 	dst->resumed = pick_string(src->resumed, fallback->resumed);
 	dst->failed = pick_string(src->failed, fallback->failed);
+	dst->footer_left_button = pick_string(src->footer_left_button, fallback->footer_left_button);
+	dst->footer_left_hint = pick_string(src->footer_left_hint, dst->close);
+	dst->footer_right_button = pick_string(src->footer_right_button, fallback->footer_right_button);
+	dst->footer_right_hint = pick_string(src->footer_right_hint, dst->select);
 }
 
 static int device_reachable(const UIOverlay* overlay)
@@ -112,6 +121,8 @@ static void add_item(UIOverlay* overlay, UIOverlayAction action, int enabled, in
 	item->label = label;
 	item->status = status;
 }
+
+static int find_item(const UIOverlay* overlay, UIOverlayAction action);
 
 static void refresh_items(UIOverlay* overlay)
 {
@@ -205,7 +216,27 @@ static void refresh_items(UIOverlay* overlay)
 				 enabled ? strings->ready : strings->unavailable);
 	}
 
-	add_item(overlay, UI_OVERLAY_ACTION_CLOSE, 1, -1, strings->close, NULL);
+	add_item(overlay, UI_OVERLAY_ACTION_CLOSE, 1,
+			 overlay->hooks.close_first ? ASSET_GAMEPAD : -1, strings->close, NULL);
+	if (overlay->hooks.close_first)
+	{
+		int close_index = find_item(overlay, UI_OVERLAY_ACTION_CLOSE);
+		if (close_index > 0)
+		{
+			OverlayItem item = overlay->items[close_index];
+			memmove(&overlay->items[1], &overlay->items[0],
+					sizeof(OverlayItem) * (size_t)close_index);
+			overlay->items[0] = item;
+		}
+		int exit_index = find_item(overlay, UI_OVERLAY_ACTION_EXIT);
+		if (exit_index > 1)
+		{
+			OverlayItem item = overlay->items[exit_index];
+			memmove(&overlay->items[2], &overlay->items[1],
+					sizeof(OverlayItem) * (size_t)(exit_index - 1));
+			overlay->items[1] = item;
+		}
+	}
 
 	if (overlay->selected >= overlay->item_count) overlay->selected = overlay->item_count - 1;
 	if (overlay->selected < 0) overlay->selected = 0;
@@ -309,6 +340,7 @@ UIOverlay* UIOverlay_create(const OverlayAppHooks* hooks, const UIOverlayStrings
 	}
 
 	copy_strings(&overlay->strings, strings);
+	overlay->footer_visible = 1;
 	overlay->selected = 0;
 	refresh_items(overlay);
 
@@ -472,7 +504,9 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 					  THEME_COLOR3);
 
 	int footer_y = screen->h - SCALE1(PADDING + PILL_SIZE);
-	SDL_FillRect(screen, &(SDL_Rect){0, footer_y, screen->w, screen->h - footer_y}, THEME_COLOR7);
+	if (overlay->footer_visible)
+		SDL_FillRect(screen, &(SDL_Rect){0, footer_y, screen->w, screen->h - footer_y},
+					 THEME_COLOR7);
 
 	int header_x = panel_x + padding;
 	int header_y = panel_y + padding;
@@ -562,10 +596,25 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 
 	GFX_blitHardwareGroup(screen, 0);
 
-	char* close_hint[] = {(char*)"B", (char*)overlay->strings.close, NULL};
-	char* select_hint[] = {(char*)"A", (char*)overlay->strings.select, NULL};
-	GFX_blitButtonGroup(close_hint, 0, screen, 0);
-	GFX_blitButtonGroup(select_hint, 0, screen, 1);
+	if (overlay->footer_visible)
+	{
+		char* close_hint[] = {(char*)overlay->strings.footer_left_button,
+							  (char*)overlay->strings.footer_left_hint, NULL};
+		char* select_hint[] = {(char*)overlay->strings.footer_right_button,
+							   (char*)overlay->strings.footer_right_hint, NULL};
+		GFX_blitButtonGroup(close_hint, 0, screen, 0);
+		GFX_blitButtonGroup(select_hint, 0, screen, 1);
+	}
+}
+
+void UIOverlay_setFooterVisible(UIOverlay* overlay, int visible)
+{
+	if (overlay) overlay->footer_visible = visible ? 1 : 0;
+}
+
+void UIOverlay_setAppName(UIOverlay* overlay, const char* app_name)
+{
+	if (overlay) overlay->hooks.app_name = app_name;
 }
 
 int UIOverlay_actionVisible(const UIOverlay* overlay, UIOverlayAction action)

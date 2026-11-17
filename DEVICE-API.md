@@ -31,40 +31,71 @@ matrix, C2 LED session-end hook and partial-restore rules are defined in
 [SESSION-API.md](SESSION-API.md). A session stop neither authorizes nor
 revokes anything; default-allow is independent of the session lifecycle.
 
-## C4 application exit
+## C4 application exit and the system-wide overlay
 
-C4 has two processes on purpose:
+C4 has one resident observer, one hardware display layer, and one launch parent:
 
-- **keymon observes and forwards FN1/FN2.** It reads the same SDL joystick
-  events the app's `PAD_poll` reads, applies the stored `fn[123]action` value,
-  and sends an `app-action` request. It never signals a process and never puts a
-  PID in a request. Brick Pro HOME is not a joystick button: the real js0 capture
-  exposes only buttons 0-10, so keymon does not forward a guessed `JOY_MENU_ALT`
-  index.
-- **the platform maps HOME from the kernel key state.** The TRIMUI Player1
-  keyboard/joystick node advertises `KEY_HOMEPAGE` (172) and SDL's evdev keyboard
-  backend skips that joystick-class device. `platform.c` opens the node that
-  advertises key 172 and polls `EVIOCGKEY`; it does not read, grab, or create a
-  second event stream. `PAD_setHomePressed()` edge-detects the state into
-  `BTN_HOME`/`BTN_FN3`, so a held HOME produces one press and one release. The
-  launcher and adapted apps both consume that platform key. This is source and
-  host-replay evidence; physical HOME remains a device-batch item.
-- **devserv records the request for one session.** A request carries the
+- **keymon observes FN1/FN2 and the system keys.** FN1/FN2 come from the same
+  SDL joystick events the app's `PAD_poll` reads. HOME, volume, brightness,
+  MENU/SELECT and the overlay's d-pad/A/B navigation come from `EVIOCGKEY`
+  (plus `EVIOCGABS(ABS_HAT0Y)` for a hat-style d-pad) on the evdev nodes that
+  advertise them (Brick Pro: `KEY_HOMEPAGE` 172, `KEY_VOLUMEUP/DOWN` 115/114,
+  brightness 224/225, MENU/SELECT 316/314; navigation uses `BTN_DPAD_UP/DOWN`,
+  `BTN_SOUTH/EAST`, `KEY_UP/DOWN/ENTER/ESC` and the hat). The state query does
+  not consume the event queue, so it keeps working after the app opens or
+  grabs its node. Keymon never signals a process and never puts a PID in a
+  request. Brick Pro HOME is not a joystick button: the real js0 capture exposes
+  only buttons 0-10, so keymon does not forward a guessed `JOY_MENU_ALT` index.
+- **devserv routes each request for the active session.** A request carries the
   monotonic press time and may carry the generation id. A request from a previous
   session, or one whose press predates the active session, returns
-  `session_stale` and leaves the new session untouched. The first request wins;
-  repeats are idempotent.
-- **the launch parent enforces it.** `nextui_session_run` starts the app in a
-  new process group with `setsid`, polls `session-status`, sends `SIGTERM` to
+  `session_stale` and leaves the new session untouched.
+  - An adapted app (`"overlay"` in `pak.json`) owns HOME: `app-action overlay`
+    returns `handled_by_app:true`, and keymon draws nothing.
+  - An unadapted app gets `handled_by_system:true`; keymon opens the system
+    overlay and devserv records no exit yet.
+  - An explicit `app-action home` (the overlay's Exit action, or FN bound to
+    `home`) records the exit request as before.
+  - `system-feedback` asks only who owns the visual indicator for a volume,
+    brightness, colour-temperature or mute change. It changes no state.
+- **keymon draws the fallback overlay in a separate display layer.** The
+  foreground app owns `/dev/fb0` and presents at 60 fps, often with page
+  flipping; writing fb0 from another process would race the app and could not be
+  restored cleanly. keymon creates a full-screen ARGB GFX surface over a sunxi
+  disp2 scanout buffer and draws the real shared components into it:
+  `UIOverlay_draw()` for the centred panel, `GFX_blitHardwareGroup()` for the
+  top-right battery/status group, `GFX_blitHardwareIndicator()` for
+  volume/brightness/colour-temperature HUDs, and `GFX_blitButtonGroup()` for the
+  launcher-style bottom hint bar. Theme colours and fonts come from the user's
+  `minuisettings.txt` through `CFG`. The layer is channel 1, layer 1-3 (fb0 is
+  layer 0); hiding disables it and the app's frame was never touched. If
+  `/dev/disp`, a free layer or the scanout allocation is unavailable, keymon
+  logs the reason and HOME falls back to the previous return-to-desktop exit.
+- **the launch parent enforces exit.** `nextui_session_run` starts the app in a
+  new process group with nextdev's built-in launcher (or a system `setsid` when
+  an older nextdev is installed), polls `session-status`, sends `SIGTERM` to
   that group, waits the bounded grace (default 1500 ms), then sends `SIGKILL`.
   Only the parent owns the child, so no client-supplied PID can be used to kill
-  an arbitrary process. It reports the outcome with `app-exit-result`.
+  an arbitrary process. It reports the outcome with `app-exit-result`. Brick
+  Pro's rootfs has no `setsid` and its busybox has no `kill --`; the helper does
+  not depend on either.
 
-An adapted application declares `"overlay"` in `pak.json`. devserv reads that
-declaration at `session-start` and answers `handled_by_app` for HOME/`overlay`;
-the app's own FnBridge toggles the shared overlay. For an unadapted app HOME is
-the plan's return-to-desktop fallback and becomes an exit request. The service
-never draws into, or injects an overlay into, another process.
+The system overlay's HOME panel contains Resume, Exit to desktop, Wi-Fi and
+Bluetooth, in that order, and shows the app name in its header. The Wi-Fi and
+Bluetooth rows call the same `WIFI_enable`/`BT_enable` platform backend as the
+launcher's HOME overlay. While the panel is open keymon holds `EVIOCGRAB` on the
+system/navigation evdev nodes; the app receives no d-pad/A/B/HOME/volume input.
+D-pad up/down moves the selection, A confirms, B or HOME closes. Closing,
+session end, switching to a HUD, normal keymon exit and SIGTERM all release the
+grab; `SystemGrab_release()` is idempotent. The panel auto-hides after 5 s;
+volume/brightness/mute HUDs auto-hide after 1.6 s and never grab input. While it
+is open keymon polls `session-status` every 500 ms and hides the layer if the
+session ends. Adapted apps (`overlay_host`) still return `handled_by_app` and
+keep their own in-process overlay; the system never draws or grabs for them.
+
+This is source and host-render evidence. Physical display-layer composition,
+the real key codes and volume/brightness persistence remain device acceptance
+items; see [DEVICE-TEST.md](DEVICE-TEST.md).
 
 The path never removes `/tmp/nextui_exec`; removing it is power-off semantics.
 A forced exit stops only the app's process group, then the normal
@@ -341,6 +372,12 @@ nextdev [--socket PATH] [--pak DIR] [--app ID] [--session-id ID]
 - `nextdev --session-id ID session-stop`
 - `nextdev [--at-ms N] [--session-id ID] app-action home|overlay`
 - `nextdev [--forced] [--session-id ID] app-exit-result`
+- direct socket only: `{"op":"system-feedback","action":"volume|brightness|colortemp|mute"}`
+
+`app-action overlay` means "the system fallback may open". An adapted app
+answers `handled_by_app`; an unadapted app answers `handled_by_system` and
+records no exit. `app-action home` is the explicit exit request used by the
+overlay's Exit action.
 
 `--pak` falls back to `$NEXTUI_PAK_PATH`; `--app` falls back to
 `$NEXTUI_APP_ID` (useful once launch.sh exports per-app identity in C3). The

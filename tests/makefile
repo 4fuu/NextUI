@@ -53,6 +53,16 @@ test-device:
 test-keymon:
 	../workspace/all/common/tests/run_keymon_fn_forward_test.sh
 
+# Host-only render proof for the resident system overlay: a malloc-backed
+# display backend, the production renderer and the repository's system font.
+# Declared on its own lines rather than added to the .PHONY and test lists
+# above, so this hunk never collides with another thread editing those lines.
+.PHONY: test-system-overlay
+test: test-system-overlay
+
+test-system-overlay:
+	../workspace/all/common/tests/run_system_overlay_test.sh
+
 test-home:
 	../workspace/all/common/tests/run_home_key_replay_test.sh
 

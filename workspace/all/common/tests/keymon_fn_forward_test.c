@@ -18,12 +18,26 @@
 #include <string.h>
 #include <unistd.h>
 
-#define MAX_REQUESTS 8
+#define MAX_REQUESTS 32
 #define REQUEST_MAX 256
 
 static int server_descriptor = -1;
 static char requests[MAX_REQUESTS][REQUEST_MAX];
 static volatile int request_count;
+static volatile int reply_overlay_system;
+static volatile int reply_feedback_system;
+
+static int grab_calls;
+static int release_calls;
+
+static int fake_grab_ioctl(int fd, unsigned long request, unsigned long argument)
+{
+    (void)fd;
+    (void)request;
+    if (argument) grab_calls++;
+    else release_calls++;
+    return 0;
+}
 
 /* keymon's tg5040 header declares SetMute; the desktop test library does not
  * implement it because the host has no mute switch. The test never starts the
@@ -32,6 +46,30 @@ void SetMute(int value)
 {
     (void)value;
 }
+
+/* The forwarding test does not exercise rendering. Keep the real overlay out
+ * of the link so this binary stays a routing test, not a second render test. */
+void PWR_setBatteryStatus(int charging, int percent)
+{
+    (void)charging;
+    (void)percent;
+}
+
+int SystemOverlay_init(int screen_width, int screen_height)
+{
+    (void)screen_width;
+    (void)screen_height;
+    return -1;
+}
+
+int SystemOverlay_available(void) { return 0; }
+int SystemOverlay_visible(void) { return 0; }
+SystemOverlayMode SystemOverlay_mode(void) { return SYSTEM_OVERLAY_HIDDEN; }
+int SystemOverlay_showHome(const char* app_name) { (void)app_name; return 0; }
+int SystemOverlay_showIndicator(SystemOverlayMode mode) { (void)mode; return -1; }
+void SystemOverlay_hide(void) {}
+int SystemOverlay_input(SystemOverlayInput input) { (void)input; return 0; }
+void SystemOverlay_shutdown(void) {}
 
 static void* request_server(void* unused)
 {
@@ -50,6 +88,41 @@ static void* request_server(void* unused)
         }
         requests[request_count][length] = '\0';
         if (request_count + 1 < MAX_REQUESTS) request_count++;
+        if (strstr(requests[request_count - 1], "\"action\":\"overlay\"")
+            && reply_overlay_system)
+        {
+            const char* reply = "{\"ok\":true,\"session\":\"active\","
+                                "\"session_id\":\"0123456789abcdef\","
+                                "\"app\":\"Moonlight.pak\","
+                                "\"handled_by_app\":false,\"handled_by_system\":true,"
+                                "\"exit_requested\":false}\n";
+            (void)write(client, reply, strlen(reply));
+        }
+        else if (strstr(requests[request_count - 1], "\"op\":\"system-feedback\"")
+                 && reply_feedback_system)
+        {
+            const char* reply = "{\"ok\":true,\"session\":\"active\","
+                                "\"session_id\":\"0123456789abcdef\","
+                                "\"handled_by_app\":false,\"handled_by_system\":true,"
+                                "\"exit_requested\":false}\n";
+            (void)write(client, reply, strlen(reply));
+        }
+        else if (strstr(requests[request_count - 1], "\"action\":\"overlay\""))
+        {
+            const char* reply = "{\"ok\":true,\"session\":\"active\","
+                                "\"session_id\":\"0123456789abcdef\","
+                                "\"handled_by_app\":true,\"handled_by_system\":false,"
+                                "\"exit_requested\":false}\n";
+            (void)write(client, reply, strlen(reply));
+        }
+        else
+        {
+            const char* reply = "{\"ok\":true,\"session\":\"active\","
+                                "\"session_id\":\"0123456789abcdef\","
+                                "\"handled_by_app\":false,\"handled_by_system\":false,"
+                                "\"exit_requested\":true}\n";
+            (void)write(client, reply, strlen(reply));
+        }
         close(client);
     }
     return NULL;
@@ -190,6 +263,224 @@ int main(void)
     forward_fn_slot(2, 1007);
     if (!wait_for_requests(5)) return 1;
     expect_request(4, "home", 1007);
+
+    // HOME/volume state polling: edge detection and sane repeat timing without
+    // consuming another process's evdev queue.
+    {
+        SystemKeyState previous = {0};
+        SystemKeyState current = {0};
+        SystemKeyRepeat repeat = {0};
+        SystemKeyEvent events[8];
+        int count;
+
+        current.home = 1;
+        count = system_key_events(&previous, &current, 1000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_HOME) {
+            fprintf(stderr, "HOME press was not emitted\n");
+            return 1;
+        }
+        previous = current;
+        count = system_key_events(&previous, &current, 1016, &repeat, events, 8);
+        if (count != 0) {
+            fprintf(stderr, "held HOME repeated\n");
+            return 1;
+        }
+        current.home = 0;
+        previous = current;
+
+        current.volume_up = 1;
+        count = system_key_events(&previous, &current, 2000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_VOLUME_UP) {
+            fprintf(stderr, "volume-up press was not emitted\n");
+            return 1;
+        }
+        previous = current;
+        count = system_key_events(&previous, &current, 2299, &repeat, events, 8);
+        if (count != 0) {
+            fprintf(stderr, "volume repeated before 300ms\n");
+            return 1;
+        }
+        count = system_key_events(&previous, &current, 2300, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_VOLUME_UP) {
+            fprintf(stderr, "volume repeat was not emitted at 300ms\n");
+            return 1;
+        }
+        count = system_key_events(&previous, &current, 2400, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_VOLUME_UP) {
+            fprintf(stderr, "volume repeat was not emitted at 100ms cadence\n");
+            return 1;
+        }
+
+        current.volume_up = 0;
+        current.menu = 1;
+        previous = current;
+        current.volume_up = 1;
+        count = system_key_events(&previous, &current, 3000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_BRIGHTNESS_UP) {
+            fprintf(stderr, "menu+plus did not route to brightness\n");
+            return 1;
+        }
+
+        current.menu = 0;
+        current.select = 1;
+        previous = current;
+        current.volume_up = 0;
+        previous = current;
+        current.volume_up = 1;
+        count = system_key_events(&previous, &current, 4000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_COLORTEMP_UP) {
+            fprintf(stderr, "select+plus did not route to colortemp\n");
+            return 1;
+        }
+
+        current.select = 0;
+        current.volume_up = 0;
+        previous = current;
+        current.brightness_down = 1;
+        count = system_key_events(&previous, &current, 5000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_BRIGHTNESS_DOWN) {
+            fprintf(stderr, "dedicated brightness key was not emitted\n");
+            return 1;
+        }
+
+        /* D-pad navigation and A/B are edge-detected; up/down repeat like the
+         * overlay's PAD_justRepeated path, A/B do not repeat. */
+        current.brightness_down = 0;
+        previous = current;
+        current.nav_down = 1;
+        count = system_key_events(&previous, &current, 6000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_NAV_DOWN) {
+            fprintf(stderr, "d-pad down was not emitted\n");
+            return 1;
+        }
+        previous = current;
+        count = system_key_events(&previous, &current, 6299, &repeat, events, 8);
+        if (count != 0) {
+            fprintf(stderr, "d-pad repeated before 300ms\n");
+            return 1;
+        }
+        count = system_key_events(&previous, &current, 6300, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_NAV_DOWN) {
+            fprintf(stderr, "d-pad repeat was not emitted\n");
+            return 1;
+        }
+        current.nav_down = 0;
+        previous = current;
+        current.accept = 1;
+        count = system_key_events(&previous, &current, 6400, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_ACCEPT) {
+            fprintf(stderr, "A/accept was not emitted\n");
+            return 1;
+        }
+        previous = current;
+        count = system_key_events(&previous, &current, 6500, &repeat, events, 8);
+        if (count != 0) {
+            fprintf(stderr, "A/accept repeated while held\n");
+            return 1;
+        }
+        current.accept = 0;
+        previous = current;
+        current.cancel = 1;
+        count = system_key_events(&previous, &current, 6600, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_CANCEL) {
+            fprintf(stderr, "B/cancel was not emitted\n");
+            return 1;
+        }
+    }
+
+    // app-action/system-feedback response routing.
+    {
+        char session_id[24];
+        char app[64];
+        int handled_by_app = 0;
+        reply_overlay_system = 1;
+        if (request_overlay_open(6001, session_id, sizeof session_id, app, sizeof app,
+                                 &handled_by_app) != 1) {
+            fprintf(stderr, "system overlay route was not parsed\n");
+            return 1;
+        }
+        if (strcmp(session_id, "0123456789abcdef") != 0 || handled_by_app
+            || strcmp(app, "Moonlight.pak") != 0) {
+            fprintf(stderr, "system overlay route lost its session id or app\n");
+            return 1;
+        }
+
+        reply_overlay_system = 0;
+        if (request_overlay_open(6002, session_id, sizeof session_id, app, sizeof app,
+                                 &handled_by_app) != 0 || !handled_by_app)
+        {
+            fprintf(stderr, "adapted app overlay route was not parsed\n");
+            return 1;
+        }
+
+        reply_feedback_system = 1;
+        if (request_feedback("volume", session_id, sizeof session_id) != 1) {
+            fprintf(stderr, "system feedback route was not parsed\n");
+            return 1;
+        }
+        reply_feedback_system = 0;
+        if (request_feedback("volume", session_id, sizeof session_id) == 1) {
+            fprintf(stderr, "app feedback route was reported as system\n");
+            return 1;
+        }
+    }
+
+    // EVIOCGRAB lifecycle: close, session-end and abnormal cleanup all use
+    // the same idempotent release. No device ioctl is issued here.
+    {
+        int fds[3] = {3, 4, 5};
+
+        SystemGrab_setIoctl(fake_grab_ioctl);
+        if (SystemGrab_acquire(fds, 0x7, 3) != 3 || SystemGrab_active() != 3) {
+            fprintf(stderr, "grab acquire did not track every fd\n");
+            return 1;
+        }
+        SystemGrab_release();
+        if (SystemGrab_active() != 0 || SystemGrab_mask() != 0) {
+            fprintf(stderr, "grab release left input locked\n");
+            return 1;
+        }
+
+        /* An abnormal cleanup calls release directly, without a UI close. */
+        if (SystemGrab_acquire(fds, 0x7, 3) != 3) {
+            fprintf(stderr, "grab re-acquire failed\n");
+            return 1;
+        }
+        SystemGrab_release();
+        if (SystemGrab_active() != 0) {
+            fprintf(stderr, "abnormal release left input locked\n");
+            return 1;
+        }
+
+        /* The HOME-open path acquires the same nodes it will release. */
+        inputs[0] = 3;
+        system_key_mask = 1;
+        if (!show_home(NULL, NULL) || SystemGrab_active() != 1) {
+            fprintf(stderr, "HOME open did not grab its evdev node\n");
+            return 1;
+        }
+        hide_overlay();
+        if (SystemGrab_active() != 0) {
+            fprintf(stderr, "overlay close did not release input\n");
+            return 1;
+        }
+
+        /* The normal overlay-close path must release the grab too. */
+        if (SystemGrab_acquire(fds, 0x7, 3) != 3) {
+            fprintf(stderr, "grab setup for hide failed\n");
+            return 1;
+        }
+        hide_overlay();
+        if (SystemGrab_active() != 0) {
+            fprintf(stderr, "overlay close did not release input\n");
+            return 1;
+        }
+        if (grab_calls != release_calls) {
+            fprintf(stderr, "grab/release ioctl counts differ: %d/%d\n", grab_calls, release_calls);
+            return 1;
+        }
+        SystemGrab_setIoctl(NULL);
+    }
 
     close(server_descriptor);
     unlink(socket_path);

@@ -400,6 +400,11 @@ int device_protocol_parse_request(const char* line, DeviceRequestMessage* messag
         message->op = DEVICE_OP_APP_ACTION;
         return message->action[0] != '\0';
     }
+    if (strcmp(op, "system-feedback") == 0)
+    {
+        message->op = DEVICE_OP_SYSTEM_FEEDBACK;
+        return message->action[0] != '\0';
+    }
     if (strcmp(op, "app-exit-result") == 0)
     {
         message->op = DEVICE_OP_APP_EXIT_RESULT;
@@ -876,8 +881,8 @@ int device_protocol_write_session_response(const DeviceSession* session,
 
 int device_protocol_write_app_action_response(const DeviceSession* session,
                                               DeviceSessionResult result, const char* action,
-                                              int handled_by_app, const char* error,
-                                              const char* detail, char* out,
+                                              int handled_by_app, int handled_by_system,
+                                              const char* error, const char* detail, char* out,
                                               size_t out_size)
 {
     Writer writer;
@@ -914,9 +919,13 @@ int device_protocol_write_app_action_response(const DeviceSession* session,
         writer_char(&writer, '"');
     }
     writer_prefix(&writer, &first);
+    writer_field_string(&writer, "app", session->app);
+    writer_prefix(&writer, &first);
     writer_field_string(&writer, "action", action != NULL ? action : "");
     writer_prefix(&writer, &first);
     writer_field_bool(&writer, "handled_by_app", handled_by_app);
+    writer_prefix(&writer, &first);
+    writer_field_bool(&writer, "handled_by_system", handled_by_system);
     writer_prefix(&writer, &first);
     writer_field_bool(&writer, "exit_requested", session->exit_requested);
     writer_prefix(&writer, &first);

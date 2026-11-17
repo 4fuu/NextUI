@@ -629,15 +629,15 @@ SDL_Surface *GFX_init(int mode)
  * surface or GL context. A host that already owns the display calls this and
  * presents itself; GFX_flip()/PLAT_* video functions must not be used until
  * GFX_quitAttached(). Returns NULL when resources are unavailable. */
-SDL_Surface *GFX_initAttached(int width, int height)
+static SDL_Surface *GFX_initAttachedSurface(SDL_Surface *screen)
 {
-	if (gfx.screen || width <= 0 || height <= 0) return NULL;
+	if (gfx.screen || !screen) return NULL;
 
 	gfx.vsync = VSYNC_STRICT;
 	gfx.mode = MODE_MAIN;
-	gfx.screen = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
-	if (!gfx.screen) return NULL;
+	gfx.screen = screen;
 
+	PLAT_initPlatform();
 	CFG_init(GFX_loadSystemFont, GFX_updateColors);
 
 	if (!font.large || !font.medium || !font.small || GFX_loadResources() != 0)
@@ -649,6 +649,33 @@ SDL_Surface *GFX_initAttached(int width, int height)
 	}
 
 	return gfx.screen;
+}
+
+SDL_Surface *GFX_initAttached(int width, int height)
+{
+	if (gfx.screen || width <= 0 || height <= 0) return NULL;
+
+	SDL_Surface *screen = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32,
+														 SDL_PIXELFORMAT_ARGB8888);
+	if (!screen) return NULL;
+
+	SDL_Surface *attached = GFX_initAttachedSurface(screen);
+	if (!attached) return NULL;
+	return attached;
+}
+
+SDL_Surface *GFX_initAttachedPixels(void *pixels, int width, int height)
+{
+	if (gfx.screen || !pixels || width <= 0 || height <= 0) return NULL;
+
+	SDL_Surface *screen = SDL_CreateRGBSurfaceWithFormatFrom(pixels, width, height,
+															 32, width * 4,
+															 SDL_PIXELFORMAT_ARGB8888);
+	if (!screen) return NULL;
+
+	SDL_Surface *attached = GFX_initAttachedSurface(screen);
+	if (!attached) return NULL;
+	return attached;
 }
 
 void GFX_quitAttached(void)
@@ -2513,6 +2540,9 @@ static int HintToButton(char* hint) {
 	}
 	else if (strcasecmp(hint, "Power") == 0) {
 		return INPUT_BUTTON_POWER;
+	}
+	else if (strcasecmp(hint, "U/D") == 0) {
+		return INPUT_DPAD_UP_DOWN + style;
 	}
 
 	return -1; // Not found
@@ -5043,6 +5073,14 @@ int PWR_isUSBConnected(void)
 int PWR_getBattery(void)
 { // 10-100 in 10-20% fragments
 	return SDL_AtomicGet(&pwr.charge);
+}
+
+void PWR_setBatteryStatus(int charging, int percent)
+{
+	if (percent < 0) percent = 0;
+	if (percent > 100) percent = 100;
+	SDL_AtomicSet(&pwr.is_charging, charging ? 1 : 0);
+	SDL_AtomicSet(&pwr.charge, percent);
 }
 
 int PWR_isOnline(void)

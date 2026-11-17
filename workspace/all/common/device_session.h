@@ -195,6 +195,12 @@ DeviceSessionResult device_session_request_exit(DeviceSession* session,
                                                 unsigned long long event_ms,
                                                 unsigned long long grace_ms);
 
+/* Generation/time guard without mutating the session. Used by HOME overlay
+ * routing, which must reject a delayed event but must not request an exit. */
+DeviceSessionResult device_session_validate_event(DeviceSession* session,
+                                                  unsigned long long expected_id,
+                                                  unsigned long long event_ms);
+
 /* Record what the launch parent observed after its bounded wait. expected_id is
  * the same generation guard as session-stop. A late report is stale and does
  * not modify a newer session. */
