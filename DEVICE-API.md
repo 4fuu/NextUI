@@ -593,7 +593,7 @@ Brick Pro 2.5 V ceiling.
 
 | Platform | tg5040 | tg5050 | h700 | desktop |
 | --- | --- | --- | --- | --- |
-| `input.rumble` | enable + voltage nodes present and writable | enable + level nodes present and writable | unavailable | unavailable |
+| `input.rumble` | enable + voltage nodes present and writable, and `DEVICE` names a supported model | enable + level nodes present and writable | unavailable | unavailable |
 
 - h700's `PLAT_setRumble` switches the motor on and off and drops the strength,
   so advertising a strength there would fake a write. It reports `unavailable`
@@ -602,6 +602,16 @@ Brick Pro 2.5 V ceiling.
 - `available` also requires the enable node to be **readable**: it is both the
   write target and the only read-back source, and a write that cannot be
   verified must not be reported as a success.
+- On tg5040 the ceiling depends on the model, and the platform derives the model
+  from `$DEVICE` alone. `input.rumble` therefore also requires `DEVICE` to name
+  one of the models tg5040's `launch.sh` exports (`brick`, `brickpro`,
+  `smartpro`). With it absent, empty or naming anything else the model is
+  unidentified, so the capability reports `unavailable` and the write path
+  refuses before touching `PLAT_setRumble`: an unidentified model would
+  otherwise fall through to the 3.3 V ceiling on hardware that may be a Brick
+  Pro. The refusal writes nothing and clamps nothing; a recognized model keeps
+  exactly the voltage `platform.c` chooses for it. A tg5040 build that gains a
+  new model must add its name here, or rumble stays honestly unavailable on it.
 
 ### Honest limits
 
@@ -621,8 +631,9 @@ Brick Pro 2.5 V ceiling.
   write, because without it `PLAT_setRumble` would apply the non-Brick-Pro
   3.3 V ceiling on a Brick Pro. The detection reads `$DEVICE`, which
   `MinUI.pak/launch.sh` exports and `nextui_devserv_start` therefore passes on;
-  a `devserv` started by hand outside that environment would not detect a Brick
-  Pro, and this service cannot detect the model by itself.
+  a `devserv` started by hand outside that environment does not detect a Brick
+  Pro, so on tg5040 the backend refuses to serve rumble at all there instead of
+  writing at an unverified ceiling.
 - A rumble call never marks the C3 session haptics field dirty: that field is
   the user's haptics on/off preference owned by the config store, not the motor
   strength, so no snapshot/restore of it happens here.
@@ -635,11 +646,15 @@ range rejection without a write, default-allow dispatch without any grant, the
 legacy grant path, read-back mismatch, write and read failures, unsupported
 platforms, session independence and composition. The second compiles the
 production platform ops against an isolated sysfs tree (a temporary directory,
-never `/sys`) for the tg5040 shape with `DEVICE=brickpro`, the tg5040 shape
-without it, the desktop shape and the h700 shape, and asserts the nodes, the
-read-back, the missing/unreadable node refusals and that no strength maps the
-Brick Pro driver above 2.5 V. That is host-only: it proves no hardware effect,
-and the real strength-to-voltage map and the real motor remain device work.
+never `/sys`) for every model tg5040's `launch.sh` exports — `brickpro`,
+`brick`, `smartpro` — plus the desktop and h700 shapes, and asserts the nodes,
+the read-back, the missing/unreadable node refusals, and that no strength maps
+the Brick Pro driver above 2.5 V. It also runs the unidentified-model cases
+(`DEVICE` unset, empty, and unknown values such as `brick-pro`, `BRICKPRO`,
+`brickpro ` with a trailing space, `tg5040`, `unknown`) and proves that each one
+reports unavailable, performs no platform write at all and leaves the nodes byte
+for byte unchanged. That is host-only: it proves no hardware effect, and the
+real strength-to-voltage map and the real motor remain device work.
 
 ## Not in C1
 

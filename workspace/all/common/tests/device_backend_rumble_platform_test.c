@@ -194,7 +194,10 @@ static void test_available_and_get(const DeviceBackend* backend)
     CHECK_INT(call_backend(backend, "get", NULL, value, sizeof value, detail, sizeof detail), 1);
     CHECK(strstr(value, "\"enabled\":false") != NULL);
     CHECK(strstr(value, "\"level_unit\":\"uv\"") != NULL);
-    CHECK(strstr(value, "\"applied\":false") != NULL);
+    /* The service record only says "not applied" before this process has
+     * written anything; later phases legitimately report the last strength. */
+    CHECK(strstr(value, platform_write_calls == 0 ? "\"applied\":false" : "\"applied\":true")
+          != NULL);
     CHECK(strstr(value, "\"hardware_ack\":false") != NULL);
     voltage = read_node("/sys/class/motor/voltage", &ok);
     CHECK_INT(ok, 1);
@@ -206,7 +209,20 @@ static void test_available_and_get(const DeviceBackend* backend)
     }
 }
 
-static void test_set_writes_the_platform_nodes(const DeviceBackend* backend)
+/* The platform latches its own model detection after the first write, so the
+ * init check is a one-shot process-level invariant rather than a per-phase one.
+ * The write counter stays cumulative and each phase compares against a
+ * baseline. */
+static int init_verified = 0;
+
+static void verify_init_before_first_write(void)
+{
+    if (init_verified) return;
+    CHECK_INT(platform_init_calls, 1);
+    init_verified = 1;
+}
+
+static void test_set_writes_the_platform_nodes(const DeviceBackend* backend, int exhaustive)
 {
     char value[512];
     char detail[160];
@@ -215,8 +231,9 @@ static void test_set_writes_the_platform_nodes(const DeviceBackend* backend)
     long enabled;
     static const int strengths[] = {1, 2, 1000, 32768, 65534, 65535};
     size_t i;
+    int base;
 
-    CHECK_INT(platform_init_calls, 0);
+    base = platform_write_calls;
     for (i = 0; i < sizeof strengths / sizeof strengths[0]; i++)
     {
         char args[64];
@@ -226,10 +243,10 @@ static void test_set_writes_the_platform_nodes(const DeviceBackend* backend)
         CHECK_INT(call_backend(backend, "set", args, value, sizeof value, detail, sizeof detail),
                   1);
         /* The platform received exactly this strength: no rescaling here. */
-        CHECK_INT(platform_write_calls, (int)i + 1);
+        CHECK_INT(platform_write_calls, base + (int)i + 1);
         /* ... and its model detection ran before the first write, so the
          * platform's own voltage ceiling applies. */
-        CHECK_INT(platform_init_calls, 1);
+        verify_init_before_first_write();
         enabled = read_node("/sys/class/gpio/gpio227/value", &ok);
         CHECK_INT(ok, 1);
         CHECK_INT(enabled, 1);
@@ -240,7 +257,7 @@ static void test_set_writes_the_platform_nodes(const DeviceBackend* backend)
         CHECK(strstr(value, expected) != NULL);
     }
 
-    if (test_is_brickpro())
+    if (exhaustive && test_is_brickpro())
     {
         size_t strength;
         for (strength = 1; strength <= TEST_MAX_STRENGTH; strength++)
@@ -282,6 +299,65 @@ static void test_set_writes_the_platform_nodes(const DeviceBackend* backend)
     CHECK_INT(enabled, 0);
     CHECK(strstr(value, "\"enabled\":false") != NULL);
     CHECK(strstr(value, "\"strength\":0") != NULL);
+}
+
+/*
+ * A tg5040 environment whose DEVICE is absent, empty or names a model this
+ * platform does not know has not been identified. PLAT_setRumble would then
+ * apply the 3.3V ceiling, which may be wrong for the hardware in hand, so the
+ * backend must refuse: unavailable, no write, nodes untouched.
+ */
+static void test_unidentified_model_writes_nothing(const DeviceBackend* backend)
+{
+    char value[512];
+    char detail[160];
+    int ok;
+    long voltage;
+    long enabled;
+    static const char* const unidentified[] = {NULL, "", "brick-pro", "BRICKPRO", "brickpro ",
+                                               "tg5040", "unknown"};
+    size_t i;
+    int base;
+
+    /* Seed a known state so "nothing was written" is provable byte for byte. */
+    CHECK(write_node("/sys/class/motor/voltage", 2500000));
+    CHECK(write_node("/sys/class/gpio/gpio227/value", 0));
+    base = platform_write_calls;
+
+    for (i = 0; i < sizeof unidentified / sizeof unidentified[0]; i++)
+    {
+        const char* device = unidentified[i];
+
+        if (device == NULL)
+            unsetenv("DEVICE");
+        else
+            setenv("DEVICE", device, 1);
+
+        CHECK_INT(available(backend, detail, sizeof detail), 0);
+        CHECK(strstr(detail, "DEVICE") != NULL);
+        CHECK(strstr(detail, "supported model") != NULL);
+
+        value[0] = '\0';
+        CHECK_INT(call_backend(backend, "set", "{\"value\":65535}", value, sizeof value, detail,
+                               sizeof detail),
+                  0);
+        CHECK(strstr(detail, "DEVICE") != NULL);
+        CHECK_INT(call_backend(backend, "set", "{\"value\":1}", value, sizeof value, detail,
+                               sizeof detail),
+                  0);
+        CHECK_INT(call_backend(backend, "get", NULL, value, sizeof value, detail, sizeof detail),
+                  0);
+
+        /* No write reached the platform at all: no counter, no node change. */
+        CHECK_INT(platform_write_calls, base);
+        CHECK_INT(platform_init_calls, init_verified ? 1 : 0);
+        voltage = read_node("/sys/class/motor/voltage", &ok);
+        CHECK_INT(ok, 1);
+        CHECK_INT(voltage, 2500000);
+        enabled = read_node("/sys/class/gpio/gpio227/value", &ok);
+        CHECK_INT(ok, 1);
+        CHECK_INT(enabled, 0);
+    }
 }
 
 static void test_missing_level_node_is_unavailable(const DeviceBackend* backend)
@@ -386,14 +462,31 @@ int main(int argc, char** argv)
     else
 #endif
     {
+        static const char* const models[] = {"brickpro", "brick", "smartpro"};
+        size_t m;
+
         backend = device_backend_rumble();
         CHECK(backend != NULL);
         CHECK(strcmp(backend->name, "nextui-rumble") == 0);
 
-        test_available_and_get(backend);
-        test_set_writes_the_platform_nodes(backend);
-        test_missing_level_node_is_unavailable(backend);
-        test_unreadable_enable_node_is_a_failure(backend);
+        /* Every model tg5040's launch.sh exports keeps the platform's own
+         * ceiling; the Brick Pro one is swept exhaustively. */
+        for (m = 0; m < sizeof models / sizeof models[0]; m++)
+        {
+            int exhaustive = strcmp(models[m], "brickpro") == 0;
+
+            setenv("DEVICE", models[m], 1);
+            CHECK(create_nodes());
+            test_available_and_get(backend);
+            test_set_writes_the_platform_nodes(backend, exhaustive);
+            test_missing_level_node_is_unavailable(backend);
+            test_unreadable_enable_node_is_a_failure(backend);
+            printf("rumble platform ops (tg5040, DEVICE=%s) passed\n", models[m]);
+        }
+
+        /* An environment that has not been identified must not write at all. */
+        test_unidentified_model_writes_nothing(backend);
+        printf("rumble platform ops (tg5040, unidentified DEVICE) passed\n");
     }
 
     if (failures != 0)

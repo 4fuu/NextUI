@@ -36,15 +36,12 @@ sdl_cflags="$(pkg-config --cflags sdl2 SDL2_image SDL2_ttf 2>/dev/null || true)"
 "$build_dir/device_backend_rumble_test"
 
 # --- production platform ops against an isolated tree ------------------------
-# The Brick Pro run is the one that documents the 2.5V ceiling; the default run
-# keeps the platform's own 3.3V ceiling for the other tg5040 models.
-for platform in tg5040 desktop; do
-    device_value=""
-    if [ "$platform" = "tg5040" ]; then
-        device_value="brickpro"
-    fi
-
-    root="$build_dir/sysfs-$platform"
+# The tg5040 binary cycles $DEVICE itself: every model launch.sh exports, then
+# the unidentified ones. It is therefore started with DEVICE unset, so nothing
+# in the run depends on the inherited environment.
+run_platform_shape() {
+    local platform="$1"
+    local root="$build_dir/sysfs-$platform"
     mkdir -p "$root"
 
     "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 \
@@ -60,7 +57,11 @@ for platform in tg5040 desktop; do
         ../json_lite.c \
         -o "$build_dir/device_backend_rumble_platform_test_$platform"
 
-    DEVICE="$device_value" "$build_dir/device_backend_rumble_platform_test_$platform" "$root"
+    env -u DEVICE "$build_dir/device_backend_rumble_platform_test_$platform" "$root"
+}
+
+for platform in tg5040 desktop; do
+    run_platform_shape "$platform"
 done
 
 # A platform whose PLAT_setRumble only switches the motor on and off must not
@@ -80,4 +81,4 @@ mkdir -p "$root"
     ../device_backend_rumble_platform.c \
     ../json_lite.c \
     -o "$build_dir/device_backend_rumble_platform_test_h700"
-"$build_dir/device_backend_rumble_platform_test_h700" "$root"
+env -u DEVICE "$build_dir/device_backend_rumble_platform_test_h700" "$root"

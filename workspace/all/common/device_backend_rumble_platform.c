@@ -126,6 +126,39 @@ static void ensure_platform(void)
     platform_ready = 1;
 }
 
+/* tg5040 is the only platform whose rumble ceiling depends on the model:
+ * PLAT_setRumble picks 2.5V when is_brickpro and 3.3V otherwise, and
+ * PLAT_initPlatform() derives is_brickpro from $DEVICE alone. launch.sh exports
+ * it before nextui_devserv_start, but a devserv started by hand may not have it,
+ * and an unknown value would silently fall through to the 3.3V ceiling on
+ * hardware that may be a Brick Pro. These are the models tg5040's launch.sh
+ * exports; an environment that names anything else has not been identified, so
+ * this backend refuses to serve rumble there instead of guessing a ceiling.
+ * platform.c's own map is untouched: a recognized model keeps exactly the
+ * voltage platform.c chooses for it. */
+static const char* const DEVICE_MODELS[] = {"brick", "brickpro", "smartpro"};
+
+static int platform_model_known(void)
+{
+    const char* device;
+    size_t i;
+
+    /* The ceiling does not depend on the model on the other platforms. */
+    if (!platform_is("tg5040")) return 1;
+
+    device = getenv("DEVICE");
+    if (device == NULL || device[0] == '\0') return 0;
+    for (i = 0; i < sizeof DEVICE_MODELS / sizeof DEVICE_MODELS[0]; i++)
+        if (strcmp(device, DEVICE_MODELS[i]) == 0) return 1;
+    return 0;
+}
+
+static void set_model_detail(char* detail, size_t detail_size)
+{
+    set_text(detail, detail_size,
+             "DEVICE does not name a supported model, so the rumble strength cannot be verified");
+}
+
 static int platform_available(void* context, char* detail, size_t detail_size)
 {
     const RumblePath* path;
@@ -143,6 +176,13 @@ static int platform_available(void* context, char* detail, size_t detail_size)
     {
         set_text(detail, detail_size,
                  "this platform switches the motor on and off only and cannot set a strength");
+        return 0;
+    }
+    /* Safety before anything else: an unidentified tg5040 model must never be
+     * told that a strength can be served. */
+    if (!platform_model_known())
+    {
+        set_model_detail(detail, detail_size);
         return 0;
     }
     /* The enable node is both the write target and the read-back source, so a
@@ -205,6 +245,15 @@ static int platform_write(void* context, int strength, char* detail, size_t deta
 {
     (void)context;
 
+    /* Write guard, independent of available(): an unidentified tg5040 model
+     * must not reach PLAT_setRumble at all, because the ceiling PLAT_setRumble
+     * picks depends on the model. Nothing is written and nothing is clamped
+     * here; the platform keeps its own map for the models it knows. */
+    if (!platform_model_known())
+    {
+        set_model_detail(detail, detail_size);
+        return 0;
+    }
     ensure_platform();
     /* The platform owns the mapping, including the Brick Pro 2.5V ceiling. */
     PLAT_setRumble(strength);
