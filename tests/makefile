@@ -116,6 +116,17 @@ test: test-generate-feed
 test-generate-feed:
 	./run_generate_feed_test.sh
 
+# Release-workflow preparation: the real script over a synthetic build tree,
+# then the real client path (feed, fetch, stage, install) against what it
+# wrote, plus the gates that fail closed without a production key or sidecar.
+# Declared on its own lines rather than added to the .PHONY and test lists
+# above, so this hunk never collides with another thread editing those lines.
+.PHONY: test-release-assets
+test: test-release-assets
+
+test-release-assets:
+	./run_prepare_release_assets_test.sh
+
 # Removal of the built-in third-party Pak Store: the build must not download or
 # preinstall it, the base package must carry no .pakz, the launcher must keep
 # only generic Tools discovery, and an existing user-installed store pak must

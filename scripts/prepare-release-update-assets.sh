@@ -27,6 +27,7 @@
 #       --base-url URL [--min-system vX.Y.Z] [--platforms LIST] \
 #       [--previous-url URL] [--public-key FILE] [--out-dir DIR] \
 #       [--system-dir DIR] [--boot-dir DIR] [--repo-root DIR]
+#       [--version-source FILE]
 #
 # --version is the release tag; the manifest, .system/version.txt and the feed
 # all carry it. --base-url is the release's asset download prefix (for this
@@ -54,11 +55,13 @@ RELEASE_KEY_DIR="workspace/all/nextupd/release"
 
 version=
 key_env=
+key_env_given=0
 base_url=
 min_system=
 platforms=$DEFAULT_PLATFORMS
 previous_url=
 public_key=
+version_source=
 out_dir="releases/update"
 system_dir=
 boot_dir=
@@ -76,11 +79,12 @@ fail() {
 while [ "$#" -ge 1 ]; do
     case "$1" in
         --version) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; version=$2; shift 2 ;;
-        --key-env) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; key_env=$2; shift 2 ;;
+        --key-env) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; key_env=$2; key_env_given=1; shift 2 ;;
         --base-url) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; base_url=$2; shift 2 ;;
         --min-system) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; min_system=$2; shift 2 ;;
         --platforms) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; platforms=$2; shift 2 ;;
         --previous-url) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; previous_url=$2; shift 2 ;;
+        --version-source) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; version_source=$2; shift 2 ;;
         --public-key) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; public_key=$2; shift 2 ;;
         --out-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; out_dir=$2; shift 2 ;;
         --system-dir) [ "$#" -ge 2 ] || fail "$1 requires a value" 64; system_dir=$2; shift 2 ;;
@@ -91,7 +95,7 @@ while [ "$#" -ge 1 ]; do
     esac
 done
 
-for tool in make python3 curl openssl; do
+for tool in make python3 curl openssl printenv; do
     command -v "$tool" >/dev/null 2>&1 || fail "missing $tool" 69
 done
 
@@ -117,14 +121,17 @@ is_semver "$version" || fail "--version must be vX.Y.Z, got '$version'" 65
 # When the repository carries an authoritative version source, the release tag
 # must match it: the bootstrap, the transactional package and the feed then all
 # name the same release. Without the file the tag itself is the version source.
-if [ -f "$repo_root/VERSION" ]; then
-    source_version="v$(tr -d ' \t\r\n' < "$repo_root/VERSION")"
+[ -n "$version_source" ] || version_source="$repo_root/VERSION"
+if [ -f "$version_source" ]; then
+    source_version="v$(tr -d ' \t\r\n' < "$version_source")"
     if [ "$source_version" != "$version" ]; then
         fail "the release tag $version does not match the version source $source_version; release the version the repository names" 65
     fi
 fi
 
-[ -n "$key_env" ] || fail "--key-env is required: the signing key must come from the confidential facility, and this script never falls back to the test key" 64
+if [ "$key_env_given" -eq 0 ]; then
+    fail "--key-env is required: the signing key must come from the confidential facility, and this script never falls back to the test key" 64
+fi
 [ -n "$base_url" ] || fail "--base-url is required (the release's asset download prefix)" 64
 
 if [ -n "$min_system" ]; then
@@ -142,13 +149,19 @@ for platform in $(printf '%s' "$platforms" | tr ',' ' '); do
 done
 platforms=$(printf '%s' "$platforms" | tr ',' ' ')
 
+# The name is used to look the key up, so it is validated by rejection:
+# empty, a leading digit, and any byte outside [A-Za-z0-9_] anywhere are
+# refused before the lookup happens. An acceptance pattern would not do:
+# its trailing wildcard would let "AB-C" through.
 case "$key_env" in
-    [A-Za-z_]*[A-Za-z0-9_]*) ;;
-    *) fail "invalid --key-env name '$key_env'" 64 ;;
+    ''|[0-9]*|*[!A-Za-z0-9_]*)
+        fail "invalid --key-env name" 64
+        ;;
 esac
-# The variable name is validated above; the value is never read here, only
-# passed through to sign-manifest.sh, which reads it from the environment.
-if [ -z "$(eval "printf '%s' \"\${$key_env-}\"")" ]; then
+# printenv looks the name up without evaluating anything, so a name can never
+# become a command. The value itself is never read here, only passed through
+# to sign-manifest.sh, which reads it from the environment.
+if [ -z "$(printenv "$key_env" 2>/dev/null || true)" ]; then
     fail "environment variable $key_env is empty or unset: store the production signing key in the confidential facility and inject it, or this release cannot be signed" 65
 fi
 
@@ -279,9 +292,12 @@ feed_args=""
 if [ -n "$previous_feed" ]; then
     feed_args="--previous $previous_feed"
 fi
+# --public-key makes the generator's verification signature-based: the feed is
+# only written when every set's detached signature verifies against the
+# committed sidecar, which needs no private key.
 # shellcheck disable=SC2086
 if ! "$generator" --set-dir "$work/packages" --base-url "$base_url" \
-        --nextupd "$nextupd" \
+        --nextupd "$nextupd" --public-key "$public_key" \
         $feed_args --out "$work/nextui-feed.json" > "$work/generate.log" 2>&1; then
     cat "$work/generate.log" >&2
     fail "feed generation failed" 70

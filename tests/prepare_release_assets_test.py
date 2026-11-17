@@ -199,6 +199,15 @@ def serve(directory, prefix):
     return f"{BASE_URL}/{prefix}"
 
 
+def version_file(version):
+    """A version source naming this release, so a run's tag can differ from
+    the repository's own VERSION file."""
+    path = os.path.join(WORK, "version-%s.txt" % version[1:])
+    with open(path, "w", encoding="ascii") as handle:
+        handle.write(version[1:] + "\n")
+    return path
+
+
 def prepare(*extra, env=None, expect_code=0):
     command = [SCRIPT]
     merged = os.environ.copy()
@@ -246,6 +255,7 @@ def main():
             ["--base-url", first_url], ["--platforms", PLATFORM],
             ["--system-dir", system], ["--boot-dir", boot],
             ["--out-dir", first_out],
+            ["--version-source", version_file(VERSION)],
             # No previous release yet: this path 404s, which is the
             # first-release case, not an error.
             ["--previous-url", f"{BASE_URL}/no-such-feed.json"],
@@ -325,9 +335,9 @@ def main():
                         "--target-root", target, "--trusted-key", FIXTURE_PUB,
                         "--platform", PLATFORM, "--system-version",
                         PREVIOUS_VERSION]), 0)
-            version_file = os.path.join(target, ".system", "version.txt")
-            if open(version_file, "r", encoding="ascii").read().strip() != VERSION:
-                fail("installed version", open(version_file).read())
+            installed_version = os.path.join(target, ".system", "version.txt")
+            if open(installed_version, "r", encoding="ascii").read().strip() != VERSION:
+                fail("installed version", open(installed_version).read())
             else:
                 ok("installed version")
             for path in (os.path.join(target, ".system", PLATFORM, "bin",
@@ -364,6 +374,7 @@ def main():
             ["--base-url", second_url], ["--platforms", PLATFORM],
             ["--system-dir", system], ["--boot-dir", boot],
             ["--out-dir", second_out],
+            ["--version-source", version_file(NEXT_VERSION)],
             ["--previous-url", feed_url], env=signing_env)
         expect("prepare merges the previous feed", proc, 0)
         with open(os.path.join(second_out, "nextui-feed.json"),
@@ -411,9 +422,31 @@ def main():
              ["--public-key", FIXTURE_PUB], ["--base-url", first_url],
              ["--platforms", PLATFORM], ["--system-dir", system],
              ["--boot-dir", boot],
+             ["--version-source", version_file(VERSION)],
              ["--out-dir", os.path.join(WORK, "gate-nokey")],
              env={}, code=65, reason=KEY_ENV,
              out=os.path.join(WORK, "gate-nokey"))
+
+        # The variable name is used to look the key up, so it is validated by
+        # rejection before the lookup, and the lookup evaluates nothing. The
+        # marker file is the proof: a name that survived validation would
+        # execute its payload on the signing host, where the key lives.
+        marker = os.path.join(WORK, "prepare-injection-marker")
+        for bad_name in ("A-B", "A B", "A;B", "A-};touch %s;#" % marker,
+                         "A{B}", "1A", ""):
+            proc = prepare(["--version", VERSION], ["--key-env", bad_name],
+                           ["--public-key", FIXTURE_PUB],
+                           ["--base-url", first_url], ["--platforms", PLATFORM],
+                           ["--version-source", version_file(VERSION)],
+                           env=signing_env)
+            if not expect("the invalid key name %r is refused" % bad_name,
+                          proc, 64, "invalid --key-env name"):
+                break
+        if os.path.exists(marker):
+            fail("key name validation blocks command execution",
+                 "the marker file was created")
+        else:
+            ok("key name validation blocks command execution")
 
         empty_root = os.path.join(WORK, "empty-root")
         os.makedirs(empty_root, exist_ok=True)
@@ -421,6 +454,7 @@ def main():
              ["--version", VERSION], ["--key-env", KEY_ENV],
              ["--repo-root", empty_root], ["--base-url", first_url],
              ["--platforms", PLATFORM],
+             ["--version-source", version_file(VERSION)],
              code=65, reason="no production public key sidecar")
 
         gate("a mismatched public sidecar fails verification",
@@ -428,6 +462,7 @@ def main():
              ["--key-env", KEY_ENV], ["--public-key", other_pub],
              ["--base-url", first_url], ["--platforms", PLATFORM],
              ["--system-dir", system], ["--boot-dir", boot],
+             ["--version-source", version_file(VERSION)],
              ["--out-dir", os.path.join(WORK, "gate-wrongkey")],
              code=70, reason="does not verify",
              out=os.path.join(WORK, "gate-wrongkey"))
@@ -441,6 +476,7 @@ def main():
              ["--version", VERSION], ["--min-system", "v7.0.0"],
              ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
              ["--base-url", first_url], ["--platforms", PLATFORM],
+             ["--version-source", version_file(VERSION)],
              code=65, reason="is newer than")
 
         version_root = os.path.join(WORK, "version-root")
@@ -457,13 +493,16 @@ def main():
         gate("an unknown platform is refused",
              ["--version", VERSION], ["--key-env", KEY_ENV],
              ["--public-key", FIXTURE_PUB], ["--base-url", first_url],
-             ["--platforms", "magicx"], code=65, reason="unknown platform")
+             ["--platforms", "magicx"],
+             ["--version-source", version_file(VERSION)],
+             code=65, reason="unknown platform")
 
         gate("an unreachable previous feed is an error, not a fresh feed",
              ["--version", NEXT_VERSION], ["--min-system", MIN_SYSTEM],
              ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
              ["--base-url", second_url], ["--platforms", PLATFORM],
              ["--system-dir", system], ["--boot-dir", boot],
+             ["--version-source", version_file(NEXT_VERSION)],
              ["--previous-url", "http://127.0.0.1:1/nextui-feed.json"],
              ["--out-dir", os.path.join(WORK, "gate-prevfail")],
              code=70, reason="HTTP 000",
@@ -474,6 +513,7 @@ def main():
              ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
              ["--base-url", second_url], ["--platforms", PLATFORM],
              ["--system-dir", system], ["--boot-dir", boot],
+             ["--version-source", version_file(NEXT_VERSION)],
              ["--out-dir", os.path.join(WORK, "gate-nomin")],
              code=70, reason="min_system",
              out=os.path.join(WORK, "gate-nomin"))

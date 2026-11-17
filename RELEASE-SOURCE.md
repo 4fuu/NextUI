@@ -177,10 +177,10 @@ nextupd check --package releases/nextui-system-tg5040.zip \
     --platform tg5040 | grep 'signature: verified'
 ```
 
-The release-workflow preparation (a separate follow-up, not part of this
-page) runs exactly this check for every platform and refuses to publish the
-set when it fails, so a release signed with a key the client does not trust
-never reaches the release page.
+`scripts/prepare-release-update-assets.sh` — the release-workflow preparation
+added with this change — runs exactly this check for every platform and
+refuses to publish the set when it fails, so a release signed with a key the
+client does not trust never reaches the release page.
 
 Signing after packaging, as above, leaves the packaging script's
 `<base>.manifest.set` marker recording the unsigned publish. The marker is an
