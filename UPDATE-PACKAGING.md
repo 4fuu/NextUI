@@ -151,9 +151,11 @@ a run is interrupted:
   (or install, which does), not assume that three present files are a consistent
   set.
 - SHA-256 uses `sha256sum`, falling back to `shasum` (macOS) then `openssl`;
-  `NEXTUI_SHA256` forces one for testing. (`build-macos` only compiles `nextupd`
-  and does not run this script, so the `shasum`/`openssl` fallback is covered by
-  the host test that forces each backend.)
+  `NEXTUI_SHA256` forces one for testing, and a forced tool that is not installed
+  fails the run (`SHA-256 tool '...' not found`, exit 69) instead of writing an
+  empty-hash marker. (`build-macos` only compiles `nextupd` and does not run this
+  script, so the `shasum`/`openssl` fallback and the forced-missing guard are
+  covered by host tests that force each case.)
 
 `make -C tests test-update-package-atomic` guards all of this: injected
 `zip`/manifest/signature/self-check failures that must preserve the previous set,
@@ -213,50 +215,50 @@ Nothing here installs to a device.
 
 ## Not included
 
-- How a bootstrapped card gets a real, machine-readable version. See
-  [Bootstrap version policy](#bootstrap-version-policy-owner-decision) below: a
-  product decision this packaging work documents but does not make.
+- How cards bootstrapped *before* the `VERSION` file get a real version. See
+  [Version source](#version-source) below: current bootstraps carry `vX.Y.Z` and
+  update normally, but pre-existing `NextUI-<date>-<n>` cards are refused
+  (`target_version_missing`) and need a documented in-place migration or a
+  re-flash; this change does not migrate them.
 - Wiring the archive into `ci.yaml`/`release.yaml`. Those workflows stay with
   the CI owner; the package-content evidence above is the test-only check.
 
-## Bootstrap version policy (owner decision)
+## Version source
 
-The bootstrap `MinUI.zip` built by `make package` writes `.system/version.txt`
-as the human-readable display string `NextUI-<date>-<n>` (followed by the build
-hash). The transactional archive built by `make update-package` instead writes
-the machine-readable `vX.Y.Z` that `nextupd` requires, and `nextupd install`
-reads the *installed* `.system/version.txt` as the target version. A card first
-installed from the bootstrap therefore carries a version `nextupd` cannot parse,
-and the first transactional update onto it is refused with
-`target_version_missing` (exit 13) before anything is written.
+The authoritative project version is the `VERSION` file at the repo root (a bare
+`X.Y.Z`, currently `6.16.0`). Both artifacts read it, so the bootstrap and the
+transactional update never disagree on version:
 
-That refusal is deliberate and this work does not change it: it does not invent
-a date-to-semver mapping, does not treat an unknown version as `v0.0.0` (which
-would let a package's `min_system` be bypassed), and does not relax signature,
-ZIP, platform or root validation. `make -C tests test-update-package-atomic`
-locks the behavior: the legacy text is refused and the target is left untouched,
-while the same package installs onto a valid `vX.Y.Z` target.
+- `make package` writes `v$(VERSION)` into the bootstrap's `.system/version.txt`.
+- `make update-package` defaults `UPDATE_VERSION` to `v$(VERSION)`; override it
+  only for a deliberate different version, and the manifest version must still
+  match `.system/version.txt`.
 
-Choosing how bootstrapped cards get a real version is a product decision. The
-options, and what each requires:
+The date (`RELEASE_TIME`) is a build identifier only — it stays in the release
+file name (`NextUI-<date>-<n>-base.zip`) and is no longer the version. Bump
+`VERSION` deliberately for a release: it is not derived from the date, a build
+number, or the git hash, and no date-to-semver mapping is invented. No unknown
+version is treated as `v0.0.0` (which would bypass a package's `min_system`), and
+signature, ZIP, platform and root validation are unchanged.
 
-1. **Give `make package` a real version source.** Add a canonical `vX.Y.Z` (a
-   `VERSION` file, a tag, or a release variable) and have `make package` write
-   it into `.system/version.txt` beside the display string, so future bootstrap
-   cards carry a machine-readable version from the start. This is the clean fix,
-   but it needs an agreed source of truth for the number; the repository has
-   none today (`v6.16.0` appears only in docs as an example).
-2. **Accept the legacy format as a target version, under an explicit policy.**
-   Teach `nextupd` to map a known legacy `NextUI-<date>-<n>` (or a `<date>-<n>`
-   build stamp) to a baseline `vX.Y.Z` for comparison only. Validation stays
-   intact, but the mapping is a product decision: which date corresponds to
-   which release, and what an unknown stamp maps to, directly affect `min_system`
-   and downgrade checks. It must not silently map unknown stamps to `v0.0.0`.
-3. **One-time bootstrap migration.** Ship a small, signed step (or document a
-   manual step) that rewrites a bootstrapped card's `.system/version.txt` to the
-   matching `vX.Y.Z` before the first transactional update. No change to
-   `nextupd`'s version contract, but it needs the same date/version mapping to
-   know what to write.
+Because the bootstrap now carries the machine-readable version, a card first
+installed from a **current** bootstrap is updatable: `nextupd install` reads
+`vX.Y.Z`, and the normal `already_installed` / upgrade / `downgrade_refused` /
+`min_system` logic applies.
 
-Until one is chosen, the first transactional update onto a bootstrapped card is
-refused clearly rather than applied against an unknown version.
+### Cards bootstrapped before this change
+
+Cards installed from an older bootstrap carry `.system/version.txt` as
+`NextUI-<date>-<n>`, which `nextupd` cannot parse. The first transactional update
+onto such a card is refused with `target_version_missing` (exit 13) before
+anything is written. This change does **not** migrate those cards, and a new
+bootstrap package is not a migration: re-flashing the card with a current
+bootstrap is the clean path.
+
+The in-place migration for an existing card is to write the correct version it
+actually corresponds to into `.system/version.txt` — determined from the release
+that produced that card, never guessed — and only then apply the update. Do not
+write `v0.0.0` or any placeholder: that defeats `min_system` and the downgrade
+check. `make -C tests test-update-package-atomic` locks the behavior: the legacy
+text is refused and the target is left untouched, while the same package installs
+onto a valid `vX.Y.Z` target.
