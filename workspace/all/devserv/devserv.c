@@ -1,6 +1,7 @@
 #include "device_backend.h"
 #include "device_backend_display_audio.h"
 #include "device_backend_leds_platform.h"
+#include "device_backend_rumble.h"
 #include "device_gate.h"
 #include "device_protocol.h"
 #include "device_session.h"
@@ -43,7 +44,9 @@ static void usage(FILE* stream)
             "Serves newline-delimited JSON device requests on a Unix socket.\n"
             "The socket defaults to $NEXTUI_DEVSERV_SOCKET or %s.\n"
             "Grants must be configured explicitly; there is no implicit /tmp store.\n"
-            "Backend: led.control through the existing NextUI LED path; every other\n"
+            "Backend: led.control through the existing NextUI LED path,\n"
+            "display.* and audio.* through the existing msettings path, and\n"
+            "input.rumble through the existing PLAT_setRumble path; every other\n"
             "hardware capability reports unavailable.\n"
             "Sessions: session-start/stop/status restore only fields the service saw\n"
             "change; app-action records a session-scoped home/overlay request and\n"
@@ -699,6 +702,7 @@ int main(int argc, char* argv[])
     backend = device_backend_none();
 #else
     backend = device_backend_display_audio_compose(device_backend_leds());
+    backend = device_backend_rumble_compose(backend);
     (void)atexit(device_backend_leds_shutdown);
 #endif
 

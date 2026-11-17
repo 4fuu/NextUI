@@ -96,6 +96,7 @@ tests="$common/tests"
     "$common/device_backend.c" \
     "$common/device_backend_display_audio.c" \
     "$common/device_backend_leds.c" \
+    "$common/device_backend_rumble.c" \
     "$common/device_caps.c" \
     "$common/device_gate.c" \
     "$common/device_grants.c" \
@@ -404,5 +405,32 @@ expect_contains "$OUT" '"error":"bad_request"'
 expect_contains "$OUT" 'invalid session identity'
 rm -rf "$WORK_DIR/$LONG.pak"
 echo "J ok"
+
+# K. the rumble backend is composed into the real service. This host build
+# links no platform file, so the weak platform reference is absent and the
+# capability must report unavailable: never a fake success, and the composed
+# routing must not disturb the capabilities the base backends do serve.
+RUMBLE_PAK="$WORK_DIR/Rumble.pak"
+rm -rf "$RUMBLE_PAK"
+mkdir -p "$RUMBLE_PAK"
+printf '#!/bin/sh\nexit 0\n' > "$RUMBLE_PAK/launch.sh"
+printf '{"id":"rumble.app","version":"v1.0.0","device":{"capabilities":["input.rumble"]}}\n' > "$RUMBLE_PAK/pak.json"
+RUMBLE_PAK="$(cd "$RUMBLE_PAK" && pwd -P)"
+MAIN_PAK="$PAK"
+start_devserv
+PAK="$RUMBLE_PAK" run_grant grant input.rumble
+[[ "$GSTATUS" -eq 0 ]] || fail "K grant: $GOUT"
+PAK="$MAIN_PAK"
+run_nd --pak "$RUMBLE_PAK" status
+[[ "$STATUS" -eq 0 ]] || fail "K status: $OUT"
+expect_contains "$OUT" '"name":"input.rumble","supported":true,"grant_required":true,"declared":true,"available":false,"authorized":true'
+run_nd --pak "$RUMBLE_PAK" call input.rumble get
+[[ "$STATUS" -eq 1 ]] || fail "K rumble get exit $STATUS: $OUT"
+expect_contains "$OUT" '"error":"unavailable"'
+expect_contains "$OUT" '"available":false'
+run_nd --pak "$RUMBLE_PAK" call input.rumble set '{"value":100}'
+[[ "$STATUS" -eq 1 ]] || fail "K rumble set exit $STATUS: $OUT"
+expect_contains "$OUT" '"error":"unavailable"'
+echo "K ok"
 
 echo "session adversarial E2E passed"
