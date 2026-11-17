@@ -271,8 +271,8 @@ jobs:
           body: |
             
             For full features list and help on how to use etc of NextUI:
-            https://nextui.loveretro.games/docs/
+            https://github.com/4fuu/NextUI
 
             ## How to install/update
-            For a fresh installation, follow the instructions here: https://nextui.loveretro.games/getting-started/installation/
-            When updating from a previous release: https://nextui.loveretro.games/getting-started/updating/
+            For a fresh installation, follow the instructions here: https://github.com/4fuu/NextUI/releases
+            When updating from a previous release: https://github.com/4fuu/NextUI/releases
