@@ -61,8 +61,8 @@ static void usage(FILE* out)
     fprintf(out,
             "usage: nextupd <command> [options]\n"
             "\n"
-            "  check     verify a package against a signed manifest; write nothing\n"
-            "  feed      check a configured update feed; write nothing\n"
+            "  check     verify a package against its manifest; write nothing\n"
+            "  feed      check the update feed; write nothing\n"
             "  fetch     check a feed, download, verify, and stage a system update\n"
             "  stage     verify and publish a package into a staging directory\n"
             "  install   apply a staged system or app package to an explicit target root\n"
@@ -71,27 +71,27 @@ static void usage(FILE* out)
             "\n"
             "check:\n"
             "  --package <file> --manifest <file> --platform <platform>\n"
-            "  [--signature <file> --trusted-key <file>] [--integrity-only] [--expected-kind <kind>]\n"
+            "  [--signature <file> --trusted-key <file>] [--expected-kind <kind>]\n"
             "  [--system-version <vX.Y.Z>] [--json]\n"
             "\n"
             "feed:\n"
             "  [--feed <file|url>] --platform <platform> --system-version <vX.Y.Z>\n"
-            "  --trusted-key <file> [--timeout <seconds>] [--json]\n"
+            "  [--trusted-key <file>] [--timeout <seconds>] [--json]\n"
             "\n"
             "fetch:\n"
             "  [--feed <file|url>] --platform <platform> --system-version <vX.Y.Z>\n"
-            "  --trusted-key <file> --staging-root <dir> [--timeout <seconds>]\n"
+            "  --staging-root <dir> [--trusted-key <file>] [--timeout <seconds>]\n"
             "  [--replace] [--json]\n"
             "\n"
             "stage:\n"
-            "  --package <file> --manifest <file> --signature <file>\n"
-            "  --trusted-key <file> --platform <platform>\n"
+            "  --package <file> --manifest <file> --platform <platform>\n"
+            "  [--signature <file> --trusted-key <file>]\n"
             "  [--staging-root <dir>] [--replace] [--system-version <vX.Y.Z>] [--json]\n"
             "  [--expected-kind <kind>]\n"
             "\n"
             "install:\n"
-            "  --staged-dir <dir> --target-root <dir> --trusted-key <file>\n"
-            "  --platform <platform> --system-version <vX.Y.Z> [--json]\n"
+            "  --staged-dir <dir> --target-root <dir>\n"
+            "  --platform <platform> --system-version <vX.Y.Z> [--json] [--trusted-key <file>]\n"
             "  [--expected-kind <kind>]\n"
             "\n"
             "recover:\n"
@@ -101,24 +101,24 @@ static void usage(FILE* out)
             "  --package <file> --id <id> --kind <system|app> --version <vX.Y.Z>\n"
             "  --platform <platform> [--min-system <vX.Y.Z>] [--out <file>]\n"
             "\n"
-            "check without --integrity-only fails when no signature and trusted key are\n"
-            "provided. stage and fetch always require both. SHA-256 detects damage; it\n"
-            "does not establish who produced a manifest. install writes only inside an\n"
+            "Integrity (SHA-256) is verified by default. A detached Ed25519 signature is\n"
+            "checked only when --trusted-key or NEXTUI_UPDATE_TRUSTED_KEY is set. SHA-256\n"
+            "detects damage; it does not establish who produced a manifest. install writes only inside an\n"
             "explicit --target-root; a system package requires an existing .system and an\n"
-            "app package lands in Tools/<platform>/<id>.pak/ from its signed id. There is no\n"
+            "app package lands in Tools/<platform>/<id>.pak/ from its manifest id. There is no\n"
             "default root and no boot or launch activation. recover is the offline\n"
             "arbitration entry point: a plain recover resolves a pending system transaction\n"
             "and then a pending app transaction; --rollback rolls back the system only; and\n"
             "--app <id> targets one application (--app <id> --rollback rolls that app back\n"
-            "and never touches .system). feed and fetch have no built-in release source;\n"
-            "without --feed or NEXTUI_UPDATE_FEED they report feed_unconfigured. fetch\n"
+            "and never touches .system). feed and fetch default to the official GitHub Releases feed;\n"
+            "--feed or NEXTUI_UPDATE_FEED overrides it. fetch\n"
             "stages only and never installs.\n"
             "\n"
             "check, stage and install accept --expected-kind <app|system>. The manifest\n"
             "that this invocation verified must declare that kind, so a caller that\n"
             "installs applications only refuses a package whose verified kind is anything\n"
             "else before it stages or applies anything. The comparison uses the manifest\n"
-            "bytes the signature just covered, never a second read of the same file, so a\n"
+            "bytes this invocation verified, never a second read of the same file, so a\n"
             "package swapped in after a caller's own scan cannot pass as the kind that\n"
             "caller expected. Omitting the flag leaves the routing behaviour unchanged.\n");
 }
@@ -198,6 +198,17 @@ static const char* resolved_system_version(const Options* options)
     const char* version = options->system_version;
     if (version == NULL || version[0] == '\0') version = getenv("NEXTUI_SYSTEM_VERSION");
     return version;
+}
+
+/* A trusted key is opt-in. Without one the tool verifies integrity only:
+ * manifest/archive/file SHA-256, sizes, platform and kind binding. With one it
+ * also requires and verifies the detached Ed25519 signature. */
+static const char* resolved_trusted_key(const Options* options)
+{
+    const char* key = options->trusted_key;
+    if (key == NULL || key[0] == '\0') key = getenv("NEXTUI_UPDATE_TRUSTED_KEY");
+    if (key != NULL && key[0] == '\0') key = NULL;
+    return key;
 }
 
 static int check_extra_files(const UpdManifest* manifest, const UpdZip* zip, UpdError* error)
@@ -366,9 +377,9 @@ static int verify_archive(const Options* options, const UpdManifest* manifest,
 }
 
 /* The expected-kind boundary. options->expected_kind is what the caller says it
- * is about to route this package to; manifest->kind is what the signature over
- * manifest->raw authorized. upd_manifest_load() has already rejected anything
- * but system and app, so an empty kind cannot reach this comparison. */
+ * is about to route this package to; manifest->kind comes from the manifest
+ * bytes this invocation verified. upd_manifest_load() has already rejected
+ * anything but system and app, so an empty kind cannot reach this comparison. */
 static int check_expected_kind(const Options* options, const UpdManifest* manifest,
                                UpdError* error)
 {
@@ -388,23 +399,37 @@ static int verify_package(const Options* options, int require_signature,
 {
     const char* platform;
     const char* system_version;
+    const char* trusted_key;
 
     memset(verified, 0, sizeof *verified);
     upd_manifest_init(&verified->manifest);
+    trusted_key = resolved_trusted_key(options);
     if (!upd_manifest_load(options->manifest, &verified->manifest, error)) return 0;
 
-    if (options->signature != NULL || options->trusted_key != NULL)
+    if (trusted_key != NULL)
     {
+        if (options->signature == NULL || options->signature[0] == '\0')
+        {
+            upd_error_set(error, UPD_E_SIGNATURE, "signature_missing",
+                          "a trusted key requires --signature");
+            return 0;
+        }
         if (!upd_signature_verify(verified->manifest.raw, verified->manifest.raw_length,
-                                  options->signature, options->trusted_key,
-                                  verified->key_id, sizeof verified->key_id, error))
+                                  options->signature, trusted_key, verified->key_id,
+                                  sizeof verified->key_id, error))
             return 0;
         verified->signature_verified = 1;
+    }
+    else if (options->signature != NULL)
+    {
+        upd_error_set(error, UPD_E_SIGNATURE, "trusted_key_missing",
+                      "--signature requires --trusted-key or NEXTUI_UPDATE_TRUSTED_KEY");
+        return 0;
     }
     else if (require_signature)
     {
         upd_error_set(error, UPD_E_SIGNATURE, "signature_missing",
-                      "check/stage requires --signature and --trusted-key");
+                      "this operation requires --signature and --trusted-key");
         return 0;
     }
     /* A caller that names the kind it is about to route to gets that promise
@@ -504,7 +529,7 @@ static int run_check(const Options* options)
     int result;
 
     upd_error_clear(&error);
-    if (!verify_package(options, !options->integrity_only, &verified, &error))
+    if (!verify_package(options, 0, &verified, &error))
     {
         result = report_error(&error, options->json);
         upd_manifest_free(&verified.manifest);
@@ -926,6 +951,8 @@ static int run_stage(const Options* options)
     uint64_t signature_size = 0;
     uint64_t required = 0;
     uint64_t free_bytes;
+    const char* trusted_key = resolved_trusted_key(options);
+    int signature_mode = trusted_key != NULL;
     int lock_fd = -1;
     int marker_exists = 0;
     int renamed = 0;
@@ -934,17 +961,17 @@ static int run_stage(const Options* options)
     int descriptor_length;
 
     upd_error_clear(&error);
-    if (!verify_package(options, 1, &verified, &error))
+    if (!verify_package(options, 0, &verified, &error))
     {
         result = report_error(&error, options->json);
         upd_manifest_free(&verified.manifest);
         return result;
     }
-    if (verified.manifest.raw_length > UPD_MAX_MANIFEST_BYTES
-        || options->signature == NULL || options->trusted_key == NULL)
+    if (signature_mode
+        && (options->signature == NULL || verified.manifest.raw_length > UPD_MAX_MANIFEST_BYTES))
     {
         upd_error_set(&error, UPD_E_SIGNATURE, "signature_missing",
-                      "stage requires a signed manifest and trusted key");
+                      "stage requires --signature with a trusted key");
         result = report_error(&error, options->json);
         upd_manifest_free(&verified.manifest);
         return result;
@@ -1040,7 +1067,7 @@ static int run_stage(const Options* options)
         goto done;
     }
 
-    if (!upd_file_size(options->signature, &signature_size, &error))
+    if (signature_mode && !upd_file_size(options->signature, &signature_size, &error))
     {
         if (strcmp(error.reason, "file_missing") == 0)
             upd_error_set(&error, UPD_E_SIGNATURE, "signature_missing", "%s", error.detail);
@@ -1107,32 +1134,35 @@ static int run_stage(const Options* options)
         result = report_error(&error, options->json);
         goto failed_stage;
     }
-    if (!upd_read_file(options->signature, UPD_MAX_SIGNATURE_BYTES, &signature_bytes,
-                       &signature_length, &error))
+    if (signature_mode)
     {
-        result = report_error(&error, options->json);
-        goto failed_stage;
-    }
-    if (!upd_write_file_atomic(signature_path, signature_bytes, signature_length, &error))
-    {
-        result = report_error(&error, options->json);
-        goto failed_stage;
-    }
-    {
-        char copied_key_id[UPD_MAX_KEY_ID + 1];
-        if (!upd_signature_verify(verified.manifest.raw, verified.manifest.raw_length,
-                                  signature_path, options->trusted_key, copied_key_id,
-                                  sizeof copied_key_id, &error))
+        if (!upd_read_file(options->signature, UPD_MAX_SIGNATURE_BYTES, &signature_bytes,
+                           &signature_length, &error))
         {
             result = report_error(&error, options->json);
             goto failed_stage;
         }
-        if (strcmp(copied_key_id, verified.key_id) != 0)
+        if (!upd_write_file_atomic(signature_path, signature_bytes, signature_length, &error))
         {
-            upd_error_set(&error, UPD_E_SIGNATURE, "signature_key_mismatch",
-                          "staged signature changed key id during staging");
             result = report_error(&error, options->json);
             goto failed_stage;
+        }
+        {
+            char copied_key_id[UPD_MAX_KEY_ID + 1];
+            if (!upd_signature_verify(verified.manifest.raw, verified.manifest.raw_length,
+                                      signature_path, trusted_key, copied_key_id,
+                                      sizeof copied_key_id, &error))
+            {
+                result = report_error(&error, options->json);
+                goto failed_stage;
+            }
+            if (strcmp(copied_key_id, verified.key_id) != 0)
+            {
+                upd_error_set(&error, UPD_E_SIGNATURE, "signature_key_mismatch",
+                              "staged signature changed key id during staging");
+                result = report_error(&error, options->json);
+                goto failed_stage;
+            }
         }
     }
     {
@@ -1169,12 +1199,12 @@ static int run_stage(const Options* options)
             "%s\",\n"
             "  \"manifest\": \"manifest.json\",\n"
             "  \"manifest_sha256\": \"%s\",\n"
-            "  \"signature\": \"manifest.sig\",\n"
+            "  \"signature\": \"%s\",\n"
             "  \"signature_key_id\": \"%s\",\n"
             "  \"staged_at\": %lld\n"
             "}\n",
-            archive_sha, manifest_sha, verified.key_id,
-            (long long)time(NULL));
+            archive_sha, manifest_sha, signature_mode ? "manifest.sig" : "",
+            signature_mode ? verified.key_id : "", (long long)time(NULL));
     }
     if (descriptor_length < 0 || descriptor_length >= (int)sizeof descriptor)
     {
@@ -1206,7 +1236,7 @@ static int run_stage(const Options* options)
             fputs(",\"manifest_path\":", stdout);
             print_json_string(manifest_path);
             fputs(",\"signature_path\":", stdout);
-            print_json_string(signature_path);
+            print_json_string(signature_mode ? signature_path : "");
             fputs(",\"marker_path\":", stdout);
             print_json_string(marker_path);
             fputs("}\n", stdout);
@@ -1217,7 +1247,10 @@ static int run_stage(const Options* options)
                    root);
             printf("archive: %s\n", zip_path);
             printf("manifest: %s\n", manifest_path);
-            printf("signature: %s (key %s)\n", signature_path, verified.key_id);
+            if (signature_mode)
+                printf("signature: %s (key %s)\n", signature_path, verified.key_id);
+            else
+                printf("signature: none (integrity only)\n");
             printf("marker: %s\n", marker_path);
         }
     }
@@ -1284,7 +1317,9 @@ static int print_feed_available(const Options* options, const char* platform,
         print_json_string(signature_url);
         fputs(",\"archive_url\":", stdout);
         print_json_string(archive_url);
-        fputs(",\"signature_verified\":true,\"signature_key_id\":", stdout);
+        fputs(",\"signature_verified\":", stdout);
+        fputs(key_id[0] != '\0' ? "true" : "false", stdout);
+        fputs(",\"signature_key_id\":", stdout);
         print_json_string(key_id);
         fputs("}\n", stdout);
     }
@@ -1296,7 +1331,10 @@ static int print_feed_available(const Options* options, const char* platform,
         printf("archive: %s (%llu bytes, sha256 %s)\n", manifest->archive_name,
                (unsigned long long)manifest->archive_size, archive_sha);
         printf("manifest: %s\n", manifest_url);
-        printf("signature: %s (key %s)\n", signature_url, key_id);
+        if (key_id[0] != '\0')
+            printf("signature: %s (key %s)\n", signature_url, key_id);
+        else
+            printf("signature: none (integrity only)\n");
         printf("package: %s\n", archive_url);
     }
     return 0;
@@ -1331,7 +1369,7 @@ static int print_fetch_staged(const Options* options, const UpdManifest* manifes
         fputs(",\"manifest_path\":", stdout);
         print_json_string(manifest_path);
         fputs(",\"signature_path\":", stdout);
-        print_json_string(signature_path);
+        print_json_string(key_id[0] != '\0' ? signature_path : "");
         fputs(",\"marker_path\":", stdout);
         print_json_string(marker_path);
         fputs("}\n", stdout);
@@ -1342,7 +1380,10 @@ static int print_fetch_staged(const Options* options, const UpdManifest* manifes
                manifest->version, stage_dir);
         printf("archive: %s\n", archive_path);
         printf("manifest: %s\n", manifest_path);
-        printf("signature: %s (key %s)\n", signature_path, key_id);
+        if (key_id[0] != '\0')
+            printf("signature: %s (key %s)\n", signature_path, key_id);
+        else
+            printf("signature: none (integrity only)\n");
         printf("marker: %s\n", marker_path);
     }
     return 0;
@@ -1366,13 +1407,12 @@ static int resolve_feed_source(const Options* options, char* out, size_t out_siz
     const char* feed = options->feed;
 
     if (feed == NULL || feed[0] == '\0') feed = getenv("NEXTUI_UPDATE_FEED");
-    if (feed == NULL || feed[0] == '\0')
-    {
-        upd_error_set(error, UPD_E_UNCONFIGURED, "feed_unconfigured",
-                      "no update feed is configured; pass --feed or set "
-                      "NEXTUI_UPDATE_FEED (no release source is built in)");
-        return 0;
-    }
+#ifdef NEXTUPD_TESTING
+    /* Host tests point the built-in default at a local fixture instead of
+     * contacting GitHub. Production builds have no such override. */
+    if (feed == NULL || feed[0] == '\0') feed = getenv("NEXTUPD_TEST_DEFAULT_FEED");
+#endif
+    if (feed == NULL || feed[0] == '\0') feed = UPD_DEFAULT_FEED_URL;
     if (strlen(feed) >= out_size)
     {
         upd_error_set(error, UPD_E_USAGE, "path_too_long", "feed source is too long");
@@ -1391,6 +1431,8 @@ static int run_feed(const Options* options, int fetch)
     const UpdFeedEntry* entry = NULL;
     const char* platform;
     const char* system_version;
+    const char* trusted_key = resolved_trusted_key(options);
+    int signature_mode = trusted_key != NULL;
     char feed_source[4096];
     char feed_path[4096];
     char temp_dir[4096];
@@ -1435,13 +1477,6 @@ static int run_feed(const Options* options, int fetch)
     {
         upd_error_set(&error, UPD_E_USAGE, "system_version_missing",
                       "--system-version or NEXTUI_SYSTEM_VERSION is required");
-        result = report_error(&error, options->json);
-        goto done;
-    }
-    if (options->trusted_key == NULL || options->trusted_key[0] == '\0')
-    {
-        upd_error_set(&error, UPD_E_SIGNATURE, "trusted_key_missing",
-                      "feed and fetch require --trusted-key");
         result = report_error(&error, options->json);
         goto done;
     }
@@ -1503,13 +1538,28 @@ static int run_feed(const Options* options, int fetch)
     }
     if (!upd_url_resolve(feed_source, entry->manifest_url, manifest_url,
                          sizeof manifest_url, &error)
-        || !upd_url_resolve(feed_source, entry->signature_url, signature_url,
-                            sizeof signature_url, &error)
         || !upd_url_resolve(feed_source, entry->archive_url, archive_url,
                             sizeof archive_url, &error))
     {
         result = report_error(&error, options->json);
         goto done;
+    }
+    signature_url[0] = '\0';
+    if (signature_mode)
+    {
+        if (entry->signature_url[0] == '\0')
+        {
+            upd_error_set(&error, UPD_E_SIGNATURE, "signature_missing",
+                          "a trusted key requires a signature_url in the feed");
+            result = report_error(&error, options->json);
+            goto done;
+        }
+        if (!upd_url_resolve(feed_source, entry->signature_url, signature_url,
+                             sizeof signature_url, &error))
+        {
+            result = report_error(&error, options->json);
+            goto done;
+        }
     }
 
     if (fetch)
@@ -1554,8 +1604,13 @@ static int run_feed(const Options* options, int fetch)
         goto done;
     }
     if (!upd_download_to_file(manifest_url, manifest_path, UPD_MAX_MANIFEST_BYTES, timeout,
-                              &error)
-        || !upd_download_to_file(signature_url, signature_path, UPD_MAX_SIGNATURE_BYTES,
+                              &error))
+    {
+        result = report_error(&error, options->json);
+        goto done;
+    }
+    if (signature_mode
+        && !upd_download_to_file(signature_url, signature_path, UPD_MAX_SIGNATURE_BYTES,
                                  timeout, &error))
     {
         result = report_error(&error, options->json);
@@ -1566,14 +1621,17 @@ static int run_feed(const Options* options, int fetch)
         result = report_error(&error, options->json);
         goto done;
     }
-    if (!upd_signature_verify(verified.manifest.raw, verified.manifest.raw_length,
-                              signature_path, options->trusted_key, verified.key_id,
-                              sizeof verified.key_id, &error))
+    if (signature_mode)
     {
-        result = report_error(&error, options->json);
-        goto done;
+        if (!upd_signature_verify(verified.manifest.raw, verified.manifest.raw_length,
+                                  signature_path, trusted_key, verified.key_id,
+                                  sizeof verified.key_id, &error))
+        {
+            result = report_error(&error, options->json);
+            goto done;
+        }
+        verified.signature_verified = 1;
     }
-    verified.signature_verified = 1;
     if (!upd_feed_entry_matches_manifest(entry, &verified.manifest, &error))
     {
         result = report_error(&error, options->json);
@@ -1615,7 +1673,8 @@ static int run_feed(const Options* options, int fetch)
     if (!options->replace && access(marker_path, F_OK) == 0)
     {
         if (upd_staged_load(stage_dir, &staged, &error)
-            && upd_staged_verify(stage_dir, &staged, &verified.manifest, verified.key_id,
+            && upd_staged_verify(stage_dir, &staged, &verified.manifest,
+                                 verified.signature_verified ? verified.key_id : NULL,
                                  &error)
             && staged_manifest_matches_verified(&verified.manifest, &staged))
         {
@@ -1629,7 +1688,7 @@ static int run_feed(const Options* options, int fetch)
         upd_error_clear(&error);
     }
 
-    if (!upd_file_size(signature_path, &signature_size, &error))
+    if (signature_mode && !upd_file_size(signature_path, &signature_size, &error))
     {
         result = report_error(&error, options->json);
         goto done;
@@ -1693,7 +1752,7 @@ static int run_feed(const Options* options, int fetch)
         Options stage_options = *options;
         stage_options.package = archive_path;
         stage_options.manifest = manifest_path;
-        stage_options.signature = signature_path;
+        stage_options.signature = signature_mode ? signature_path : NULL;
         stage_options.staging_root = root;
         stage_options.feed = NULL;
         stage_options.quiet = 1;
@@ -1847,6 +1906,7 @@ static int run_install(const Options* options)
     char archive[PATH_MAX];
     char manifest[PATH_MAX];
     char signature[PATH_MAX];
+    int signature_mode = resolved_trusted_key(options) != NULL;
     int code;
 
     upd_error_clear(&error);
@@ -1869,15 +1929,15 @@ static int run_install(const Options* options)
     check_options = *options;
     check_options.package = archive;
     check_options.manifest = manifest;
-    check_options.signature = signature;
-    if (!verify_package(&check_options, 1, &verified, &error))
+    check_options.signature = signature_mode ? signature : NULL;
+    if (!verify_package(&check_options, 0, &verified, &error))
     {
         code = report_error(&error, options->json);
         upd_manifest_free(&verified.manifest);
         return code;
     }
     if (!upd_staged_verify(options->staged_dir, &staged, &verified.manifest,
-                           verified.key_id, &error))
+                           verified.signature_verified ? verified.key_id : NULL, &error))
     {
         code = report_error(&error, options->json);
         upd_manifest_free(&verified.manifest);
@@ -2104,12 +2164,12 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
         return 0;
     }
     if (strcmp(command, "install") == 0
-        && (options->staged_dir == NULL || options->trusted_key == NULL
-            || options->platform == NULL || options->system_version == NULL))
+        && (options->staged_dir == NULL || options->platform == NULL
+            || options->system_version == NULL))
     {
         fprintf(stderr,
-                "nextupd: install needs --staged-dir, --target-root, --trusted-key, "
-                "--platform and --system-version\n");
+                "nextupd: install needs --staged-dir, --target-root, --platform and "
+                "--system-version\n");
         return 0;
     }
     if (strcmp(command, "recover") == 0 && options->target_root == NULL)
@@ -2147,12 +2207,6 @@ static int parse_options(int argc, char** argv, const char* command, Options* op
     {
         fprintf(stderr, "nextupd: %s does not accept package/manifest/install options\n",
                 command);
-        return 0;
-    }
-    if ((strcmp(command, "feed") == 0 || strcmp(command, "fetch") == 0)
-        && options->trusted_key == NULL)
-    {
-        fprintf(stderr, "nextupd: %s needs --trusted-key\n", command);
         return 0;
     }
     if (strcmp(command, "feed") == 0 && options->replace)

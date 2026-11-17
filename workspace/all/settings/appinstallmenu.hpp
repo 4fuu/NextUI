@@ -10,7 +10,7 @@
 namespace AppInstall {
 
 // The "install from file" settings page. It is a thin presentation layer over the
-// SDL-free Controller: it lists the signed packages found in the app-controlled
+// SDL-free Controller: it lists the packages found in the app-controlled
 // folder and runs one operation at a time on a worker thread behind an input
 // lock, so the menu frame keeps running and a second tap cannot start a
 // concurrent install.

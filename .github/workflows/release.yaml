@@ -38,10 +38,9 @@ jobs:
         run: |
           echo "RELEASE_NAME=$(make name)" >> "$GITHUB_OUTPUT"
 
-      # No tags is the first-release case: `git describe` would fail here and
-      # block the release before the signing-key guard can run, so the empty
-      # result is explicit and the first version comes from the authoritative
-      # version source below.
+      # No tags is the first-release case: `git describe` would fail here, so
+      # the empty result is explicit and the first version comes from the
+      # authoritative version source below.
       - name: Get Latest Tag
         id: latest-tag
         run: |
@@ -92,21 +91,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
-      # The update source is this repository's signed GitHub Releases assets, so
-      # a release cannot be published without the production signing key. Fail
-      # before any build work instead of publishing a release whose update
-      # assets are missing or unsigned. The key never appears in this file, in
-      # the repository, or in any log; see RELEASE-SOURCE.md for the custody and
-      # injection chain.
-      - name: Check the signing key is configured
-        env:
-          NEXTUI_RELEASE_SIGNING_KEY: ${{ secrets.NEXTUI_RELEASE_SIGNING_KEY }}
-        run: |
-          if [ -z "$NEXTUI_RELEASE_SIGNING_KEY" ]; then
-            echo "::error title=No signing key::NEXTUI_RELEASE_SIGNING_KEY is not set for this repository. Store the production signing key in the confidential facility and copy it into this repository's Actions secrets (RELEASE-SOURCE.md), then re-run. Refusing to publish a release without a signed update source." >&2
-            exit 1
-          fi
-
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -133,21 +117,18 @@ jobs:
       - name: Special
         run: make special
 
-      # The signed update source: one package set per platform plus the feed,
-      # built through the same entries the packaging tests drive. It runs before
+      # The update source: one package set per platform plus the feed, built
+      # through the same entries the packaging tests drive. It runs before
       # `make package`, which moves build/SYSTEM into the bootstrap payload.
-      # The script signs with the key from the environment, verifies every
-      # signature against the committed public sidecar, and writes nothing
-      # uploadable when any check fails, so an unsigned set never reaches the
-      # release page.
-      - name: Prepare the signed update assets
+      # The manifests are unsigned; the feed carries real SHA-256 digests, and
+      # the script verifies every set with the client's own integrity checks
+      # before writing anything uploadable.
+      - name: Prepare the update assets
         env:
-          NEXTUI_RELEASE_SIGNING_KEY: ${{ secrets.NEXTUI_RELEASE_SIGNING_KEY }}
           RELEASE_TAG: ${{ needs.prepare.outputs.next-tag }}
           PREVIOUS_TAG: ${{ needs.prepare.outputs.latest-tag }}
           SERVER_URL: ${{ github.serverUrl }}
           REPOSITORY: ${{ github.repository }}
-          UPDATE_PUBLIC_KEY: workspace/all/nextupd/release/*.pub
         run: |
           previous_args=""
           min_system="$RELEASE_TAG"
@@ -163,8 +144,6 @@ jobs:
           scripts/prepare-release-update-assets.sh \
             --version "$RELEASE_TAG" \
             --min-system "$min_system" \
-            --key-env NEXTUI_RELEASE_SIGNING_KEY \
-            --public-key $UPDATE_PUBLIC_KEY \
             --base-url "$SERVER_URL/$REPOSITORY/releases/download/$RELEASE_TAG" \
             $previous_args \
             --out-dir releases/update
@@ -190,7 +169,7 @@ jobs:
           name: ${{ env.RELEASE_NAME }}-extras.zip
           path: releases/${{ env.RELEASE_NAME }}-extras.zip
 
-      # The signed update assets: the per-platform sets and the feed.
+      # The update assets: the per-platform sets and the feed.
       # upload-artifact roots a single-directory artifact at that directory,
       # so the artifact holds these files at its root and the release job's
       # download places them directly under releases/ (the flatten step there
@@ -218,7 +197,6 @@ jobs:
             releases/update/nextui-feed.json
             releases/update/nextui-system-*.zip
             releases/update/nextui-system-*.manifest.json
-            releases/update/nextui-system-*.manifest.sig
 
   release:
     needs:
@@ -243,7 +221,7 @@ jobs:
       # outcome independent of that layout: if a future action version
       # preserves the update/ directory, its contents are moved up, so the
       # release step's `files: releases/*` can never silently miss the feed or
-      # the signed sets.
+      # the update sets.
       - name: Flatten the update assets
         run: |
           if [ -d releases/update ]; then

@@ -885,10 +885,10 @@ int main(int argc, char *argv[])
         MenuList *buttonMenu = buildFnButtonMenu(); // nullptr if this device has none
 
         // System Update page wiring. The staging and target roots are the SD card
-        // and are never taken from user input or feed data; the feed and trusted
-        // key stay unconfigured until the owner provisions them, so the page
-        // reports "Update source is not configured." instead of pretending an
-        // update exists. Test roots are injected only by the host controller test.
+        // and are never taken from user input or feed data. The feed defaults to
+        // this project's official GitHub Releases feed inside nextupd; an env
+        // override and an optional trusted key are passed through when present.
+        // Test roots are injected only by the host controller test.
         SysUpdate::Config updateConfig;
         updateConfig.platform = PLATFORM;
         updateConfig.system_version = readSystemVersion(ROOT_SYSTEM_PATH "version.txt");
@@ -927,9 +927,8 @@ int main(int argc, char *argv[])
 
         // Install-from-file page wiring. The package folder, the staging root and
         // the target root are the SD card and are never taken from user input or
-        // package data; the trusted key follows the System Update contract and
-        // stays unconfigured until the owner provisions one, so the page reports
-        // that verification is not configured instead of installing anything.
+        // package data. App packages are verified by SHA-256 by default; a
+        // configured trusted key enables the optional detached signature.
         AppInstall::Config appInstallConfig;
         appInstallConfig.platform = PLATFORM;
         appInstallConfig.system_version = updateConfig.system_version;
@@ -939,7 +938,7 @@ int main(int argc, char *argv[])
         AppInstall::Controller appInstallController(appInstallConfig);
         std::unique_ptr<AppInstall::Menu> appInstallMenu;
         appInstallMenu.reset(new AppInstall::Menu(appQuit, ctx.dirty, appInstallController));
-        mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Install from file"), TR("Install a signed app package from the SD card"), {}, {}, nullptr, nullptr, DeferToSubmenu, appInstallMenu.get()});
+        mainItems.push_back(new MenuItem{ListItemType::Generic, TR("Install from file"), TR("Install an app package from the SD card"), {}, {}, nullptr, nullptr, DeferToSubmenu, appInstallMenu.get()});
 
         ctx.menu = new MenuList(MenuItemType::List, "Main", mainItems);
 

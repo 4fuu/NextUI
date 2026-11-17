@@ -1,8 +1,9 @@
 // Host-only regression test for the local application install Controller. It
 // links the real SDL-free Controller against the real nextupd binary and drives
 // the folder scan and the stage+install path against isolated temporary roots,
-// using only signed packages built with the committed test-only key. It never
-// touches /mnt/SDCARD, a real device, a feed, a store source, or a production key.
+// using packages built with the committed test-only key plus an unsigned one.
+// It never touches /mnt/SDCARD, a real device, a feed, a store source, or a
+// production key.
 //
 // Usage: appinstall_controller_test <nextupd-binary> <trusted-key> <build-dir>
 //
@@ -129,20 +130,19 @@ static std::string pakDir(const std::string &target, const std::string &id = "co
 
 // ---- test cases -----------------------------------------------------------
 
-// Without a trusted key nothing can be verified, so the controller refuses
-// before it runs the tool and writes nothing.
-static void testUnconfiguredKey()
+// Without a trusted key the controller still installs: SHA-256 integrity is
+// the default. An unsigned package is a complete, verifiable package.
+static void testNoKeyIntegrity()
 {
     std::string base = freshBase();
     std::string target = makeTarget(base, "v6.0.0");
-    Config cfg = baseConfig(base, g_build + "/packages", target, "v6.0.0");
+    Config cfg = baseConfig(base, g_build + "/packages-unsigned", target, "v6.0.0");
     cfg.trusted_key = "";
     Controller controller(cfg);
-    Result r = controller.install(g_build + "/packages/Demo.pakz");
-    CHECK(r.state == State::Unconfigured, "unconfigured: state %d reason %s", (int)r.state,
+    Result r = controller.install(g_build + "/packages-unsigned/Demo.pakz");
+    CHECK(r.state == State::Installed, "no-key: state %d reason %s", (int)r.state,
           r.reason.c_str());
-    CHECK(r.reason == "trusted_key_missing", "unconfigured: reason %s", r.reason.c_str());
-    CHECK(!exists(target + "/Tools"), "unconfigured: nothing written to the target");
+    CHECK(exists(pakDir(target) + "/pak.json"), "no-key: app installed from integrity only");
 }
 
 static void testToolUnavailable()
@@ -508,9 +508,11 @@ int main(int argc, char **argv)
     g_tool = argv[1];
     g_key = argv[2];
     g_build = argv[3];
+    unsetenv("NEXTUI_UPDATE_FEED");
+    unsetenv("NEXTUI_UPDATE_TRUSTED_KEY");
     srand((unsigned)getpid());
 
-    testUnconfiguredKey();
+    testNoKeyIntegrity();
     testToolUnavailable();
     testFolderScan();
     testFullInstall();

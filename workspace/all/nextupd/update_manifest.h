@@ -10,10 +10,11 @@ extern "C" {
 /*
  * nextui-update-v1 manifest.
  *
- * The manifest is the signed identity of one package. It names the package id,
- * kind, version, platform, archive bytes and every regular file inside the
- * archive. Signatures cover the exact manifest bytes, so the writer below is
- * canonical and reformatting a manifest invalidates its signature.
+ * The manifest is the verified identity of one package. It names the package
+ * id, kind, version, platform, archive bytes and every regular file inside the
+ * archive. An optional detached signature covers the exact manifest bytes, so
+ * the writer below is canonical and reformatting a manifest invalidates a
+ * signature. The writer is canonical in both modes.
  */
 
 typedef struct

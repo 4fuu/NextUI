@@ -45,6 +45,8 @@ APP_PHASES = [
 
 def run(args, env=None):
     merged = os.environ.copy()
+    for key in ("NEXTUI_UPDATE_FEED", "NEXTUI_UPDATE_TRUSTED_KEY"):
+        merged.pop(key, None)
     if env:
         merged.update(env)
     return subprocess.run([BIN] + args, capture_output=True, text=True, env=merged)
@@ -477,14 +479,16 @@ def test_signature_and_integrity(key_der):
     signature = os.path.join(directory, "Demo.manifest.sig")
     sign_manifest(manifest, signature, key_der)
     staging_root = os.path.join(directory, "staging")
-    # unsigned stage is refused
+    # An unsigned app stages by default: integrity is the trust mode.
     proc = run(["stage", "--package", package, "--manifest", manifest, "--platform", "tg5040",
                 "--system-version", "v6.15.0", "--staging-root", staging_root])
-    expect("unsigned app stage is refused", proc, 8, "signature_missing")
-    # a properly staged package installs; a tampered archive fails re-verification
+    expect("unsigned app stage succeeds", proc, 0)
+    # A signed stage replaces it and is verified with the explicit key; a
+    # tampered archive then fails the install re-verification.
     proc = run(["stage", "--package", package, "--manifest", manifest, "--signature",
                 signature, "--trusted-key", FIXTURE_PUB, "--platform", "tg5040",
-                "--system-version", "v6.15.0", "--staging-root", staging_root])
+                "--system-version", "v6.15.0", "--staging-root", staging_root,
+                "--replace"])
     if proc.returncode != 0:
         fail("stage signed app", "failed", proc)
         return

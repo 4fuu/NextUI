@@ -3,8 +3,8 @@
 // real MenuList::draw() path with the dummy SDL video driver and GFX_initAttached().
 // The freeze regression drives the real top-level menu (defer -> navigate -> start
 // an operation) and pumps its frames, proving a finished operation is consumed and
-// input unlocks instead of freezing behind a stuck overlay. The regression uses an
-// unconfigured feed, so the operation returns immediately without spawning nextupd.
+// input unlocks instead of freezing behind a stuck overlay. The regression uses a
+// missing local feed, so the operation returns immediately without a network.
 //
 // Build and run from the repository root after `make setup`:
 //   workspace/all/settings/tests/run_sysupdate_menu_test.sh
@@ -60,7 +60,9 @@ static void runFreezeRegression()
     SysUpdate::Config config;
     config.platform = "tg5040";
     config.system_version = "v6.0.0";
-    config.feed = ""; // unconfigured: the check returns immediately, no nextupd spawn
+    // A missing local feed fails immediately, so the check finishes without a
+    // network attempt and the frame loop consumes its result.
+    config.feed = "/tmp/sysupdate-menu-missing-feed.json";
     config.target_root = "/tmp/sysupdate-freeze-no-txn";
 
     SysUpdate::Controller controller(config);
@@ -133,7 +135,9 @@ static void runZhScreenshots(const char *outDir)
     SysUpdate::Config config;
     config.platform = "tg5040";
     config.system_version = "v6.16.0";
-    config.feed = ""; // unconfigured -> the check reports "Update source is not configured."
+    // A missing local feed gives the check a concrete, immediate failure to
+    // render instead of reaching the network.
+    config.feed = "/tmp/sysupdate-menu-missing-feed.json";
     config.target_root = "/tmp/sysupdate-zh-no-txn";
 
     SysUpdate::Controller controller(config);
@@ -199,6 +203,8 @@ static long countLitPixels(SDL_Surface *surface)
 
 int main(int argc, char **argv)
 {
+    unsetenv("NEXTUI_UPDATE_FEED");
+    unsetenv("NEXTUI_UPDATE_TRUSTED_KEY");
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
         printf("FAIL: SDL_Init: %s\n", SDL_GetError());

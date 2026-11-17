@@ -235,10 +235,13 @@ def feed_url(relative):
     return f"{BASE_URL}/{relative}"
 
 
-def check_feed(name, feed, system_version, code, platform=PLATFORM, reason=None):
-    proc = run(["feed", "--feed", feed, "--platform", platform,
-                "--system-version", system_version,
-                "--trusted-key", FIXTURE_PUB, "--json"])
+def check_feed(name, feed, system_version, code, platform=PLATFORM, reason=None,
+               key=FIXTURE_PUB):
+    args = ["feed", "--feed", feed, "--platform", platform,
+            "--system-version", system_version, "--json"]
+    if key is not None:
+        args += ["--trusted-key", key]
+    proc = run(args)
     if code == 0:
         return expect_json(name, proc, code)
     expect(name, proc, code, reason)
@@ -361,7 +364,29 @@ def main():
         publish(unsigned, newer)
         os.unlink(os.path.join(unsigned, "nextui-system-tg5040.manifest.sig"))
         proc = generate([unsigned], f"{BASE_URL}/assets/unsigned")
-        expect("missing signature sidecar is refused", proc, 65, "signature")
+        if not expect("an unsigned set generates a feed", proc, 0):
+            pass
+        else:
+            entry = json.loads(proc.stdout)["entries"][0]
+            if "signature_url" in entry:
+                fail("unsigned entry omits signature_url", entry)
+            else:
+                ok("unsigned entry omits signature_url")
+            served = os.path.join(WWW, "assets", "unsigned")
+            os.makedirs(served, exist_ok=True)
+            for name in ("nextui-system-tg5040.zip",
+                         "nextui-system-tg5040.manifest.json"):
+                shutil.copy2(os.path.join(unsigned, name),
+                             os.path.join(served, name))
+            unsigned_feed = os.path.join(WWW, "assets", "unsigned-feed.json")
+            write_json(unsigned_feed, json.loads(proc.stdout))
+            body = check_feed("the client accepts an unsigned feed without a key",
+                              feed_url("assets/unsigned-feed.json"), "v6.16.0", 0,
+                              key=None)
+            if body is not None and body.get("signature_verified") is not False:
+                fail("unsigned feed signature state", body)
+            elif body is not None:
+                ok("unsigned feed reports integrity only")
 
         app_dir = os.path.join(WORK, "app-set")
         os.makedirs(app_dir, exist_ok=True)

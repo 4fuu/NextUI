@@ -2,23 +2,21 @@
 """Host tests for scripts/prepare-release-update-assets.sh.
 
 The script is the release workflow's preparation step: it packages every
-platform through the real `make update-package` entry, signs each manifest with
-the production key taken from a named environment variable, builds the
-nextui-feed-v1 feed, and verifies the whole set with the real nextupd binary
-against the committed public sidecar.
+platform through the real `make update-package` entry, builds the
+nextui-feed-v1 feed, and verifies every set with the real nextupd binary over
+SHA-256 integrity. The manifests are unsigned.
 
-These tests drive it over a synthetic build tree with the committed test-only
-key and then run the real client path against what it wrote:
-`nextupd feed` -> `fetch` -> `stage` -> `install` into a throwaway root. A
-loopback URL stands in for the release's asset addresses, and the previous
-feed is a loopback path, so no release is published, no key is generated, and
-no device is touched.
+These tests drive it over a synthetic build tree and then run the real client
+path against what it wrote: `nextupd feed` -> `fetch` -> `stage` -> `install`
+into a throwaway root, with no trusted key. A loopback URL stands in for the
+release's asset addresses, and the previous feed is a loopback path, so no
+release is published and no device is touched.
 
-The gates that must fail honestly are covered too: a missing signing key, a
-missing or mismatched public sidecar, a tag that is not vX.Y.Z, a min_system
-above the version, a tag that disagrees with the version source, an unknown
-platform, an unreachable previous feed, and a package without min_system. Each
-must fail before anything is written to the output directory.
+The gates that must fail honestly are covered too: a tag that is not vX.Y.Z, a
+min_system above the version, a tag that disagrees with the version source, an
+unknown platform, an unreachable previous feed, and a package without
+min_system. The removed signing options are refused. Each must fail before
+anything is written to the output directory.
 """
 
 import hashlib
@@ -35,12 +33,6 @@ BIN = os.path.abspath(sys.argv[1])
 REPO = os.path.abspath(sys.argv[2])
 WORK = os.path.abspath(sys.argv[3])
 SCRIPT = os.path.join(REPO, "scripts", "prepare-release-update-assets.sh")
-FIXTURES = os.path.join(REPO, "workspace", "all", "nextupd", "tests", "fixtures")
-FIXTURE_PUB = os.path.join(FIXTURES, "test-public-key")
-SEED_HEX = os.path.join(FIXTURES, "test-ed25519-seed.hex")
-
-KEY_ID = "nextui-test-only-1"
-KEY_ENV = "NEXTUI_TEST_SIGNING_KEY"
 PLATFORM = "tg5040"
 VERSION = "v6.17.0"
 PREVIOUS_VERSION = "v6.16.0"
@@ -96,7 +88,7 @@ def expect_json(name, proc, code=0):
 def run(args, env=None):
     merged = os.environ.copy()
     for key in ("PLATFORM", "NEXTUI_SYSTEM_VERSION", "NEXTUI_UPDATE_FEED",
-                "SDCARD_PATH", KEY_ENV):
+                "NEXTUI_UPDATE_TRUSTED_KEY", "SDCARD_PATH"):
         merged.pop(key, None)
     if env:
         merged.update(env)
@@ -109,21 +101,6 @@ def write_file(path, data, mode=0o644):
     with open(path, "wb") as handle:
         handle.write(data)
     os.chmod(path, mode)
-
-
-def make_pem(directory):
-    """The test-only key pair as DER and PEM, derived from the committed seed."""
-    os.makedirs(directory, exist_ok=True)
-    with open(SEED_HEX, "r", encoding="ascii") as handle:
-        seed = handle.read()
-    key_der = os.path.join(directory, "key.der")
-    with open(key_der, "wb") as handle:
-        handle.write(bytes.fromhex("302e020100300506032b657004220420")
-                     + bytes.fromhex(seed.strip()))
-    key_pem = os.path.join(directory, "key.pem")
-    subprocess.run(["openssl", "pkey", "-inform", "DER", "-in", key_der,
-                    "-out", key_pem], check=True, capture_output=True)
-    return key_der, key_pem
 
 
 def build_tree(name):
@@ -220,7 +197,6 @@ def version_file(version):
 def prepare(*extra, env=None, expect_code=0):
     command = [SCRIPT]
     merged = os.environ.copy()
-    merged.pop(KEY_ENV, None)
     if env:
         merged.update(env)
     for item in extra:
@@ -234,25 +210,6 @@ def main():
     os.makedirs(WORK, exist_ok=True)
     start_server()
     try:
-        _, key_pem = make_pem(os.path.join(WORK, "keys"))
-        signing_env = {KEY_ENV: open(key_pem, "r", encoding="ascii").read()}
-
-        # A second, validly formed key pair: the mismatch gate signs with the
-        # test key and verifies against this sidecar.
-        other_der = os.path.join(WORK, "other.der")
-        with open(other_der, "wb") as handle:
-            handle.write(bytes.fromhex("302e020100300506032b657004220420")
-                         + bytes.fromhex("11" * 32))
-        public_der = subprocess.run(
-            ["openssl", "pkey", "-inform", "DER", "-in", other_der,
-             "-pubout", "-outform", "DER"],
-            check=True, capture_output=True).stdout
-        import base64
-        other_pub = os.path.join(WORK, "other.pub")
-        with open(other_pub, "w", encoding="ascii") as handle:
-            handle.write("nextui-public-key-v1\nnextui-other-1\n%s\n"
-                         % base64.b64encode(public_der[-32:]).decode("ascii"))
-
         system, boot = build_tree("tree")
 
         # ---- The happy path: prepare a release and install it as a client.
@@ -260,15 +217,13 @@ def main():
         first_url = f"{BASE_URL}/rel-6170"
         proc = prepare(
             ["--version", VERSION], ["--min-system", MIN_SYSTEM],
-            ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
             ["--base-url", first_url], ["--platforms", PLATFORM],
             ["--system-dir", system], ["--boot-dir", boot],
             ["--out-dir", first_out],
             ["--version-source", version_file(VERSION)],
             # No previous release yet: this path 404s, which is the
             # first-release case, not an error.
-            ["--previous-url", f"{BASE_URL}/no-such-feed.json"],
-            env=signing_env)
+            ["--previous-url", f"{BASE_URL}/no-such-feed.json"])
         if not expect("prepare writes the first release", proc, 0,
                       "prepared v6.17.0"):
             return 1
@@ -280,7 +235,6 @@ def main():
         published = sorted(os.listdir(first_out))
         if published != ["nextui-feed.json",
                          "nextui-system-tg5040.manifest.json",
-                         "nextui-system-tg5040.manifest.sig",
                          "nextui-system-tg5040.zip"]:
             fail("uploadable asset set", published)
         else:
@@ -294,12 +248,29 @@ def main():
         archive = os.path.join(first_out, "nextui-system-tg5040.zip")
         manifest = os.path.join(first_out,
                                 "nextui-system-tg5040.manifest.json")
-        signature = os.path.join(first_out,
-                                 "nextui-system-tg5040.manifest.sig")
-        expect("the signed set verifies independently",
+        expect("the unsigned set verifies independently",
                run(["check", "--package", archive, "--manifest", manifest,
-                    "--signature", signature, "--trusted-key", FIXTURE_PUB,
-                    "--platform", PLATFORM]), 0, "signature: verified")
+                    "--platform", PLATFORM]), 0, "integrity only")
+        with open(os.path.join(first_out, "nextui-feed.json"), "r",
+                  encoding="utf-8") as handle:
+            prepared_feed = json.load(handle)
+        if any("signature_url" in entry
+               for entry in prepared_feed.get("entries", [])):
+            fail("the prepared feed has no signature URLs", prepared_feed)
+        else:
+            ok("the prepared feed has no signature URLs")
+
+        # A tampered archive copy is rejected by the same integrity checks.
+        tampered_dir = os.path.join(WORK, "tampered")
+        os.makedirs(tampered_dir, exist_ok=True)
+        tampered = os.path.join(tampered_dir, "nextui-system-tg5040.zip")
+        shutil.copy2(archive, tampered)
+        with open(tampered, "r+b") as handle:
+            handle.seek(30)
+            handle.write(b"\x00")
+        expect("a tampered prepared archive is rejected",
+               run(["check", "--package", tampered, "--manifest", manifest,
+                    "--platform", PLATFORM]), 6)
 
         # The client path against the prepared release, served over loopback.
         release_url = serve(first_out, "rel-6170")
@@ -307,11 +278,11 @@ def main():
         body = expect_json("the client finds the prepared release",
                            run(["feed", "--feed", feed_url, "--platform",
                                 PLATFORM, "--system-version", PREVIOUS_VERSION,
-                                "--trusted-key", FIXTURE_PUB, "--json"]), 0)
+                                "--json"]), 0)
         if body is not None:
             for field, expected in (("result", "update_available"),
                                     ("version", VERSION),
-                                    ("signature_verified", True)):
+                                    ("signature_verified", False)):
                 if body.get(field) != expected:
                     fail("prepared release fields",
                          f"{field}={body.get(field)!r}", None)
@@ -323,7 +294,6 @@ def main():
         body = expect_json("the client stages the prepared release",
                            run(["fetch", "--feed", feed_url, "--platform",
                                 PLATFORM, "--system-version", PREVIOUS_VERSION,
-                                "--trusted-key", FIXTURE_PUB,
                                 "--staging-root", staging, "--json"]), 0)
         staged = None
         if staging and os.path.isdir(staging):
@@ -341,7 +311,7 @@ def main():
         if staged is not None:
             expect("the client installs the prepared release",
                    run(["install", "--staged-dir", staged,
-                        "--target-root", target, "--trusted-key", FIXTURE_PUB,
+                        "--target-root", target,
                         "--platform", PLATFORM, "--system-version",
                         PREVIOUS_VERSION]), 0)
             installed_version = os.path.join(target, ".system", "version.txt")
@@ -379,12 +349,11 @@ def main():
         second_url = f"{BASE_URL}/rel-6180"
         proc = prepare(
             ["--version", NEXT_VERSION], ["--min-system", VERSION],
-            ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
             ["--base-url", second_url], ["--platforms", PLATFORM],
             ["--system-dir", system], ["--boot-dir", boot],
             ["--out-dir", second_out],
             ["--version-source", version_file(NEXT_VERSION)],
-            ["--previous-url", feed_url], env=signing_env)
+            ["--previous-url", feed_url])
         expect("prepare merges the previous feed", proc, 0)
         with open(os.path.join(second_out, "nextui-feed.json"),
                   "r", encoding="utf-8") as handle:
@@ -406,13 +375,12 @@ def main():
         redirected = os.path.join(WORK, "out-redirected")
         proc = prepare(
             ["--version", NEXT_VERSION], ["--min-system", VERSION],
-            ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
             ["--base-url", f"{BASE_URL}/rel-6180-redirected"],
             ["--platforms", PLATFORM],
             ["--system-dir", system], ["--boot-dir", boot],
             ["--version-source", version_file(NEXT_VERSION)],
             ["--previous-url", f"{BASE_URL}/redirect/merged.json"],
-            ["--out-dir", redirected], env=signing_env)
+            ["--out-dir", redirected])
         expect("a redirected previous feed is followed", proc, 0)
         rows = [(entry["platform"], entry["version"]) for entry in
                 json.load(open(os.path.join(redirected,
@@ -426,8 +394,7 @@ def main():
                            run(["feed", "--feed",
                                 f"{second_release_url}/nextui-feed.json",
                                 "--platform", PLATFORM, "--system-version",
-                                VERSION, "--trusted-key", FIXTURE_PUB,
-                                "--json"]), 0)
+                                VERSION, "--json"]), 0)
         if body is not None and body.get("version") != NEXT_VERSION:
             fail("merged feed version", body)
         # A system older than the new release's min_system skips it and is
@@ -436,78 +403,38 @@ def main():
                            run(["feed", "--feed",
                                 f"{second_release_url}/nextui-feed.json",
                                 "--platform", PLATFORM, "--system-version",
-                                "v6.1.0", "--trusted-key", FIXTURE_PUB,
-                                "--json"]), 0)
+                                "v6.1.0", "--json"]), 0)
         if body is not None and body.get("version") != VERSION:
             fail("merged feed older row", body)
 
         # ---- The gates that must fail honestly.
-        def gate(name, *extra, env=None, code=65, reason=None, out=None):
-            proc = prepare(*extra, env=env if env is not None else signing_env)
+        def gate(name, *extra, code=65, reason=None, out=None):
+            proc = prepare(*extra)
             expect(name, proc, code, reason)
             if out is not None and os.path.isdir(out) and os.listdir(out):
                 fail(name + " (no output)", os.listdir(out))
             elif out is not None:
                 ok(name + " (no output)")
 
-        gate("no signing key is a hard failure",
-             ["--version", VERSION], ["--key-env", KEY_ENV],
-             ["--public-key", FIXTURE_PUB], ["--base-url", first_url],
-             ["--platforms", PLATFORM], ["--system-dir", system],
-             ["--boot-dir", boot],
-             ["--version-source", version_file(VERSION)],
-             ["--out-dir", os.path.join(WORK, "gate-nokey")],
-             env={}, code=65, reason=KEY_ENV,
-             out=os.path.join(WORK, "gate-nokey"))
-
-        # The variable name is used to look the key up, so it is validated by
-        # rejection before the lookup, and the lookup evaluates nothing. The
-        # marker file is the proof: a name that survived validation would
-        # execute its payload on the signing host, where the key lives.
-        marker = os.path.join(WORK, "prepare-injection-marker")
-        for bad_name in ("A-B", "A B", "A;B", "A-};touch %s;#" % marker,
-                         "A{B}", "1A", ""):
-            proc = prepare(["--version", VERSION], ["--key-env", bad_name],
-                           ["--public-key", FIXTURE_PUB],
-                           ["--base-url", first_url], ["--platforms", PLATFORM],
-                           ["--version-source", version_file(VERSION)],
-                           env=signing_env)
-            if not expect("the invalid key name %r is refused" % bad_name,
-                          proc, 64, "invalid --key-env name"):
-                break
-        if os.path.exists(marker):
-            fail("key name validation blocks command execution",
-                 "the marker file was created")
-        else:
-            ok("key name validation blocks command execution")
-
-        empty_root = os.path.join(WORK, "empty-root")
-        os.makedirs(empty_root, exist_ok=True)
-        gate("no public sidecar is a hard failure",
-             ["--version", VERSION], ["--key-env", KEY_ENV],
-             ["--repo-root", empty_root], ["--base-url", first_url],
-             ["--platforms", PLATFORM],
-             ["--version-source", version_file(VERSION)],
-             code=65, reason="no production public key sidecar")
-
-        gate("a mismatched public sidecar fails verification",
-             ["--version", VERSION], ["--min-system", MIN_SYSTEM],
-             ["--key-env", KEY_ENV], ["--public-key", other_pub],
+        # The signing-key path is gone, not merely optional: old invocations
+        # that still pass those options fail as usage errors.
+        gate("the removed --key-env option is refused",
+             ["--version", VERSION], ["--key-env", "NEXTUI_TEST_SIGNING_KEY"],
              ["--base-url", first_url], ["--platforms", PLATFORM],
-             ["--system-dir", system], ["--boot-dir", boot],
-             ["--version-source", version_file(VERSION)],
-             ["--out-dir", os.path.join(WORK, "gate-wrongkey")],
-             code=70, reason="does not verify",
-             out=os.path.join(WORK, "gate-wrongkey"))
+             code=64, reason="unknown argument")
+        gate("the removed --public-key option is refused",
+             ["--version", VERSION],
+             ["--public-key", "/nonexistent/key.pub"],
+             ["--base-url", first_url], ["--platforms", PLATFORM],
+             code=64, reason="unknown argument")
 
         gate("a tag that is not vX.Y.Z is refused",
-             ["--version", "6.17.0"], ["--key-env", KEY_ENV],
-             ["--public-key", FIXTURE_PUB], ["--base-url", first_url],
+             ["--version", "6.17.0"],
+             ["--base-url", first_url],
              ["--platforms", PLATFORM], code=65, reason="must be vX.Y.Z")
 
         gate("min_system above the version is refused",
              ["--version", VERSION], ["--min-system", "v7.0.0"],
-             ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
              ["--base-url", first_url], ["--platforms", PLATFORM],
              ["--version-source", version_file(VERSION)],
              code=65, reason="is newer than")
@@ -518,21 +445,18 @@ def main():
                   encoding="ascii") as handle:
             handle.write("6.16.0\n")
         gate("a tag that disagrees with the version source is refused",
-             ["--version", VERSION], ["--key-env", KEY_ENV],
-             ["--public-key", FIXTURE_PUB], ["--repo-root", version_root],
+             ["--version", VERSION], ["--repo-root", version_root],
              ["--base-url", first_url], ["--platforms", PLATFORM],
              code=65, reason="does not match the version source")
 
         gate("an unknown platform is refused",
-             ["--version", VERSION], ["--key-env", KEY_ENV],
-             ["--public-key", FIXTURE_PUB], ["--base-url", first_url],
+             ["--version", VERSION], ["--base-url", first_url],
              ["--platforms", "magicx"],
              ["--version-source", version_file(VERSION)],
              code=65, reason="unknown platform")
 
         gate("an unreachable previous feed is an error, not a fresh feed",
              ["--version", NEXT_VERSION], ["--min-system", MIN_SYSTEM],
-             ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
              ["--base-url", second_url], ["--platforms", PLATFORM],
              ["--system-dir", system], ["--boot-dir", boot],
              ["--version-source", version_file(NEXT_VERSION)],
@@ -543,7 +467,6 @@ def main():
 
         gate("a package without min_system is refused",
              ["--version", NEXT_VERSION],
-             ["--key-env", KEY_ENV], ["--public-key", FIXTURE_PUB],
              ["--base-url", second_url], ["--platforms", PLATFORM],
              ["--system-dir", system], ["--boot-dir", boot],
              ["--version-source", version_file(NEXT_VERSION)],

@@ -37,6 +37,9 @@ FAIL = 0
 
 def run(args, env=None):
     merged = os.environ.copy()
+    for key in ("NEXTUI_UPDATE_FEED", "NEXTUI_UPDATE_TRUSTED_KEY",
+                "NEXTUPD_TEST_DEFAULT_FEED"):
+        merged.pop(key, None)
     if env:
         merged.update(env)
     return subprocess.run([BIN] + args, capture_output=True, text=True, env=merged)
@@ -244,21 +247,41 @@ def test_fixture_canonical_and_check(key_der):
             ok("fixture check fields")
 
 
-def test_requires_signature():
-    expect("check missing signature", run(check_args(FIXTURE_ZIP, FIXTURE_MANIFEST, None, None)),
-           8, "signature_missing")
+def test_integrity_default():
+    proc = run(check_args(FIXTURE_ZIP, FIXTURE_MANIFEST, None, None) + ["--json"])
+    value = expect_json("check without signature or key", proc)
+    if value:
+        if value.get("signature_verified") is not False:
+            fail("check without signature or key",
+                 "reported a verified signature without a key")
+        elif "NOT verified" not in proc.stderr:
+            fail("check without signature or key", "missing integrity warning", proc)
+        else:
+            ok("check without signature or key warns")
     expect("check signature without key",
            run(["check", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
                 "--platform", "tg5040", "--signature", FIXTURE_SIG]),
            8, "trusted_key_missing")
     expect("check key without signature",
-           run(check_args(FIXTURE_ZIP, FIXTURE_MANIFEST, None, FIXTURE_PUB)),
+           run(["check", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
+                "--platform", "tg5040", "--trusted-key", FIXTURE_PUB]),
            8, "signature_missing")
 
+    # Integrity mode is still fail-closed: tampering is rejected without any
+    # signature involvement.
+    directory = fresh("integrity-tampered")
+    package = os.path.join(directory, "MinUI.zip")
+    data = bytearray(open(FIXTURE_ZIP, "rb").read())
+    data[-1] ^= 0x01
+    open(package, "wb").write(data)
+    expect("tampered archive rejected without a signature",
+           run(check_args(package, FIXTURE_MANIFEST, None, None)), 6,
+           "archive_hash_mismatch")
 
-def test_integrity_only():
+
+def test_integrity_only_flag():
     proc = run(check_args(FIXTURE_ZIP, FIXTURE_MANIFEST, None, None) + ["--integrity-only", "--json"])
-    value = expect_json("integrity-only check", proc)
+    value = expect_json("integrity-only flag check", proc)
     if value:
         if value.get("signature_verified") is not False:
             fail("integrity-only check", "reported verified without a signature")
@@ -506,12 +529,51 @@ def test_stage_success(key_der):
                           replace=True)), 0)
 
 
-def test_stage_failures(key_der):
-    unsigned_root = os.path.join(fresh("stage-unsigned"), "staging")
-    expect("stage unsigned",
-           run(stage_args(FIXTURE_ZIP, FIXTURE_MANIFEST, None, None, unsigned_root)),
-           8, "signature_missing")
+def test_stage_and_install_integrity_only(key_der):
+    directory = fresh("stage-integrity")
+    staging_root = os.path.join(directory, "staging")
+    proc = run(stage_args(FIXTURE_ZIP, FIXTURE_MANIFEST, None, None, staging_root)
+               + ["--json"])
+    expect("stage without signature or key", proc, 0)
+    stage = os.path.join(staging_root,
+                         f"{FIXTURE_ID}-{FIXTURE_VERSION}-{FIXTURE_PLATFORM}")
+    marker = os.path.join(stage, "staged.json")
+    if not os.path.isfile(marker):
+        fail("stage integrity descriptor", "no staged.json")
+        return
+    descriptor = read_json(marker)
+    if (descriptor.get("signature") != ""
+            or descriptor.get("signature_key_id") != ""):
+        fail("stage integrity descriptor", f"unexpected signature fields: {descriptor}")
+    elif os.path.exists(os.path.join(stage, "manifest.sig")):
+        fail("stage integrity descriptor", "published a signature file")
+    else:
+        ok("stage integrity descriptor")
 
+    target = make_target("install-integrity")
+    expect("install an unsigned staged package", run(install_args(stage, target, key=None)), 0)
+    if read_version_file(target) != FIXTURE_VERSION:
+        fail("install integrity live system", "committed tree has the wrong version")
+    elif not os.path.isfile(os.path.join(target, ".system", "tg5040", "bin",
+                                         "nextui.elf")):
+        fail("install integrity live system", "committed tree is missing nextui.elf")
+    else:
+        ok("install integrity live system")
+
+    # A trusted key on an unsigned stage is fail-closed, not silently ignored.
+    other_target = make_target("install-integrity-key")
+    expect("install unsigned stage with a trusted key",
+           run(install_args(stage, other_target)), 8, "signature_missing")
+
+    unsigned_root = os.path.join(fresh("stage-unsigned"), "staging")
+    expect("stage signature without key",
+           run(["stage", "--package", FIXTURE_ZIP, "--manifest", FIXTURE_MANIFEST,
+                "--signature", FIXTURE_SIG, "--platform", "tg5040",
+                "--system-version", "v6.15.0", "--staging-root", unsigned_root]),
+           8, "trusted_key_missing")
+
+
+def test_stage_failures(key_der):
     space_root = os.path.join(fresh("stage-space"), "staging")
     expect("stage insufficient space",
            run(stage_args(FIXTURE_ZIP, FIXTURE_MANIFEST, FIXTURE_SIG, FIXTURE_PUB, space_root),
@@ -641,8 +703,11 @@ def build_stage(name, version="v6.16.0", min_system="v6.0.0", stage_system="v6.1
 
 def install_args(staged, target, platform=FIXTURE_PLATFORM, system="v6.15.0",
                  key=FIXTURE_PUB):
-    return ["install", "--staged-dir", staged, "--target-root", target,
-            "--trusted-key", key, "--platform", platform, "--system-version", system]
+    args = ["install", "--staged-dir", staged, "--target-root", target,
+            "--platform", platform, "--system-version", system]
+    if key is not None:
+        args += ["--trusted-key", key]
+    return args
 
 
 def recover_args(target, rollback=False):
@@ -1268,8 +1333,8 @@ def main():
         return 1
 
     test_fixture_canonical_and_check(key_der)
-    test_requires_signature()
-    test_integrity_only()
+    test_integrity_default()
+    test_integrity_only_flag()
     test_platform_and_min_system()
     test_archive_damage()
     test_manifest_validation(key_der)
@@ -1279,6 +1344,7 @@ def main():
     test_signature_failures()
     test_app_universal(key_der)
     test_stage_success(key_der)
+    test_stage_and_install_integrity_only(key_der)
     test_stage_failures(key_der)
     test_sign_helper(key_der)
     test_stage_signature_failure()

@@ -6,28 +6,28 @@
 
 /*
  * Local application install controller: process model and the
- * install-from-a-signed-package contract.
+ * install-from-a-package contract.
  *
  * This is the app counterpart of the System Update controller, and it is
- * deliberately not a store: it selects no source, contacts no network, and reads
- * no production key. The user drops a signed package into one app-controlled
- * folder and picks it here; the controller runs the same `nextupd stage` and
- * `nextupd install` primitives the system update uses, so the manifest, the
- * detached Ed25519 signature, the per-file hashes and the ZIP safety checks are
- * the tool's, never a promise of this UI. Both calls carry `--expected-kind app`,
- * so the tool refuses a package whose *verified* manifest kind is anything else
- * before it stages or applies it: the folder scan is a listing, and the kind
- * boundary is the tool's, on the manifest its own signature check covered. The
+ * deliberately not a store: it selects no source and contacts no network. The
+ * user drops a package into one app-controlled folder and picks it here; the
+ * controller runs the same `nextupd stage` and `nextupd install` primitives the
+ * system update uses, so the manifest, the per-file hashes and the ZIP safety
+ * checks are the tool's, never a promise of this UI. Both calls carry
+ * `--expected-kind app`, so the tool refuses a package whose *verified* manifest
+ * kind is anything else before it stages or applies it: the folder scan is a
+ * listing, and the kind boundary is the tool's, on the manifest it verified. The
  * install itself is the independent app transaction: it lands in
  * `Tools/<platform>/<id>.pak/` under the explicit target root, derived from the
- * signed manifest id and the concrete platform, and never touches `.system`,
+ * verified manifest id and the concrete platform, and never touches `.system`,
  * `.tmp_update`, or user data.
  *
- * The trusted public key follows the System Update contract exactly: it is a
- * path the app is configured with (in production the same
- * `NEXTUI_UPDATE_TRUSTED_KEY` provision), and no key is built in. Without one the
- * page reports that verification is not configured instead of installing
- * anything. Tests inject the committed test-only key and isolated roots.
+ * Integrity is the default. A trusted public key is optional and follows the
+ * System Update contract exactly: an explicit path (in production the same
+ * `NEXTUI_UPDATE_TRUSTED_KEY` provision), with no key built in. Without one the
+ * package is verified by manifest/archive/file SHA-256; with one the detached
+ * Ed25519 signature is also required. Tests inject the committed test-only key
+ * and isolated roots.
  *
  * Operations are synchronous; the caller runs them on a worker thread so the UI
  * never blocks. A single in-flight guard plus the tool's own target lock make a
@@ -44,16 +44,16 @@ namespace AppInstall {
 // verification failure is never reported as installed.
 enum class State {
     Idle,
-    NoPackages,         // the package folder holds no signed package
+    NoPackages,         // the package folder holds no package
     Installing,         // staging and installing are in flight (page shows progress)
     Installed,          // committed into Tools/<platform>/<id>.pak
     AlreadyInstalled,   // the same version is already installed; nothing was written
     DowngradeRefused,   // the package is older than the installed app
     SystemTooOld,       // the running system is below the package min_system
-    VerificationFailed, // signature / hash / manifest mismatch; nothing was installed
+    VerificationFailed, // hash / manifest mismatch, or signature with a key
     InsufficientSpace,  // not enough free space to stage or install
-    PackageUnusable,    // the picked package has no manifest or signature sidecar
-    Unconfigured,       // no trusted key configured
+    PackageUnusable,    // the picked package has no readable manifest
+    Unconfigured,       // legacy: no key was configured
     ToolUnavailable,    // the nextupd binary is missing or not executable
     Busy,               // another operation holds the target
     Failed,             // anything else; reason carries the detail
@@ -66,8 +66,9 @@ struct Config {
     std::string tool_path;
     std::string platform;       // e.g. "tg5040"; the install target platform
     std::string system_version; // running system, vX.Y.Z
-    std::string trusted_key;    // nextui-public-key-v1 sidecar; empty => Unconfigured
-    // Folder the user drops signed packages into. Empty =>
+    // Optional nextui-public-key-v1 sidecar. Empty => integrity only.
+    std::string trusted_key;
+    // Folder the user drops packages into. Empty =>
     // <target_root>/.tmp_update/packages. Never taken from package or manifest
     // data, and never the launcher's app root.
     std::string packages_dir;
@@ -75,10 +76,9 @@ struct Config {
     std::string target_root;    // explicit install target, e.g. <sdcard>
 };
 
-// One package found in the package folder. A package is usable only when its
-// manifest and detached signature sidecars sit next to it: `stage` requires all
-// three paths, so a lone .pakz can never be installed, and the page says so
-// instead of letting the tool fail.
+// One package found in the package folder. A manifest sidecar is always
+// required. The detached signature is optional unless a trusted key is
+// configured; then the package is unusable without it.
 struct Package {
     std::string path;      // the .pakz
     std::string name;      // file name, as shown in the page

@@ -118,10 +118,10 @@ std::vector<Package> Controller::listPackages() const
         if (stat(package.path.c_str(), &status) != 0 || !S_ISREG(status.st_mode))
             continue;
 
-        // stage takes three paths: the archive, its signed manifest and the
-        // detached signature. A package missing either sidecar is reported here
-        // instead of being handed to the tool, which would fail on the same
-        // missing file with a less useful message.
+        // stage always takes the archive and its manifest. The detached
+        // signature is optional for integrity-only installs, but a configured
+        // trusted key makes it mandatory, so the page reports that here instead
+        // of letting the tool fail on the same missing file.
         std::string base = package.name.substr(0, package.name.size() - 5); // strip ".pakz"
         package.manifest = config_.packages_dir + "/" + base + ".manifest.json";
         package.signature = config_.packages_dir + "/" + base + ".manifest.sig";
@@ -131,7 +131,7 @@ std::vector<Package> Controller::listPackages() const
             packages.push_back(package);
             continue;
         }
-        if (!fileExists(package.signature))
+        if (!config_.trusted_key.empty() && !fileExists(package.signature))
         {
             package.reason = "signature_missing";
             packages.push_back(package);
@@ -225,12 +225,6 @@ Result Controller::runInstall(const Package& package)
         result.reason = package.reason.empty() ? "package_unusable" : package.reason;
         return result;
     }
-    if (config_.trusted_key.empty())
-    {
-        result.state = State::Unconfigured;
-        result.reason = "trusted_key_missing";
-        return result;
-    }
     if (config_.platform.empty())
     {
         result.state = State::Failed;
@@ -245,24 +239,21 @@ Result Controller::runInstall(const Package& package)
         return result;
     }
 
-    // stage verifies the manifest, the detached signature and the archive, then
-    // copies the package into the private staging root. --replace keeps a
-    // superseded or interrupted attempt from blocking a new one with
-    // already_staged; the install step re-verifies everything anyway.
-    // --expected-kind app is the boundary that makes this entry app-only: the tool
-    // refuses a package whose *verified* manifest kind is anything else, so a
-    // package swapped into this folder after the scan above can never reach a
-    // system transaction through here. The scan is a listing, not a guarantee.
+    // stage verifies the manifest and archive (and the detached signature when
+    // a trusted key is configured), then copies the package into the private
+    // staging root. --replace keeps a superseded or interrupted attempt from
+    // blocking a new one with already_staged; the install step re-verifies
+    // everything anyway. --expected-kind app is the boundary that makes this
+    // entry app-only: the tool refuses a package whose *verified* manifest kind
+    // is anything else, so a package swapped into this folder after the scan
+    // above can never reach a system transaction through here. The scan is a
+    // listing, not a guarantee.
     std::vector<std::string> stage_argv = {tool,
                                            "stage",
                                            "--package",
                                            package.path,
                                            "--manifest",
                                            package.manifest,
-                                           "--signature",
-                                           package.signature,
-                                           "--trusted-key",
-                                           config_.trusted_key,
                                            "--platform",
                                            config_.platform,
                                            "--system-version",
@@ -273,6 +264,12 @@ Result Controller::runInstall(const Package& package)
                                            "--expected-kind",
                                            "app",
                                            "--json"};
+    if (!config_.trusted_key.empty())
+    {
+        stage_argv.insert(stage_argv.end() - 1,
+                          {"--signature", package.signature, "--trusted-key",
+                           config_.trusted_key});
+    }
     std::string stage_out;
     int stage_code = runTool(stage_argv, stage_out);
     Result staged = interpret(stage_out, stage_code, {"staged", "already_staged"});
@@ -313,19 +310,18 @@ Result Controller::runInstall(const Package& package)
         return result;
     }
 
-    // install re-runs the full manifest/signature/hash check against the staged
-    // bytes before it writes anything, so this is the pre-install re-verification.
-    // --expected-kind app repeats the boundary on the staged manifest too: the
-    // staged bytes are re-verified here, and a kind that is not app is refused
-    // before the tool chooses a system or an app transaction.
+    // install re-runs the full manifest/hash check (and the signature when a
+    // key is configured) against the staged bytes before it writes anything, so
+    // this is the pre-install re-verification. --expected-kind app repeats the
+    // boundary on the staged manifest too: the staged bytes are re-verified
+    // here, and a kind that is not app is refused before the tool chooses a
+    // system or an app transaction.
     std::vector<std::string> install_argv = {tool,
                                              "install",
                                              "--staged-dir",
                                              staged_dir,
                                              "--target-root",
                                              config_.target_root,
-                                             "--trusted-key",
-                                             config_.trusted_key,
                                              "--platform",
                                              config_.platform,
                                              "--system-version",
@@ -333,6 +329,8 @@ Result Controller::runInstall(const Package& package)
                                              "--expected-kind",
                                              "app",
                                              "--json"};
+    if (!config_.trusted_key.empty())
+        install_argv.insert(install_argv.end() - 1, {"--trusted-key", config_.trusted_key});
     std::string install_out;
     int install_code = runTool(install_argv, install_out);
     Result installed = interpret(install_out, install_code, {"installed", "already_installed"});

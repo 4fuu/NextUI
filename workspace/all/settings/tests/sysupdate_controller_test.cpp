@@ -1,8 +1,8 @@
 // Host-only regression test for the System Update Controller. It links the real
 // SDL-free Controller against the real nextupd binary and drives check / download
-// / install against isolated temporary roots, using only the committed signed
-// test fixture and a local file feed. It never touches /mnt/SDCARD, a real device,
-// a feed, or a production key.
+// / install against isolated temporary roots, using the committed test fixture
+// and local file feeds (signed, and integrity-only). It never touches /mnt/SDCARD,
+// a real device, the network, or a production key.
 //
 // Usage: sysupdate_controller_test <nextupd-binary> <fixtures-dir>
 #include "sysupdate.hpp"
@@ -93,10 +93,11 @@ static std::string sha256File(const std::string &path)
     return out;
 }
 
-// Build a local file feed that serves the committed signed fixture package.
-// Returns the feed directory; the feed JSON is <dir>/feed.json and the package
-// files live under <dir>/pkg/.
-static std::string buildFeed(const std::string &base)
+// Build a local file feed that serves the committed fixture package. Returns
+// the feed directory; the feed JSON is <dir>/feed.json and the package files
+// live under <dir>/pkg/. signed_entry adds signature_url metadata; omitting it
+// is the integrity-only feed shape.
+static std::string buildFeed(const std::string &base, bool signed_entry = true)
 {
     std::string dir = base + "/feed";
     std::string pkg = dir + "/pkg";
@@ -114,9 +115,10 @@ static std::string buildFeed(const std::string &base)
     std::ostringstream feed;
     feed << "{\"schema\":\"nextui-feed-v1\",\"channel\":\"test\",\"entries\":[{"
          << "\"platform\":\"tg5040\",\"version\":\"v6.16.0\",\"min_system\":\"v6.0.0\","
-         << "\"manifest_url\":\"pkg/MinUI.manifest.json\","
-         << "\"signature_url\":\"pkg/MinUI.manifest.sig\","
-         << "\"archive_url\":\"pkg/MinUI.zip\",\"archive_name\":\"MinUI.zip\","
+         << "\"manifest_url\":\"pkg/MinUI.manifest.json\",";
+    if (signed_entry)
+        feed << "\"signature_url\":\"pkg/MinUI.manifest.sig\",";
+    feed << "\"archive_url\":\"pkg/MinUI.zip\",\"archive_name\":\"MinUI.zip\","
          << "\"archive_size\":" << fileSize(zip) << ","
          << "\"archive_sha256\":\"" << sha256File(zip) << "\"}]}";
     writeFile(dir + "/feed.json", feed.str());
@@ -157,28 +159,36 @@ static std::string freshBase()
 
 // ---- test cases -----------------------------------------------------------
 
-static void testUnconfigured()
-{
-    std::string base = freshBase();
-    std::string target = makeTarget(base, "v6.0.0");
-    Config cfg = baseConfig(base, "", target, "v6.0.0"); // no feed
-    Controller controller(cfg);
-    Result r = controller.checkForUpdates();
-    CHECK(r.state == State::Unconfigured, "unconfigured: got state %d reason %s",
-          (int)r.state, r.reason.c_str());
-    CHECK(r.reason == "feed_unconfigured", "unconfigured: reason %s", r.reason.c_str());
-}
-
-static void testMissingKey()
+static void testDefaultFeed()
 {
     std::string base = freshBase();
     std::string target = makeTarget(base, "v6.0.0");
     std::string feed = buildFeed(base);
-    Config cfg = baseConfig(base, feed, target, "v6.0.0");
-    cfg.trusted_key = ""; // no trusted key
+    // An empty Config::feed means "use nextupd's built-in official feed".
+    // Redirect that default at the local fixture so the test never uses the
+    // network, and prove the controller does not require a --feed argument.
+    setenv("NEXTUPD_TEST_DEFAULT_FEED", feed.c_str(), 1);
+    Config cfg = baseConfig(base, "", target, "v6.0.0");
+    cfg.trusted_key = "";
     Controller controller(cfg);
     Result r = controller.checkForUpdates();
-    CHECK(r.state == State::Unconfigured, "missing key: got state %d reason %s",
+    unsetenv("NEXTUPD_TEST_DEFAULT_FEED");
+    CHECK(r.state == State::UpdateAvailable, "default feed: got state %d reason %s",
+          (int)r.state, r.reason.c_str());
+    CHECK(r.available_version == "v6.16.0", "default feed: version %s",
+          r.available_version.c_str());
+}
+
+static void testNoTrustedKey()
+{
+    std::string base = freshBase();
+    std::string target = makeTarget(base, "v6.0.0");
+    std::string feed = buildFeed(base, false); // no signature_url
+    Config cfg = baseConfig(base, feed, target, "v6.0.0");
+    cfg.trusted_key = ""; // integrity only
+    Controller controller(cfg);
+    Result r = controller.checkForUpdates();
+    CHECK(r.state == State::UpdateAvailable, "no key: got state %d reason %s",
           (int)r.state, r.reason.c_str());
 }
 
@@ -268,6 +278,27 @@ static void testFullInstallPath()
               (st.st_mode & S_IXUSR),
           "path: committed executable mode");
     CHECK(!controller.hasPendingRecovery(), "path: no pending recovery after commit");
+}
+
+// The out-of-the-box path: no feed argument, no trusted key, an integrity-only
+// feed entry, download, and install. SHA-256 still verifies every byte.
+static void testIntegrityOnlyInstallPath()
+{
+    std::string base = freshBase();
+    std::string target = makeTarget(base, "v6.0.0");
+    std::string feed = buildFeed(base, false);
+    Config cfg = baseConfig(base, feed, target, "v6.0.0");
+    cfg.trusted_key = "";
+    Controller controller(cfg);
+
+    Result staged = controller.downloadToStaging();
+    CHECK(staged.state == State::Staged, "integrity: download state %d reason %s",
+          (int)staged.state, staged.reason.c_str());
+    Result installed = controller.install();
+    CHECK(installed.state == State::Installed, "integrity: install state %d reason %s",
+          (int)installed.state, installed.reason.c_str());
+    CHECK(readSystemVersion(target + "/.system/version.txt") == "v6.16.0",
+          "integrity: committed version");
 }
 
 // install re-verifies the staged bytes: a corrupted staged archive must fail
@@ -486,15 +517,18 @@ int main(int argc, char **argv)
     }
     g_tool = argv[1];
     g_fixtures = argv[2];
+    unsetenv("NEXTUI_UPDATE_FEED");
+    unsetenv("NEXTUI_UPDATE_TRUSTED_KEY");
     srand((unsigned)getpid());
 
-    testUnconfigured();
-    testMissingKey();
+    testDefaultFeed();
+    testNoTrustedKey();
     testUpdateAvailableAndUpToDate();
     testSystemTooOld();
     testTransportUnavailable();
     testToolUnavailable();
     testFullInstallPath();
+    testIntegrityOnlyInstallPath();
     testInstallReverifies();
     testAlreadyInstalled();
     testDowngradeRefused();

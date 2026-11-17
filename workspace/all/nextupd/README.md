@@ -1,8 +1,8 @@
 # nextupd
 
-`nextupd` verifies `nextui-update-v1` manifests, checks a `nextui-feed-v1`
-update feed, downloads into signature-verified staging, and applies a staged
-system or application package to an explicit offline target root with a
+`nextupd` verifies `nextui-update-v1` manifests by SHA-256, checks a
+`nextui-feed-v1` update feed, downloads into verified staging, and applies a
+staged system or application package to an explicit offline target root with a
 resumable transaction. It never guesses a target root, never writes the
 environment it is running in, and does not install or activate an update by
 itself. The install boot scripts
@@ -15,11 +15,14 @@ payload as `.tmp_update.bak`, publishes the new recovery tool before `.system`
 moves, and journals the boot phases in `.nextupd-txn/boot.json`. A system-only
 package keeps the old behavior and leaves `.tmp_update` untouched.
 
-There is no built-in feed address and no production key. `feed` and `fetch`
-report `feed_unconfigured` (exit 15) until the caller supplies `--feed` or
-`NEXTUI_UPDATE_FEED` and an owner-provisioned trusted key. HTTPS downloads use
-the system `curl`; when it is absent the result is `transport_unavailable`, not
-an insecure fallback.
+The official feed is built in:
+`https://github.com/4fuu/NextUI/releases/latest/download/nextui-feed.json`.
+`--feed` and `NEXTUI_UPDATE_FEED` override it. Integrity (SHA-256) is the
+default trust mode, so no trusted key is required. A detached Ed25519 signature
+is verified only when `--trusted-key` or `NEXTUI_UPDATE_TRUSTED_KEY` is set; a
+feed without `signature_url` then fails closed. HTTPS downloads use the system
+`curl`; when it is absent the result is `transport_unavailable`, not an
+insecure fallback.
 
 See [`UPDATES.md`](../../../UPDATES.md) for the contract, threat model, feed
 schema, staging layout, signatures, transaction states, and non-goals.
@@ -50,22 +53,24 @@ against isolated roots with every device path rewritten into that root.
 
 ## Commands
 
-- `manifest`: build the canonical signed-manifest payload from a package.
-- `check`: verify identity, platform, archive/file hashes, ZIP safety, and a
-  detached Ed25519 signature. Writes nothing. `--expected-kind <app|system>`
-  additionally requires the verified manifest to declare that kind.
-- `feed`: load an explicitly configured `nextui-feed-v1` feed, select the newest
-  compatible entry, download its manifest/signature, and verify them. Writes
-  nothing. No feed address is built in.
+- `manifest`: build the canonical manifest payload from a package.
+- `check`: verify identity, platform, archive/file hashes, ZIP safety, and,
+  when a trusted key is supplied, a detached Ed25519 signature. Writes nothing.
+  `--expected-kind <app|system>` additionally requires the verified manifest to
+  declare that kind.
+- `feed`: load the `nextui-feed-v1` feed (official by default), select the
+  newest compatible entry, download its manifest (and signature when a trusted
+  key is set), and verify them. Writes nothing.
 - `fetch`: run the same check, download the archive into a private incoming
   directory under an explicit staging root, verify it again, and stage it through
   the existing staging path. Reuses a valid staged package; never installs.
 - `stage`: verify, check free space, copy into a per-package staging directory,
-  and write `staged.json` last. `--expected-kind` is checked against the manifest
-  that same invocation verified, before anything is written.
+  and write `staged.json` last. The signature is optional; a trusted key makes
+  it mandatory. `--expected-kind` is checked against the manifest that same
+  invocation verified, before anything is written.
 - `install`: re-verify a staged package, then apply it to an explicit
   `--target-root` through a recorded transaction. A `kind: system` package
-  applies its `.system/` tree and, when present, its signed `.tmp_update/` tree;
+  applies its `.system/` tree and, when present, its manifest-covered `.tmp_update/` tree;
   it requires an existing `.system` with `version.txt` and refuses a missing or
   older version. A `kind: app` package installs into
   `Tools/<platform>/<id>.pak/` through an independent app transaction with its
@@ -88,9 +93,9 @@ mounted SD root explicitly to `recover` before `.system` is used; nothing runs
 `install` at boot, and `launch.sh`, keymon, and devserv call neither command.
 
 `fetch` has no default staging root and does not install. It stages only after
-the signed manifest and archive hash verify. A valid existing staging directory
-is reused; `--replace` forces a fresh download.
+the manifest and archive hash verify. A valid existing staging directory is
+reused; `--replace` forces a fresh download.
 
-The committed test seed under `tests/fixtures/` is test-only. Production key
-generation, custody, and release signing remain owner decisions and are not
-implemented here.
+The committed test seed under `tests/fixtures/` is test-only and is used to
+exercise the optional signature mode. The official release path is unsigned and
+relies on SHA-256 integrity.

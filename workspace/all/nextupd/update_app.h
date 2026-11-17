@@ -24,10 +24,12 @@ extern "C" {
  * writes `.nextupd-txn`, `.system`, `.system.bak`, `.tmp_update`, or
  * `.tmp_update.bak`, and the `nextui-install-txn-v1` contract is untouched.
  *
- * The caller re-verifies the staged archive, manifest and signature (through
- * the same `nextupd stage`/`check` primitives the system install uses) before
- * calling here; this module re-hashes every extracted file and cross-checks the
- * destination and version policy, and it keeps one previous app as a backup so
+ * The caller re-verifies the staged archive and manifest (through the same
+ * `nextupd stage`/`check` primitives the system install uses; the detached
+ * signature is optional and is checked when a trusted key is configured)
+ * before calling here; this module re-hashes every extracted file and
+ * cross-checks the destination and version policy, and it keeps one previous
+ * app as a backup so
  * an interrupted install can be committed or rolled back after a reboot.
  */
 

@@ -1,48 +1,56 @@
-# Production update source and signing trust chain
+# Release source and update integrity
 
-Status: the source and the trust chain are **configured as far as they can be
-without a release**. The build-side and verifier-side contracts already exist
-([`UPDATE-PACKAGING.md`](UPDATE-PACKAGING.md) produces the package sets,
-[`UPDATES.md`](UPDATES.md) verifies them); this page records the production
-decisions and the procedures that use them. Nothing here publishes a release,
-and nothing here is live yet — see [What is not configured yet](#what-is-not-configured-yet).
+Status: the update source is this repository's GitHub Releases. The client now
+has a built-in default feed, and integrity (SHA-256) is the default trust mode.
+A release publishes unsigned manifests plus a feed containing the real archive
+digests. The first release is still an owner action; this page records the
+contract, not a published release.
 
 ## Decision
 
-This fork's update source is **this repository's GitHub Releases**, using the
-signed assets a release publishes. There is no application-store source, no
-store fork, and no store index. The update path is the one already in `main`:
+- The official feed is:
+  `https://github.com/4fuu/NextUI/releases/latest/download/nextui-feed.json`
+- `nextupd feed` and `nextupd fetch` use that URL when neither `--feed` nor
+  `NEXTUI_UPDATE_FEED` is set. There is no `feed_unconfigured` state on the
+  official path.
+- Integrity is fail-closed: the manifest pins the archive name, size and
+  SHA-256, every file in the archive has its own SHA-256, and the client checks
+  size limits, platform/kind/min_system binding and ZIP path safety.
+- A detached Ed25519 signature remains supported, but only when a trusted key
+  is supplied explicitly (`--trusted-key` / `NEXTUI_UPDATE_TRUSTED_KEY`). No
+  key is built in and none is required for the official feed.
+- Any other update source is a deliberate local install. The supported path is
+  the host-side ADB tool below, which runs the same on-device `nextupd stage`
+  and `nextupd install` primitives. The settings UI offers only the official
+  feed.
 
-- the client checks a `nextui-feed-v1` feed with `nextupd feed`,
-- the feed names a signed `nextui-update-v1` manifest per platform and version,
-- only that manifest's detached Ed25519 signature, checked against a trusted
-  public key, authorizes staging and installing.
-
-The feed is routing metadata, not a trust anchor. A release that publishes an
-unsigned or wrongly signed set produces a feed the client refuses, not an
-update it applies.
+The feed is routing metadata, not a trust anchor. The manifest and archive
+hashes authorize bytes; the feed only selects the compatible row.
 
 ## What a release publishes
 
 `make update-package PLATFORM=<p> UPDATE_VERSION=vX.Y.Z ...` (see
-[`UPDATE-PACKAGING.md`](UPDATE-PACKAGING.md)) publishes one package set per
-platform into `releases/`:
+[`UPDATE-PACKAGING.md`](UPDATE-PACKAGING.md)) produces one package set per
+platform:
 
 | Asset | Meaning |
 | --- | --- |
-| `nextui-system-<platform>.zip` | the transactional archive (`.system/` plus the signed `.tmp_update/` boot payload) |
+| `nextui-system-<platform>.zip` | the transactional archive (`.system/` plus the `.tmp_update/` boot payload) |
 | `nextui-system-<platform>.manifest.json` | the `nextui-update-v1` manifest |
-| `nextui-system-<platform>.manifest.sig` | the detached Ed25519 signature |
 | `nextui-system-<platform>.manifest.set` | the packaging script's commit marker; not uploaded, not read by the client |
 
-The release uploads the first three per platform, plus one more asset:
+The release adds one feed:
 
 | Asset | Meaning |
 | --- | --- |
 | `nextui-feed.json` | the `nextui-feed-v1` document, built by [`scripts/generate-feed.py`](scripts/generate-feed.py) |
 
-Release tags are `vX.Y.Z`, matching the authoritative semver the manifest and
-`.system/version.txt` carry.
+Release assets carry no `.sig` file by default. `generate-feed.py` still
+records a `signature_url` when a signature sidecar is present, for clients that
+were built with a trusted key; the official release does not publish one.
+
+Release tags are `vX.Y.Z`, matching the authoritative semver in the manifest
+and `.system/version.txt`.
 
 ## Building the feed
 
@@ -52,243 +60,125 @@ scripts/generate-feed.py \
     --base-url https://github.com/4fuu/nextui/releases/download/v6.16.0 \
     --previous https://github.com/4fuu/nextui/releases/download/v6.15.0/nextui-feed.json \
     --nextupd workspace/all/nextupd/build/desktop/nextupd.elf \
-    --public-key workspace/all/nextupd/release/nextui-release-1.pub \
     --out nextui-feed.json
 ```
 
 For the **first** release there is no previous feed: omit `--previous` and the
-feed starts with this release's rows only. (A URL that 404s is refused, not
-treated as absent; the release-workflow preparation decides when a previous
-feed exists.)
+feed starts with this release's rows only. (A URL that 404s is not treated as
+absent here; the release workflow decides when a previous feed exists.)
 
-- Every entry field comes from the signed manifest, and the archive bytes are
-  hashed here, so the feed cannot advertise a file the release does not
-  contain. A missing signature sidecar, an `app` package, a duplicate
-  platform/version, an unsafe asset name, or a manifest without `min_system`
-  is refused instead of published.
-- `--previous` merges the currently published feed (a file path or an HTTP(S)
-  URL), so each release keeps the previous compatible rows: a system too old
-  for the newest `min_system` installs the older compatible row, and
-  user-initiated downgrades keep working. Rows for the same platform and
-  version are replaced, never duplicated, and a previous row is rebuilt from
-  the nine known fields, because the client rejects unknown ones.
+- Every entry field comes from the manifest, and the archive bytes are hashed
+  here, so the feed cannot advertise a file the release does not contain. A
+  missing `min_system`, an `app` package, a duplicate platform/version, an
+  unsafe asset name, or a manifest/archive hash disagreement is refused.
+- `signature_url` is optional. With `--public-key` (and `--nextupd`) the
+  generator can additionally verify a detached signature for deployments that
+  provision a trusted key; the official release does not use that option.
 - `--nextupd` runs the real verifier over every archive, so a package that
-  cannot install never reaches a feed. On its own that check is
-  archive/manifest/content consistency, **not authenticity**: it does not look
-  at the signature, and a present-but-garbage signature passes it. Adding
-  `--public-key` upgrades the same run to `check --signature --trusted-key`,
-  so the feed is only written when every set's detached signature verifies
-  against the committed sidecar. That needs no private key, and it is what the
-  release procedure uses; see [Signing a release](#signing-a-release).
-- The generator reads no private key of any kind. It publishes nothing; the
-  release workflow uploads what it writes. The `release.yaml` wiring that
-  drives it is described under [Signing a release](#signing-a-release).
+  cannot install never reaches a feed.
+- `--previous` merges the published feed, so older compatible rows survive: a
+  system too old for the newest `min_system` installs the older row. Rows for
+  the same platform and version are replaced, never duplicated.
+- The generator reads no private key. It publishes nothing; the release
+  workflow uploads what it writes.
 
-## The signing trust chain
+## Release workflow
 
-```text
-production Ed25519 key pair
-  private key  -> persistent confidential storage, never in this repository,
-                  never in logs, argv, or a transcript
-  public key   -> nextui-public-key-v1 sidecar, committed here and shipped to
-                  the client as NEXTUI_UPDATE_TRUSTED_KEY
-signature      -> sign-manifest.sh over the exact manifest bytes
-```
+`release.yaml` keeps the version/tag logic unchanged. With no tags, the first
+release tag comes from the root `VERSION` file (`v$(cat VERSION)`); later tags
+are computed from the latest tag and normalized to `vX.Y.Z`. There is no
+date-to-version mapping.
 
-The key pair is generated once, on a trusted release host, by the owner. The
-committed test seed under `workspace/all/nextupd/tests/fixtures` is test-only:
-it reproduces fixtures and must never sign a release, and it is never promoted
-to a production key.
+The build job runs `scripts/prepare-release-update-assets.sh` after
+`make special` and before `make package` (which moves `build/SYSTEM` away).
+The script:
 
-### Custody procedure (owner step)
+1. builds every platform package with `make update-package`,
+2. verifies each set with the real `nextupd check` over SHA-256 integrity,
+3. merges the previous feed when one exists and generates `nextui-feed.json`,
+4. checks the generated feed with the real client,
+5. writes the uploadable set: one `.zip` and `.manifest.json` per platform plus
+   the feed.
 
-The confidential facility is the Amp secrets store, personal scope, owned by
-the repository owner. It persists beyond any machine, and its values are never
-returned by any tool — a stored key can be injected at signing time but not
-read back, which is what "verify restore" means here: the release host injects
-it, signs, and the signature verifies against the committed public key.
+There is no signing-key guard, no `--key-env`, and no public-key sidecar in the
+release path. The `VERSION`-vs-tag gate remains, along with `min_system` and
+platform validation.
 
-On a trusted host (the owner's machine, not a shared or temporary one):
+## Client defaults
 
-```sh
-# 1. Generate the production key pair. From here on the private key never
-#    enters the repository, a log, or a conversation.
-openssl genpkey -algorithm ed25519 -out nextui-release-1.pem
+The settings System Update page needs no provisioning:
 
-# 2. Derive the public sidecar and commit it to this repository, at
-#    workspace/all/nextupd/release/nextui-release-1.pub. The sidecar is
-#    public; the PEM is not.
-printf 'nextui-public-key-v1\n%s\n' nextui-release-1 > nextui-release-1.pub
-openssl pkey -in nextui-release-1.pem -pubout -outform DER | tail -c 32 \
-    | base64 | tr -d '\n' >> nextui-release-1.pub
-printf '\n' >> nextui-release-1.pub
+| Setting | Default | Override |
+| --- | --- | --- |
+| Feed | the official GitHub Releases URL above | `NEXTUI_UPDATE_FEED` or `nextupd --feed` |
+| Trusted key | none (integrity only) | `NEXTUI_UPDATE_TRUSTED_KEY` or `nextupd --trusted-key` |
 
-# 3. Store the private key in the confidential facility (personal scope).
-amp secrets set --user NEXTUI_RELEASE_SIGNING_KEY --secret \
-    --data-file nextui-release-1.pem
+The page checks the feed, downloads the archive to staging, re-verifies it, and
+installs through the recorded transaction. A configured trusted key makes the
+detached signature mandatory; a feed without `signature_url` then fails closed.
 
-# 4. Shred the local copy; the facility now holds the only private key.
-shred -u nextui-release-1.pem
-```
+## Installing another source over ADB
 
-Restore is proven by use, not by reading back: the release host injects the
-secret, signs a manifest, and `nextupd check` accepts that signature against
-the committed sidecar. That proof happens at the first signed release.
-
-### Signing a release
-
-The signing host injects the key and never writes it to the repository. The
-release workflow (`release.yaml`) reads the PEM from the repository's Actions
-secret and passes only the variable **name** to `sign-manifest.sh --key-env`:
-
-```yaml
-env:
-  NEXTUI_RELEASE_SIGNING_KEY: ${{ secrets.NEXTUI_RELEASE_SIGNING_KEY }}
-run: |
-  scripts/prepare-release-update-assets.sh \
-      --version "$RELEASE_TAG" --min-system "$min_system" \
-      --key-env NEXTUI_RELEASE_SIGNING_KEY \
-      --public-key workspace/all/nextupd/release/*.pub \
-      --base-url "$SERVER_URL/$REPOSITORY/releases/download/$RELEASE_TAG" \
-      --out-dir releases/update
-```
-
-`--key-env` reads the PEM from the named environment variable, so the key
-never appears in argv, in a repository file, or in any output. The variable
-name is validated by rejection before the lookup (empty, a leading digit, or
-any byte outside `[A-Za-z0-9_]` is refused), the lookup itself evaluates
-nothing, and the variable is unset once read so the key is not inherited by
-the openssl process. OpenSSL reads the key from a path, so the PEM is written
-to a private mode-0600 temporary file that is removed on every exit path.
-
-**The injection chain, end to end.** GitHub Actions cannot read the Amp
-secrets facility, so the signing environment gets its copy through one masked
-bridge, run once on the owner's machine:
+For a deliberate third-party or local package, use
+[`scripts/nextui-adb-install.py`](scripts/nextui-adb-install.py). It is a host
+tool; the device needs only the packaged `nextupd.elf` and a working `adb`
+connection.
 
 ```sh
-amp --no-tui --amp-env sh -c \
-    'printf "%s" "$NEXTUI_RELEASE_SIGNING_KEY" \
-     | gh secret set NEXTUI_RELEASE_SIGNING_KEY --repo 4fuu/nextui'
+# Download a package and its manifest, verify SHA-256, then stage + install.
+scripts/nextui-adb-install.py https://example.invalid/nextui-system-tg5040.zip \
+    --platform tg5040
+
+# A local package with its sibling .manifest.json.
+scripts/nextui-adb-install.py ./nextui-system-tg5040.zip \
+    --manifest ./nextui-system-tg5040.manifest.json --platform tg5040
+
+# One of several connected devices.
+scripts/nextui-adb-install.py ./Demo.pakz --serial <adb-serial> --platform tg5040
 ```
 
-The value flows from the facility into the process environment and straight
-into the repository's Actions secrets; it is never printed, never enters a
-transcript, and never touches the repository. Rotation re-runs the bridge;
-revocation deletes the Actions secret while the facility keeps the
-authoritative copy. The workflow fails closed when the secret is absent: a
-guard step fails before any build work, so a release without a signed update
-source is never published, with or without a key the assets are never
-unsigned.
+The tool:
 
-`package-update.sh` signs in place when given `UPDATE_KEY`/`UPDATE_KEY_ID`
-pointing at a key file on the trusted host.
+1. downloads the archive and manifest (or reads local files),
+2. verifies the archive size and SHA-256 against the manifest on the host,
+3. pushes both to `<target-root>/.tmp_update/adb-install`,
+4. runs `<target-root>/.tmp_update/<platform>/nextupd.elf stage` and then
+   `install` with the explicit target root, staging root and running system
+   version,
+5. reports the transaction outcome and removes the temporary upload after
+   success (`--keep` preserves it).
 
-After signing, verify every manifest against the **committed public key** —
-this needs no private key. `--nextupd` alone is integrity-only (archive,
-manifest and file consistency); with `--public-key` it also verifies the
-detached signature, so this separate post-sign check is a second, independent
-proof against the committed sidecar:
-
-```sh
-nextupd check --package releases/nextui-system-tg5040.zip \
-    --manifest releases/nextui-system-tg5040.manifest.json \
-    --signature releases/nextui-system-tg5040.manifest.sig \
-    --trusted-key workspace/all/nextupd/release/nextui-release-1.pub \
-    --platform tg5040 | grep 'signature: verified'
-```
-
-`scripts/prepare-release-update-assets.sh` — the release-workflow preparation
-— runs exactly this check for every platform and refuses to publish the set
-when it fails, so a release signed with a key the client does not trust never
-reaches the release page.
-
-The release's `min_system` floor is the previous release's tag (a card on the
-previous release can install this one; an older card updates through the
-previous release's row, which the merged feed keeps). A first release uses its
-own version as the floor.
-
-**The first release.** With no tags in the repository, the workflow's
-`Get Latest Tag` step reports an empty previous tag, the bump step is skipped,
-and the first tag comes from the authoritative `VERSION` file (`vX.Y.Z`); the
-computed tag is normalized to that form either way, so the manifest, the tag
-and the feed always agree. No date-to-version mapping is invented and the
-version policy is unchanged.
-
-**The artifact layout.** The signed sets and the feed are uploaded as one
-directory artifact and downloaded into the release job's `releases/`
-directory, where the release step attaches everything with `files: releases/*`.
-A flatten step makes the outcome independent of the artifact layout, so the
-feed and the signed sets can never be silently missed.
-
-Signing after packaging, as above, leaves the packaging script's
-`<base>.manifest.set` marker recording the unsigned publish. The marker is an
-operator completeness record that the client never reads — `nextupd check` is
-the guard — and it is not uploaded to the release, so the stale marker only
-makes the next `update-package` run warn and rebuild.
-
-### Client provisioning
-
-The client carries only the public sidecar. The settings System Update page
-reads two environment variables and nothing else:
-
-| Variable | Value |
-| --- | --- |
-| `NEXTUI_UPDATE_FEED` | the published feed URL, `https://github.com/4fuu/nextui/releases/download/<tag>/nextui-feed.json` |
-| `NEXTUI_UPDATE_TRUSTED_KEY` | the path of the `nextui-public-key-v1` sidecar on the card |
-
-Neither variable is set by this repository, and neither is built into the
-client: until the image provisions them, the page reports "Update source is
-not configured." and installs nothing. Provisioning them is part of shipping
-the first release, together with copying the sidecar onto the card.
+It never generates a manifest and never falls back to an unverified install: a
+package without a manifest is refused. It uses plain `adb shell` commands, so
+busybox `/bin/sh` on the TrimUI Brick Pro is enough; no `setsid` is involved.
+The device-side `nextupd` re-verifies the manifest and every file before the
+transaction writes anything. No trusted key is needed.
 
 ## What is not configured yet
 
-Honest boundaries, so nothing here reads as more ready than it is:
-
-- **No release exists.** This repository has no tags and no GitHub Release,
-  so no feed URL is live and `nextupd feed`/`fetch` keep reporting
-  `feed_unconfigured` (exit 15) until `NEXTUI_UPDATE_FEED` is set and a
-  signed release publishes the feed.
-- **No production key exists.** The key pair has not been generated: an orb
-  cannot write the confidential facility without the key transiting a
-  transcript, which the custody rules forbid, so the procedure above runs on
-  the owner's machine. Until then the public sidecar is not committed, no
-  manifest is signed with a production key, and the committed test key
-  remains test-only.
-- **No client provisioning.** `NEXTUI_UPDATE_FEED` and
-  `NEXTUI_UPDATE_TRUSTED_KEY` are not set anywhere in this repository.
-- **The release workflow is wired but cannot run yet.** `release.yaml` builds
-  the update package, signs it from the injected key, generates the feed, and
-  uploads and attests the assets, with a fail-closed guard when the signing
-  key is absent. It cannot complete until the key procedure above has run and
-  the public sidecar is committed, because a release without a signed update
-  source is refused rather than published.
+- **No release exists.** This repository has no tags and no GitHub Release yet.
+  The first release (`v6.16.0`) is a later owner action.
+- **No provisioning is needed for integrity.** The feed URL is built in and no
+  trusted key is configured or required.
+- **No production signing key is part of this path.** The committed test seed
+  under `workspace/all/nextupd/tests/fixtures` remains test-only; signature
+  mode stays available for callers that explicitly provision a key.
 - **No store.** There is no store source, fork, or index, and none is planned.
 
 ## Tests
 
 ```sh
+make -C tests test-updater
+make -C tests test-sysupdate
 make -C tests test-generate-feed
+make -C tests test-release-assets
+make -C tests test-release-workflow
+make -C tests test-adb-install
 ```
 
-The host tests drive the real signer and the real `nextupd` binary over
-synthetic published sets: the generated feed is accepted by `nextupd feed`
-and selects the intended row (`update_available`, `up_to_date`,
-`system_too_old`, per-platform rows, `--previous` merge and replacement),
-every refusal keeps an unusable set out of a feed, the writer stays inside
-the client's field buffers and its unknown-field rejection, a
-present-but-garbage signature is refused when `--public-key` is given (and
-passes the integrity-only check, which is consistency and not
-authenticity), and `sign-manifest.sh --key-env` signs from an environment
-variable without ever echoing the key, with every invalid variable name
-refused before any lookup and no side effect. They use the committed
-test-only seed, publish nothing, and touch no device.
-
-The release workflow's wiring has its own host tests
-(`make -C tests test-release-workflow`): they assert the fail-closed
-signing-key guard, the prepare step's position between `make special` and
-`make package`, and the artifact upload and attestation, then execute the
-wired command with the test-only key over a synthetic build tree and run the
-real client against the feed it writes — and again with the key variable
-empty, which must fail and write nothing. No release is created and no
-production key is involved.
+The host tests drive the real `nextupd` binary. They cover the default feed,
+integrity-only staging and install, a tampered archive rejected without any
+signature, a feed entry without `signature_url`, the unsigned release assets
+and feed, and the real client path (`feed` -> `fetch` -> `stage` -> `install`)
+against the prepared release. Signature-mode tests still run with an explicit
+trusted key. No release is published and no device is touched.
