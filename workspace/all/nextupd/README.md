@@ -21,8 +21,11 @@ The official feed is built in:
 default trust mode, so no trusted key is required. A detached Ed25519 signature
 is verified only when `--trusted-key` or `NEXTUI_UPDATE_TRUSTED_KEY` is set; a
 feed without `signature_url` then fails closed. HTTPS downloads use the system
-`curl`; when it is absent the result is `transport_unavailable`, not an
-insecure fallback.
+`curl` with TLS verification enabled. The device image has no system CA store,
+so the transport passes `--cacert <system>/../res/ca-bundle.crt` when the shared
+resource bundle is installed; without it, curl's default trust store applies.
+When `curl` is absent the result is `transport_unavailable`, not an insecure
+fallback.
 
 See [`UPDATES.md`](../../../UPDATES.md) for the contract, threat model, feed
 schema, staging layout, signatures, transaction states, and non-goals.

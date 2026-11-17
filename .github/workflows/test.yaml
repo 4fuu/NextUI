@@ -84,7 +84,7 @@ jobs:
       # The content contract on the archive this job built: exact roots, the
       # device layout, executable boot tools, and every shared resource file
       # with its hash against skeleton/SYSTEM/res. Directory entries in the ZIP
-      # are not files and do not count toward the 68 resources.
+      # are not files and do not count toward the 71 resources.
       - name: Verify package content
         run: |
           python3 scripts/verify_update_package.py \
@@ -92,7 +92,7 @@ jobs:
             --platform tg5040 \
             --version v0.0.0 \
             --res-source skeleton/SYSTEM/res \
-            --expect-res-count 68
+            --expect-res-count 71
 
       # A content check that accepts everything would pass the step above, so
       # each defect is injected into a copy of the real archive and must be
@@ -107,7 +107,7 @@ jobs:
             --platform tg5040 \
             --version v0.0.0 \
             --res-source skeleton/SYSTEM/res \
-            --expect-res-count 68
+            --expect-res-count 71
 
       - name: Upload target binaries
         uses: actions/upload-artifact@v7.0.2

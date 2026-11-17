@@ -12,6 +12,7 @@ import hashlib
 import http.server
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -825,6 +826,98 @@ def main():
         body = expect_json("redirected feed is accepted", proc)
         if body is not None and body.get("result") != "update_available":
             fail("redirected feed result", body, proc)
+
+        # HTTPS points curl at the installed shared-resource CA bundle. A fake
+        # curl records its argv and inherited CURL_CA_BUNDLE, then writes an
+        # up-to-date feed, so this uses no network, trust store, or real curl.
+        fake_bin = os.path.join(WORK, "fake-curl-bin")
+        os.makedirs(fake_bin, exist_ok=True)
+        curl_log = os.path.join(WORK, "curl-invocation.txt")
+        with open(feed_no_update, "r", encoding="utf-8") as handle:
+            fake_feed = handle.read()
+        fake_curl = os.path.join(fake_bin, "curl")
+        with open(fake_curl, "w", encoding="utf-8") as handle:
+            handle.write(
+                "#!/bin/sh\n"
+                "{\n"
+                "  for argument in \"$@\"; do printf '%s\\n' \"$argument\"; done\n"
+                "  printf 'CURL_CA_BUNDLE=%s\\n' \"${CURL_CA_BUNDLE-unset}\"\n"
+                "} > \"$CURL_LOG\"\n"
+                "output=\n"
+                "while [ \"$#\" -gt 0 ]; do\n"
+                "  if [ \"$1\" = --output ]; then output=$2; shift; fi\n"
+                "  shift\n"
+                "done\n"
+                "printf '%s' " + shlex.quote(fake_feed) + " > \"$output\"\n"
+                "exit 0\n")
+        os.chmod(fake_curl, 0o755)
+
+        def https_feed(name, system_path):
+            if os.path.exists(curl_log):
+                os.unlink(curl_log)
+            proc = run(["feed", "--feed", "https://update.invalid/feed.json",
+                        "--platform", PLATFORM, "--system-version", "v6.16.0",
+                        "--json"],
+                       env={"PATH": fake_bin, "SYSTEM_PATH": system_path,
+                            "CURL_LOG": curl_log,
+                            "CURL_CA_BUNDLE": "/inherited/ca.pem"})
+            if proc.returncode != 0:
+                fail(name, "feed through the fake curl failed", proc)
+                return None
+            with open(curl_log, "r", encoding="utf-8") as handle:
+                return handle.read().splitlines()
+
+        # Present: the bundle beside the platform directory is passed to curl.
+        bundle_root = os.path.join(WORK, "system-with-bundle")
+        system_path = os.path.join(bundle_root, "tg5040")
+        bundle_path = os.path.join(bundle_root, "res", "ca-bundle.crt")
+        os.makedirs(system_path, exist_ok=True)
+        os.makedirs(os.path.dirname(bundle_path), exist_ok=True)
+        with open(bundle_path, "wb") as handle:
+            handle.write(b"test ca bundle\n")
+        lines = https_feed("HTTPS passes the installed CA bundle", system_path)
+        if lines is not None:
+            # SYSTEM_PATH resolves through its parent, so curl receives the
+            # literal <system>/../res path; compare the resolved location.
+            if "--cacert" not in lines \
+                    or lines.index("--cacert") + 1 >= len(lines) \
+                    or os.path.normpath(lines[lines.index("--cacert") + 1]) \
+                    != os.path.normpath(bundle_path):
+                fail("HTTPS passes the installed CA bundle",
+                     "curl argv has no --cacert %s: %s" % (bundle_path, lines))
+            elif "CURL_CA_BUNDLE=/inherited/ca.pem" not in lines:
+                fail("HTTPS passes the installed CA bundle",
+                     "the inherited CURL_CA_BUNDLE changed: %s" % lines)
+            else:
+                ok("HTTPS passes the installed CA bundle")
+
+        # Absent: no override, so curl's default trust store and environment
+        # are unchanged.
+        system_path = os.path.join(WORK, "system-without-bundle", "tg5040")
+        os.makedirs(system_path, exist_ok=True)
+        lines = https_feed("HTTPS without a bundle leaves curl defaults", system_path)
+        if lines is not None:
+            if "--cacert" in lines:
+                fail("HTTPS without a bundle leaves curl defaults",
+                     "curl argv gained --cacert: %s" % lines)
+            elif "CURL_CA_BUNDLE=/inherited/ca.pem" not in lines:
+                fail("HTTPS without a bundle leaves curl defaults",
+                     "the inherited CURL_CA_BUNDLE changed: %s" % lines)
+            else:
+                ok("HTTPS without a bundle leaves curl defaults")
+
+        # A directory at the bundle path is not a regular file.
+        system_path = os.path.join(WORK, "system-directory-bundle", "tg5040")
+        os.makedirs(system_path, exist_ok=True)
+        os.makedirs(os.path.join(WORK, "system-directory-bundle", "res",
+                                 "ca-bundle.crt"), exist_ok=True)
+        lines = https_feed("HTTPS ignores a non-file CA bundle path", system_path)
+        if lines is not None:
+            if "--cacert" in lines:
+                fail("HTTPS ignores a non-file CA bundle path",
+                     "curl argv gained --cacert: %s" % lines)
+            else:
+                ok("HTTPS ignores a non-file CA bundle path")
 
         # HTTPS without curl is unavailable, not silently downgraded.
         empty_bin = os.path.join(WORK, "empty-bin")

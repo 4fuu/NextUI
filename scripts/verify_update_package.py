@@ -15,7 +15,7 @@ script's source tree:
     repository's skeleton/SYSTEM/res
 
 ZIP directory entries are not files: they are ignored for file-set and hash
-comparisons, so the shared tree counts 68 files instead of 68 files plus its
+comparisons, so the shared tree counts 71 files instead of 71 files plus its
 three directories.
 
 The archive is read only; nothing is extracted, published, or installed.

@@ -55,6 +55,55 @@ typedef struct
     char location[UPD_MAX_URL + 1];
 } HttpHead;
 
+static char ca_bundle_target_root[PATH_MAX];
+
+void upd_download_set_target_root(const char* target_root)
+{
+    if (target_root == NULL || target_root[0] == '\0'
+        || strlen(target_root) >= sizeof ca_bundle_target_root)
+    {
+        ca_bundle_target_root[0] = '\0';
+        return;
+    }
+    snprintf(ca_bundle_target_root, sizeof ca_bundle_target_root, "%s", target_root);
+}
+
+static int is_regular_file(const char* path)
+{
+    struct stat status;
+    return stat(path, &status) == 0 && S_ISREG(status.st_mode);
+}
+
+/*
+ * Locate the CA bundle shipped in the shared resource tree. nextupd runs from
+ * .tmp_update/<platform>/nextupd.elf with SYSTEM_PATH pointing at
+ * .system/<platform>, so the installed .system/res bundle is found first. An
+ * explicit target root and the fixed device mount cover callers that do not
+ * have SYSTEM_PATH. A missing bundle returns 0 and leaves curl's default trust
+ * store alone; this never falls back to disabling verification.
+ */
+static int resolve_ca_bundle(char* out, size_t out_size)
+{
+    const char* system_path = getenv("SYSTEM_PATH");
+    int length;
+
+    if (system_path != NULL && system_path[0] != '\0')
+    {
+        length = snprintf(out, out_size, "%s/../res/ca-bundle.crt", system_path);
+        if (length > 0 && (size_t)length < out_size && is_regular_file(out)) return 1;
+    }
+    if (ca_bundle_target_root[0] != '\0')
+    {
+        length = snprintf(out, out_size, "%s/.system/res/ca-bundle.crt",
+                          ca_bundle_target_root);
+        if (length > 0 && (size_t)length < out_size && is_regular_file(out)) return 1;
+    }
+    length = snprintf(out, out_size, "/mnt/SDCARD/.system/res/ca-bundle.crt");
+    if (length > 0 && (size_t)length < out_size && is_regular_file(out)) return 1;
+    out[0] = '\0';
+    return 0;
+}
+
 static int wait_fd(int fd, short events, int timeout_ms)
 {
     struct pollfd descriptor;
@@ -917,6 +966,9 @@ static int download_https(const char* source, const char* destination, uint64_t 
 {
     char timeout_text[16];
     char max_text[32];
+    char ca_bundle[PATH_MAX];
+    char* arguments[32];
+    int argument_count = 0;
     pid_t child;
     int status = 0;
     struct stat file_status;
@@ -928,6 +980,35 @@ static int download_https(const char* source, const char* destination, uint64_t 
     }
     snprintf(timeout_text, sizeof timeout_text, "%d", timeout_seconds);
     snprintf(max_text, sizeof max_text, "%llu", (unsigned long long)max_bytes);
+    arguments[argument_count++] = "curl";
+    arguments[argument_count++] = "--fail";
+    arguments[argument_count++] = "--silent";
+    arguments[argument_count++] = "--show-error";
+    arguments[argument_count++] = "--location";
+    if (resolve_ca_bundle(ca_bundle, sizeof ca_bundle))
+    {
+        arguments[argument_count++] = "--cacert";
+        arguments[argument_count++] = ca_bundle;
+    }
+    arguments[argument_count++] = "--proto";
+    arguments[argument_count++] = "=https";
+    arguments[argument_count++] = "--proto-redir";
+    arguments[argument_count++] = "=https";
+    arguments[argument_count++] = "--connect-timeout";
+    arguments[argument_count++] = timeout_text;
+    arguments[argument_count++] = "--speed-limit";
+    arguments[argument_count++] = "1024";
+    arguments[argument_count++] = "--speed-time";
+    arguments[argument_count++] = timeout_text;
+    arguments[argument_count++] = "--max-time";
+    arguments[argument_count++] = "3600";
+    arguments[argument_count++] = "--max-filesize";
+    arguments[argument_count++] = max_text;
+    arguments[argument_count++] = "--output";
+    arguments[argument_count++] = (char*)destination;
+    arguments[argument_count++] = "--url";
+    arguments[argument_count++] = (char*)source;
+    arguments[argument_count] = NULL;
     child = fork();
     if (child < 0)
     {
@@ -937,11 +1018,7 @@ static int download_https(const char* source, const char* destination, uint64_t 
     }
     if (child == 0)
     {
-        execlp("curl", "curl", "--fail", "--silent", "--show-error", "--location",
-               "--proto", "=https", "--proto-redir", "=https", "--connect-timeout",
-               timeout_text, "--speed-limit", "1024", "--speed-time", timeout_text,
-               "--max-time", "3600", "--max-filesize", max_text, "--output", destination,
-               "--url", source, (char*)NULL);
+        execvp(arguments[0], arguments);
         _exit(127);
     }
     for (;;)
