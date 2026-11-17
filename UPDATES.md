@@ -812,8 +812,11 @@ real-device behavior.
 - The official feed URL is built in. No production key is present or required
   for the official path; the first release still remains an owner action.
 - HTTPS downloads delegate to the system `curl` with TLS verification enabled.
-  If `curl` is absent, the result is `transport_unavailable`; there is no
-  insecure fallback. Plain HTTP is supported for local/LAN feeds and fixtures.
+  The device image carries no system CA store, so the transport uses the
+  bundled `.system/res/ca-bundle.crt` (`curl --cacert`) when it is installed and
+  otherwise leaves curl's default trust store alone. If `curl` is absent, the
+  result is `transport_unavailable`; there is no insecure fallback. Plain HTTP
+  is supported for local/LAN feeds and fixtures.
 - `fetch` does not install. This module has no UI of its own; the settings pages
   (System Update, and "Install from file" for a local application package) are
   thin controllers over these commands.

@@ -2304,6 +2304,7 @@ int main(int argc, char** argv)
         return UPD_E_USAGE;
     }
     if (!parse_options(argc - 2, argv + 2, command, &options)) return UPD_E_USAGE;
+    upd_download_set_target_root(options.target_root);
     if (strcmp(command, "check") == 0) return run_check(&options);
     if (strcmp(command, "feed") == 0) return run_feed(&options, 0);
     if (strcmp(command, "fetch") == 0) return run_feed(&options, 1);

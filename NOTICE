@@ -34,3 +34,18 @@ contributor was contacted for consent to relicense. Contributions
 included under the new license were either consented to by their
 authors, or determined to fall below the threshold of copyrightable
 originality.
+
+Bundled Third-Party Assets
+
+CA certificates
+
+  skeleton/SYSTEM/res/ca-bundle.crt is the Mozilla CA certificate extract
+  published at https://curl.se/ca/cacert.pem, retrieved 2026-11-17
+  (Mozilla certificate data as of 2026-11-05). It is licensed under the
+  Mozilla Public License 2.0.
+
+  Source, size, SHA-256, refresh steps, and the full MPL 2.0 text are in
+  skeleton/SYSTEM/res/licenses/ca-bundle-SOURCE.md and
+  skeleton/SYSTEM/res/licenses/ca-bundle-MPL-2.0.txt. The bundle is an
+  unmodified extract of Mozilla's public root store; it is not a NextUI
+  work.

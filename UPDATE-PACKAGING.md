@@ -207,7 +207,7 @@ legal `v0.0.0` placeholder and verifies the archive with
 roots, no `Tools/`/`Roms/`/`Saves/` (or `Emus/`, `minarch/`, `cores/`); the boot
 contract files, with `.tmp_update/tg5040/nextupd.elf` at 0755; the device layout
 (`.system/tg5040/bin/nextui.elf` and `paks/MinUI.pak/launch.sh`); and every one
-of the 68 shared `.system/res` files with its SHA-256 against
+of the 71 shared `.system/res` files with its SHA-256 against
 `skeleton/SYSTEM/res`. ZIP directory entries are excluded from the file counts.
 `tests/verify_update_package_negative_test.py` then injects a missing boot tool,
 a 0644 boot tool, a missing and a changed resource, a wrong layout, a missing
