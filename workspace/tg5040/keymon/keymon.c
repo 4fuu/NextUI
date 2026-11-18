@@ -468,17 +468,25 @@ static void handle_home_press(void) {
 		finish_home_input(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_CANCEL));
 		return;
 	}
-	if (SystemOverlay_visible()) hide_overlay();
-	if (at_ms == 0) return;
+	/* A HUD may already own the layer. Ask devserv where HOME belongs first:
+	 * if the system draws it, showHome() flips the finished HOME frame onto
+	 * the same layer instead of hiding the HUD and re-enabling the layer,
+	 * which is visible as a flash. Any other route closes the HUD. */
+	if (at_ms == 0) {
+		if (SystemOverlay_visible()) hide_overlay();
+		return;
+	}
 
 	route = request_overlay_open(at_ms, session_id, sizeof session_id, app_name,
 								  sizeof app_name, NULL);
+	if (route == 1 && show_home(session_id, app_name)) return;
+
+	if (SystemOverlay_visible()) hide_overlay();
 	if (route == 2) {
 		(void)request_exit(at_ms, session_id);
 		return;
 	}
 	if (route != 1) return;
-	if (show_home(session_id, app_name)) return;
 
 	// The display layer is not available: keep the old HOME contract rather
 	// than leaving the user with a key that does nothing.

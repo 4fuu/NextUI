@@ -1,11 +1,16 @@
 /*
  * Host render test for the resident system overlay.
  *
- * It drives the production renderer on a malloc-backed disp2 backend and
- * asserts that the shared system components are used: UIOverlay's themed
- * panel, GFX_blitHardwareGroup's top-right battery, and
+ * It drives the production renderer on a malloc-backed disp2 backend with two
+ * scanout buffers and asserts that the shared system components are used:
+ * UIOverlay's themed panel, GFX_blitHardwareGroup's top-right battery, and
  * GFX_blitHardwareIndicator's top-right pill. A reference surface is rendered
  * with the same GFX calls and the overlay's opaque pixels must match it.
+ *
+ * It also inspects the ARGB buffer itself: the dim wash must be semi-transparent
+ * (only 140/255), the panel must stay opaque, HUD corners must be fully
+ * transparent, and a selection move or HOME/HUD switch must present the other
+ * buffer without disabling the layer.
  *
  * No /dev/disp, SDL window, evdev node or device is touched.
  */
@@ -16,6 +21,7 @@
 #include "config.h"
 #include "sdl.h"
 #include "system_grab.h"
+#include "ui_overlay.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -57,14 +63,19 @@ bool PLAT_btIsConnected(void) { return false; }
 
 typedef struct
 {
-	uint32_t* pixels;
+	uint32_t* pixels[2];
 	size_t size;
-	unsigned long long physical;
-	uint32_t canary[16];
+	unsigned long long physical[2];
+	uint32_t canary[2][16];
+	int buffers;
+	int max_buffers;
 	int acquire_calls;
 	int release_calls;
 	int commit_calls;
+	int enable_calls;
+	int disable_calls;
 	int enabled;
+	int buffer;
 	int width;
 	int height;
 	int buffer_width;
@@ -73,40 +84,56 @@ typedef struct
 
 static FakeDisplay fake;
 
-static void* fake_acquire(void* user, size_t size, unsigned long long* physical)
+static int fake_acquire(void* user, size_t size, int count, SystemOverlayBuffer* buffers)
 {
 	FakeDisplay* display = (FakeDisplay*)user;
-	void* memory;
 
 	display->acquire_calls++;
-	memory = calloc(1, size + sizeof display->canary);
-	if (!memory) return NULL;
-	display->pixels = (uint32_t*)memory;
+	if (count > 2) count = 2;
+	if (display->max_buffers > 0 && count > display->max_buffers)
+		count = display->max_buffers;
+	for (int i = 0; i < count; i++)
+	{
+		void* memory = calloc(1, size + sizeof display->canary[i]);
+		if (!memory) break;
+		display->pixels[i] = (uint32_t*)memory;
+		display->physical[i] = 0x10000000ULL + (unsigned long long)i * 0x00400000ULL;
+		memcpy((unsigned char*)memory + size, display->canary[i], sizeof display->canary[i]);
+		buffers[i].pixels = memory;
+		buffers[i].physical = display->physical[i];
+		display->buffers = i + 1;
+	}
 	display->size = size;
-	display->physical = 0x10000000ULL;
-	memcpy((unsigned char*)memory + size, display->canary, sizeof display->canary);
-	if (physical) *physical = display->physical;
-	return memory;
+	return display->buffers;
 }
 
-static void fake_release(void* user, void* pixels, size_t size)
+static void fake_release(void* user, SystemOverlayBuffer* buffers, int count, size_t size)
 {
 	FakeDisplay* display = (FakeDisplay*)user;
+	(void)buffers;
 	(void)size;
+
 	display->release_calls++;
-	free(pixels);
-	display->pixels = NULL;
+	for (int i = 0; i < count; i++)
+	{
+		free(display->pixels[i]);
+		display->pixels[i] = NULL;
+	}
+	display->buffers = 0;
 }
 
-static int fake_commit(void* user, int enabled, int x, int y, int width, int height,
+static int fake_commit(void* user, int enabled, int buffer, int x, int y, int width, int height,
 					   int buffer_width, int buffer_height)
 {
 	FakeDisplay* display = (FakeDisplay*)user;
 
 	(void)x;
 	(void)y;
+	if (enabled && !display->enabled) display->enable_calls++;
+	if (!enabled && display->enabled) display->disable_calls++;
 	display->commit_calls++;
 	display->enabled = enabled;
+	display->buffer = buffer;
 	display->width = width;
 	display->height = height;
 	display->buffer_width = buffer_width;
@@ -165,17 +192,43 @@ static void write_settings(const char* language, uint32_t main_color)
 	fclose(file);
 }
 
+static const uint32_t* rendered_pixels(int* width, int* height)
+{
+	return SystemOverlay_pixels(width, height);
+}
+
 static uint32_t pixel_at(int x, int y)
 {
-	return fake.pixels[y * fake.buffer_width + x];
+	int width = 0;
+	int height = 0;
+	const uint32_t* pixels = rendered_pixels(&width, &height);
+	if (!pixels || width <= 0 || height <= 0) return 0;
+	return pixels[y * width + x];
 }
 
 static int count_color(uint32_t color)
 {
+	int width = 0;
+	int height = 0;
+	const uint32_t* pixels = rendered_pixels(&width, &height);
 	int count = 0;
-	int total = fake.buffer_width * fake.buffer_height;
+	if (!pixels) return 0;
+	int total = width * height;
 	for (int i = 0; i < total; i++)
-		if (fake.pixels[i] == color) count++;
+		if (pixels[i] == color) count++;
+	return count;
+}
+
+static int count_alpha(int alpha)
+{
+	int width = 0;
+	int height = 0;
+	const uint32_t* pixels = rendered_pixels(&width, &height);
+	int count = 0;
+	if (!pixels) return 0;
+	int total = width * height;
+	for (int i = 0; i < total; i++)
+		if ((pixels[i] >> 24) == (uint32_t)alpha) count++;
 	return count;
 }
 
@@ -210,25 +263,53 @@ static void reference_bbox(SDL_Surface* reference, int* x0, int* y0, int* x1, in
 
 static int compare_reference(SDL_Surface* reference, int* compared)
 {
-	uint32_t* pixels = (uint32_t*)reference->pixels;
+	uint32_t* expected_pixels = (uint32_t*)reference->pixels;
+	int width = 0;
+	int height = 0;
+	const uint32_t* pixels = rendered_pixels(&width, &height);
 	int total = reference->w * reference->h;
 	int mismatches = 0;
 	int opaque = 0;
 
+	(void)width;
+	(void)height;
+	if (!pixels) return total;
 	for (int i = 0; i < total; i++)
 	{
-		uint32_t expected = pixels[i];
+		uint32_t expected = expected_pixels[i];
 		if ((expected >> 24) != 0xFF) continue;
 		opaque++;
-		if (fake.pixels[i] != expected) mismatches++;
+		if (pixels[i] != expected) mismatches++;
 	}
 	*compared = opaque;
 	return mismatches;
 }
 
+static SDL_Rect home_panel_rect(void)
+{
+	const int padding = SCALE1(8);
+	const int header_height = SCALE1(24);
+	const int row_height = SCALE1(22);
+	const int message_height = SCALE1(10);
+	int width = 0;
+	int height = 0;
+	rendered_pixels(&width, &height);
+
+	int panel_width = SCALE1(260);
+	if (panel_width > width - SCALE1(20)) panel_width = width - SCALE1(20);
+	int panel_height = padding * 2 + header_height + 4 * row_height + message_height;
+	int panel_x = (width - panel_width) / 2;
+	int panel_y = (height - panel_height) / 2;
+	if (panel_y < SCALE1(PADDING + PILL_SIZE + PADDING))
+		panel_y = SCALE1(PADDING + PILL_SIZE + PADDING);
+	return (SDL_Rect){panel_x, panel_y, panel_width, panel_height};
+}
+
 static int show_home_and_check(void)
 {
 	SDL_Surface* reference;
+	SDL_Rect panel;
+	uint32_t panel_pixel;
 	int x0, y0, x1, y1;
 	int compared = 0;
 	int mismatches;
@@ -253,9 +334,29 @@ static int show_home_and_check(void)
 	CHECK(mismatches == 0, "HOME battery matches GFX_blitHardwareGroup");
 	SDL_FreeSurface(reference);
 
-	CHECK((pixel_at(0, 0) >> 24) > 0 && (pixel_at(0, 0) >> 24) < 255,
-		  "overlay corner is dimmed, not opaque");
-	CHECK((pixel_at(fake.width / 2, fake.height / 2) >> 24) != 0, "centred panel is opaque");
+	/* The wash is the only content at the screen corner. It must be the dim
+	 * colour's alpha over transparent black. SDL's 8-bit blend can round the
+	 * 140 source alpha down by one, so accept either result, but never an
+	 * opaque or clear corner. */
+	{
+		uint32_t corner = pixel_at(0, 0);
+		int corner_alpha = (int)(corner >> 24);
+		CHECK(corner_alpha == UI_OVERLAY_DIM_ALPHA ||
+				  corner_alpha == UI_OVERLAY_DIM_ALPHA - 1,
+			  "overlay corner is the semi-transparent dim wash");
+		CHECK((corner & 0x00FFFFFF) == 0, "dim wash is black");
+	}
+	CHECK(count_alpha(UI_OVERLAY_DIM_ALPHA) + count_alpha(UI_OVERLAY_DIM_ALPHA - 1) >
+			  fake.width * fake.height / 4,
+		  "most of the app area carries the dim alpha");
+
+	/* The panel itself must stay opaque. Sample its bottom padding, which is
+	 * inside the rounded body and contains no text or icon. */
+	panel = home_panel_rect();
+	panel_pixel = pixel_at(panel.x + panel.w / 2, panel.y + panel.h - SCALE1(4));
+	CHECK((panel_pixel >> 24) == 0xFF, "centred panel is opaque");
+	CHECK((panel_pixel & 0x00FFFFFF) == (THEME_COLOR3 & 0x00FFFFFF),
+		  "panel uses COLOR_ACCENT2");
 	return 1;
 }
 
@@ -304,7 +405,8 @@ int main(void)
 
 	CHECK(SystemOverlay_initWithDisplay(&display, 1024, 768) == 0, "overlay initialization");
 	CHECK(SystemOverlay_available(), "overlay reports available");
-	CHECK(fake.acquire_calls == 1, "one full-screen scanout buffer acquired");
+	CHECK(fake.acquire_calls == 1, "one acquire call for the scanout buffers");
+	CHECK(fake.buffers == 2, "two full-screen scanout buffers acquired");
 	SystemOverlay_pixels(&width, &height);
 	CHECK(width == 1024 && height == 768, "scanout buffer has the screen geometry");
 
@@ -312,12 +414,35 @@ int main(void)
 
 	/* The default row must be Resume, not Exit. */
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "initial HOME render");
+	CHECK(fake.commit_calls == 1, "opening HOME presents one frame");
+	CHECK(fake.enable_calls == 1, "opening HOME configures the layer once");
+	CHECK(fake.buffer == 0, "the first frame uses the first scanout buffer");
 	CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_ACCEPT) == 1,
 		  "HOME selects Resume by default");
 	CHECK(!SystemOverlay_visible(), "Resume closes the panel");
 	CHECK(!fake.enabled, "closing disables the layer");
+	CHECK(fake.disable_calls == 1, "closing disables the layer once");
 
 	if (!show_home_and_check()) return 1;
+
+	/* A selection move redraws only the offscreen buffer and flips the layer
+	 * address. It must not disable/re-enable the layer or change its geometry. */
+	{
+		int commits = fake.commit_calls;
+		int enables = fake.enable_calls;
+		int disables = fake.disable_calls;
+		int buffer = fake.buffer;
+		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "move selection");
+		CHECK(fake.commit_calls == commits + 1, "selection move presents one frame");
+		CHECK(fake.enabled, "selection move keeps the layer enabled");
+		CHECK(fake.enable_calls == enables, "selection move does not re-enable the layer");
+		CHECK(fake.disable_calls == disables, "selection move does not disable the layer");
+		CHECK(fake.buffer != buffer, "selection move flips to the other scanout buffer");
+		CHECK(fake.width == 1024 && fake.height == 768,
+			  "selection move keeps the full-screen geometry");
+		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_UP) == 0,
+			  "restore the Close selection");
+	}
 
 	green = THEME_COLOR1;
 	green_pixels = count_color(green);
@@ -357,10 +482,31 @@ int main(void)
 		CHECK(bottom > 1000, "bottom hint bar is drawn at the screen bottom");
 	}
 
-	/* Volume HUD reuses GFX_blitHardwareIndicator at the main-screen position. */
-	test_volume = 0;
-	CHECK(SystemOverlay_showIndicator(SYSTEM_OVERLAY_VOLUME) == 0, "volume 0 HUD");
-	CHECK(SystemOverlay_mode() == SYSTEM_OVERLAY_VOLUME, "volume HUD mode");
+	/* HOME -> HUD keeps the layer enabled and flips the finished HUD frame. It
+	 * must not disable/re-enable the layer, which is what caused the flash. */
+	{
+		int commits = fake.commit_calls;
+		int enables = fake.enable_calls;
+		int disables = fake.disable_calls;
+		int buffer = fake.buffer;
+		/* Volume HUD reuses GFX_blitHardwareIndicator at the main-screen position. */
+		test_volume = 0;
+		CHECK(SystemOverlay_showIndicator(SYSTEM_OVERLAY_VOLUME) == 0, "volume 0 HUD");
+		CHECK(SystemOverlay_mode() == SYSTEM_OVERLAY_VOLUME, "volume HUD mode");
+		CHECK(fake.commit_calls == commits + 1, "HOME to HUD presents one frame");
+		CHECK(fake.enabled, "HOME to HUD keeps the layer enabled");
+		CHECK(fake.enable_calls == enables, "HOME to HUD does not re-enable the layer");
+		CHECK(fake.disable_calls == disables, "HOME to HUD does not disable the layer");
+		CHECK(fake.buffer != buffer, "HOME to HUD flips to the other scanout buffer");
+	}
+
+	/* A HUD has no dim: everything outside the top-right pill stays fully
+	 * transparent, so the app is untouched. */
+	CHECK((pixel_at(0, fake.height - 1) >> 24) == 0,
+		  "HUD leaves the bottom-left corner transparent");
+	CHECK(count_alpha(0) > fake.width * fake.height / 2,
+		  "most of the HUD frame is fully transparent");
+
 	reference = create_reference();
 	if (!reference) return 1;
 	GFX_blitHardwareIndicator(reference, reference->w - SCALE1(PADDING) -
@@ -403,18 +549,57 @@ int main(void)
 	CHECK(SystemOverlay_mode() == SYSTEM_OVERLAY_MUTE, "mute HUD mode");
 	CHECK(fake.enabled, "HUD keeps the layer enabled");
 
+	/* HUD -> HOME is the same in-place transition in the other direction. */
+	{
+		int commits = fake.commit_calls;
+		int enables = fake.enable_calls;
+		int disables = fake.disable_calls;
+		int buffer = fake.buffer;
+		CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "HUD to HOME render");
+		CHECK(fake.commit_calls == commits + 1, "HUD to HOME presents one frame");
+		CHECK(fake.enabled, "HUD to HOME keeps the layer enabled");
+		CHECK(fake.enable_calls == enables, "HUD to HOME does not re-enable the layer");
+		CHECK(fake.disable_calls == disables, "HUD to HOME does not disable the layer");
+		CHECK(fake.buffer != buffer, "HUD to HOME flips to the other scanout buffer");
+	}
+
 	SystemOverlay_hide();
 	CHECK(!SystemOverlay_visible(), "hide clears visibility");
 	CHECK(!fake.enabled, "hide disables the layer");
 
 	CHECK(SystemOverlay_showIndicator(SYSTEM_OVERLAY_VOLUME) == 0, "re-show HUD");
 	CHECK(fake.enabled, "re-show enables the layer");
-	CHECK(memcmp((unsigned char*)fake.pixels + fake.size, fake.canary, sizeof fake.canary) == 0,
-		  "renderer stayed inside its scanout buffer");
+	for (int i = 0; i < 2; i++)
+	{
+		CHECK(fake.pixels[i] != NULL, "scanout buffer still allocated");
+		CHECK(memcmp((unsigned char*)fake.pixels[i] + fake.size, fake.canary[i],
+					 sizeof fake.canary[i]) == 0,
+			  "renderer stayed inside its scanout buffer");
+	}
 
 	SystemOverlay_shutdown();
-	CHECK(fake.release_calls == 1, "shutdown releases the scanout buffer");
+	CHECK(fake.release_calls == 1, "shutdown releases the scanout buffers");
+	CHECK(fake.buffers == 0, "shutdown frees both scanout buffers");
 	CHECK(!SystemOverlay_available(), "shutdown clears availability");
+
+	/* If the driver can only give one buffer, keep drawing in place instead of
+	 * failing: the same buffer is committed until the layer is disabled. */
+	{
+		memset(&fake, 0, sizeof fake);
+		fake.max_buffers = 1;
+		CHECK(SystemOverlay_initWithDisplay(&display, 1024, 768) == 0,
+			  "single-buffer initialization");
+		CHECK(fake.buffers == 1, "single-buffer fallback acquired one buffer");
+		CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "single-buffer HOME");
+		int commits = fake.commit_calls;
+		int buffer = fake.buffer;
+		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0,
+			  "single-buffer selection move");
+		CHECK(fake.commit_calls == commits + 1, "single-buffer move presents one frame");
+		CHECK(fake.buffer == buffer, "single-buffer fallback stays on its one buffer");
+		SystemOverlay_shutdown();
+		CHECK(fake.release_calls == 1, "single-buffer shutdown releases its buffer");
+	}
 
 	/* EVIOCGRAB lifecycle shares this host proof: acquire, normal release and
 	 * an abnormal cleanup all end with no fds held. */

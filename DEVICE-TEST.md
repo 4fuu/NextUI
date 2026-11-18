@@ -84,9 +84,9 @@ and the existing session supervisor, never `kill --`.
 ## Known limits
 
 - The overlay is a full-screen sunxi disp2 layer above fb0. The app still owns
-  fb0; disabling the layer restores its untouched frame. Pixel alpha on the
-  layer (the dim behind the panel) and the 3 MiB contiguous allocation still
-  need this physical pass.
+  fb0; disabling the layer restores its untouched frame. The 55% dim, the
+  per-pixel alpha layer mode and the double-buffered flip still need this
+  physical pass.
 - While HOME is open, keymon holds `EVIOCGRAB` on the evdev nodes that expose
   HOME/volume/navigation. This is intentional: the app must not receive panel
   input. Every close, session-end, HUD switch, normal exit and SIGTERM path

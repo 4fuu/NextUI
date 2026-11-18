@@ -24,6 +24,12 @@
 #define DISP_SCAN_PROGRESSIVE 0
 #define LAYER_MODE_BUFFER 0
 
+/* disp_layer_info.alpha_mode (sunxi_display2.h): 0 uses the pixel alpha,
+ * 1 uses alpha_value for the whole layer, 2 multiplies pixel and global. */
+#define DISP_ALPHA_MODE_PIXEL 0
+#define DISP_ALPHA_MODE_GLOBAL 1
+#define DISP_ALPHA_MODE_GLOBAL_PIXEL 2
+
 struct disp_rect {
 	int x;
 	int y;

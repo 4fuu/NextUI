@@ -38,6 +38,15 @@
 #define UI_OVERLAY_CAP_BLUETOOTH (1u << 4)
 
 /*
+ * Black wash drawn over the app frame while the HOME panel is open. The value
+ * is the alpha written into the destination pixel (not an opacity percentage).
+ * 140/255 leaves about 45% of the app visible. The resident system overlay used
+ * to inherit 232/255 from the launcher's modal, which leaves only 9% of a game
+ * frame and reads as an opaque black layer on the Brick Pro.
+ */
+#define UI_OVERLAY_DIM_ALPHA 140
+
+/*
  * The B4/manifest adapter maps PAK_CAPABILITY_SAVES to SAVE|RESUME. The
  * overlay capability itself is the app's agreement to host this module, so
  * this header does not re-read pak.json or duplicate B1.
