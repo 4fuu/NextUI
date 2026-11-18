@@ -19,6 +19,7 @@
 #include "defines.h"
 #include "api.h"
 #include "config.h"
+#include "disp2_layer.h"
 #include "sdl.h"
 #include "system_grab.h"
 #include "ui_overlay.h"
@@ -27,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #define TEST_VOLUME_MAX 20
@@ -75,6 +77,8 @@ typedef struct
 	int enable_calls;
 	int disable_calls;
 	int enabled;
+	int dim;
+	int dim_calls;
 	int buffer;
 	int width;
 	int height;
@@ -122,7 +126,7 @@ static void fake_release(void* user, SystemOverlayBuffer* buffers, int count, si
 	display->buffers = 0;
 }
 
-static int fake_commit(void* user, int enabled, int buffer, int x, int y, int width, int height,
+static int fake_commit(void* user, int enabled, int dim, int buffer, int x, int y, int width, int height,
 					   int buffer_width, int buffer_height)
 {
 	FakeDisplay* display = (FakeDisplay*)user;
@@ -131,8 +135,10 @@ static int fake_commit(void* user, int enabled, int buffer, int x, int y, int wi
 	(void)y;
 	if (enabled && !display->enabled) display->enable_calls++;
 	if (!enabled && display->enabled) display->disable_calls++;
+	if (enabled && dim != display->dim) display->dim_calls++;
 	display->commit_calls++;
 	display->enabled = enabled;
+	display->dim = dim;
 	display->buffer = buffer;
 	display->width = width;
 	display->height = height;
@@ -305,6 +311,203 @@ static SDL_Rect home_panel_rect(void)
 	return (SDL_Rect){panel_x, panel_y, panel_width, panel_height};
 }
 
+/* Everything outside the panel, the footer strip and the hardware group must
+ * stay transparent so the app's frame shows through. A software dim wash would
+ * light up every one of these pixels. */
+static int count_opaque_outside_chrome(void)
+{
+	int width = 0;
+	int height = 0;
+	const uint32_t* pixels = rendered_pixels(&width, &height);
+	SDL_Rect panel = home_panel_rect();
+	int footer_y;
+	int battery_width;
+	int battery_height;
+	int battery_x;
+	int count = 0;
+
+	if (!pixels) return width * height;
+
+	footer_y = height - SCALE1(PADDING + PILL_SIZE);
+	battery_width = SCALE1(360);
+	if (battery_width > width) battery_width = width;
+	battery_height = SCALE1(PADDING + PILL_SIZE + PADDING);
+	if (battery_height > height) battery_height = height;
+	battery_x = width - battery_width;
+
+	for (int y = 0; y < height; y++)
+	{
+		for (int x = 0; x < width; x++)
+		{
+			if (x >= panel.x && x < panel.x + panel.w && y >= panel.y && y < panel.y + panel.h)
+				continue;
+			if (y >= footer_y) continue;
+			if (x >= battery_x && y < battery_height) continue;
+			if ((pixels[y * width + x] >> 24) != 0) count++;
+		}
+	}
+	return count;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Production /dev/disp backend on a fake kernel                              */
+
+#define FAKE_DISP_ARCHIVE 8
+
+typedef struct
+{
+	int alloc_calls;
+	int get_calls;
+	int set_calls;
+	int last_count;
+	struct disp_layer_config last[FAKE_DISP_ARCHIVE];
+	unsigned int fb0_channel;
+	unsigned int fb0_zorder;
+} FakeDisp;
+
+static FakeDisp fake_disp;
+
+static int fake_disp_ioctl(int descriptor, unsigned long request, unsigned long argument)
+{
+	unsigned long* param = (unsigned long*)argument;
+	struct disp_layer_config* config;
+
+	(void)descriptor;
+	switch (request)
+	{
+	case DISP_MEM_REQUEST:
+		fake_disp.alloc_calls++;
+		return 0;
+	case DISP_MEM_GETADR:
+		return (int)(0x40000000u + (unsigned int)(param[0] & 0x7u) * 0x00400000u);
+	case DISP_MEM_RELEASE:
+		return 0;
+	case DISP_LAYER_GET_CONFIG:
+		config = (struct disp_layer_config*)param[1];
+		fake_disp.get_calls++;
+		config->enable = false;
+		if (config->channel == fake_disp.fb0_channel && config->layer_id == 0)
+		{
+			config->enable = true;
+			config->info.mode = LAYER_MODE_BUFFER;
+			config->info.zorder = (unsigned char)fake_disp.fb0_zorder;
+			config->info.alpha_mode = DISP_ALPHA_MODE_PIXEL;
+			config->info.alpha_value = 0xff;
+			config->info.screen_win = (struct disp_rect){0, 0, 1024, 768};
+			config->info.fb.size[0] = (struct disp_rectsz){1024, 768};
+			config->info.fb.crop = (struct disp_rect64){0, 0, 1024LL << 32, 768LL << 32};
+			config->info.fb.addr[0] = 0x50000000ULL;
+			config->info.fb.format = DISP_FORMAT_ARGB_8888;
+		}
+		return 0;
+	case DISP_LAYER_SET_CONFIG:
+		config = (struct disp_layer_config*)param[1];
+		fake_disp.last_count = (int)param[2];
+		if (fake_disp.last_count > FAKE_DISP_ARCHIVE) fake_disp.last_count = FAKE_DISP_ARCHIVE;
+		memcpy(fake_disp.last, config, (size_t)fake_disp.last_count * sizeof *config);
+		fake_disp.set_calls++;
+		return 0;
+	default:
+		return 0;
+	}
+}
+
+static void production_backend_test(void)
+{
+	char path[] = "/tmp/nextui-disp-XXXXXX";
+	struct disp_layer_config dim;
+	struct disp_layer_config panel;
+	const uint32_t* pixels;
+	SDL_Rect panel_rect;
+	int width = 0;
+	int height = 0;
+	int commits;
+	int fd;
+
+	fd = mkstemp(path);
+	CHECK(fd >= 0, "fake disp device node");
+	if (fd < 0) return;
+	CHECK(ftruncate(fd, 16u * 1024u * 1024u) == 0, "fake disp device size");
+	close(fd);
+
+	memset(&fake_disp, 0, sizeof fake_disp);
+	fake_disp.fb0_channel = 1;
+	fake_disp.fb0_zorder = 16;
+	SystemOverlay_setDispPath(path);
+	SystemOverlay_setDispIoctl(fake_disp_ioctl);
+
+	CHECK(SystemOverlay_init(1024, 768) == 0, "production backend initialize");
+	CHECK(SystemOverlay_available(), "production overlay available");
+	CHECK(fake_disp.get_calls > 0, "production backend read fb0's layer config");
+	CHECK(fake_disp.alloc_calls == 2, "production backend allocated two scanout slots");
+
+	PWR_setBatteryStatus(1, 82);
+	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "production HOME render");
+	CHECK(fake_disp.last_count == 2, "HOME commits the dim and panel layers together");
+
+	dim = fake_disp.last[0];
+	panel = fake_disp.last[1];
+	CHECK(dim.enable && panel.enable, "production HOME enables both layers");
+	CHECK(dim.channel == 2 && panel.channel == 2, "overlay owns UI channel 2");
+	CHECK(dim.info.zorder == 17 && panel.info.zorder == 17, "overlay channel zorder is 17");
+	CHECK(dim.channel != (unsigned int)fake_disp.fb0_channel, "overlay does not reuse fb0's channel");
+	CHECK(dim.info.zorder > fake_disp.fb0_zorder, "overlay zorder is strictly above fb0's");
+	CHECK(dim.layer_id < panel.layer_id, "panel layer is above the dim layer");
+	CHECK(dim.info.mode == LAYER_MODE_COLOR, "dim is a colour-mode layer with no buffer");
+	CHECK(dim.info.alpha_mode == DISP_ALPHA_MODE_GLOBAL, "dim uses global alpha");
+	CHECK(dim.info.alpha_value == UI_OVERLAY_DIM_ALPHA, "dim alpha is UI_OVERLAY_DIM_ALPHA");
+	CHECK(dim.info.screen_win.width == 1024 && dim.info.screen_win.height == 768,
+		  "dim covers the whole screen");
+	CHECK(panel.info.mode == LAYER_MODE_BUFFER, "panel is a buffer layer");
+	CHECK(panel.info.alpha_mode == DISP_ALPHA_MODE_PIXEL, "panel keeps per-pixel alpha");
+	CHECK(panel.info.screen_win.width == 1024 && panel.info.screen_win.height == 768,
+		  "panel is a full-screen layer");
+	/* Both fake slots mmap the same file, so only the configured address is
+	 * meaningful here; the production driver maps each DISP_MEM slot. */
+	CHECK(panel.info.fb.addr[0] == 0x40000000ULL, "panel starts on the first scanout buffer");
+
+	pixels = SystemOverlay_pixels(&width, &height);
+	CHECK(pixels && width == 1024 && height == 768, "production panel buffer geometry");
+	CHECK(pixels && (pixels[0] >> 24) == 0, "production HOME has no software dim wash");
+	panel_rect = home_panel_rect();
+	CHECK(pixels && (pixels[(panel_rect.y + panel_rect.h - SCALE1(4)) * width + panel_rect.x +
+							panel_rect.w / 2] >>
+					 24) == 0xFF,
+		  "production panel is opaque");
+
+	commits = fake_disp.set_calls;
+	CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "production selection move");
+	CHECK(fake_disp.set_calls == commits + 1, "selection move commits once");
+	CHECK(fake_disp.last_count == 1, "selection move resubmits only the panel layer");
+	CHECK(fake_disp.last[0].layer_id == panel.layer_id, "selection move keeps the panel layer");
+	CHECK(fake_disp.last[0].channel == 2 && fake_disp.last[0].info.zorder == 17,
+		  "selection move keeps the channel and zorder");
+	CHECK(fake_disp.last[0].info.fb.addr[0] == 0x40400000ULL,
+		  "selection move flips to the second scanout buffer");
+
+	CHECK(SystemOverlay_showIndicator(SYSTEM_OVERLAY_VOLUME) == 0, "production HUD render");
+	CHECK(fake_disp.last_count == 2, "HUD commits the dim state with the panel");
+	CHECK(!fake_disp.last[0].enable && fake_disp.last[1].enable,
+		  "HUD disables the dim layer and keeps the panel");
+
+	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "production HOME after HUD");
+	CHECK(fake_disp.last_count == 2 && fake_disp.last[0].enable &&
+			  fake_disp.last[0].info.mode == LAYER_MODE_COLOR,
+		  "HOME re-enables the dim colour layer");
+
+	SystemOverlay_hide();
+	CHECK(!SystemOverlay_visible(), "production hide");
+	CHECK(fake_disp.last_count == 2 && !fake_disp.last[0].enable && !fake_disp.last[1].enable,
+		  "hide disables both overlay layers");
+
+	SystemOverlay_shutdown();
+	CHECK(!SystemOverlay_available(), "production shutdown");
+
+	SystemOverlay_setDispIoctl(NULL);
+	SystemOverlay_setDispPath(NULL);
+	unlink(path);
+}
+
 static int show_home_and_check(void)
 {
 	SDL_Surface* reference;
@@ -334,21 +537,14 @@ static int show_home_and_check(void)
 	CHECK(mismatches == 0, "HOME battery matches GFX_blitHardwareGroup");
 	SDL_FreeSurface(reference);
 
-	/* The wash is the only content at the screen corner. It must be the dim
-	 * colour's alpha over transparent black. SDL's 8-bit blend can round the
-	 * 140 source alpha down by one, so accept either result, but never an
-	 * opaque or clear corner. */
-	{
-		uint32_t corner = pixel_at(0, 0);
-		int corner_alpha = (int)(corner >> 24);
-		CHECK(corner_alpha == UI_OVERLAY_DIM_ALPHA ||
-				  corner_alpha == UI_OVERLAY_DIM_ALPHA - 1,
-			  "overlay corner is the semi-transparent dim wash");
-		CHECK((corner & 0x00FFFFFF) == 0, "dim wash is black");
-	}
-	CHECK(count_alpha(UI_OVERLAY_DIM_ALPHA) + count_alpha(UI_OVERLAY_DIM_ALPHA - 1) >
-			  fake.width * fake.height / 4,
-		  "most of the app area carries the dim alpha");
+	/* The dim is a hardware colour layer now: the scanout buffer must stay
+	 * fully transparent where the app should show through. */
+	CHECK(fake.dim == 1, "HOME commits the hardware dim layer");
+	CHECK((pixel_at(0, 0) >> 24) == 0, "HOME leaves the app area transparent");
+	CHECK(count_color((uint32_t)UI_OVERLAY_DIM_ALPHA << 24) == 0,
+		  "no software dim wash in the buffer");
+	CHECK(count_opaque_outside_chrome() == 0,
+		  "the app area outside the panel, footer and battery stays transparent");
 
 	/* The panel itself must stay opaque. Sample its bottom padding, which is
 	 * inside the rounded body and contains no text or icon. */
@@ -396,6 +592,22 @@ int main(void)
 		CHECK(SystemOverlay_decodeScanoutAddress(0, &physical) != 0, "GETADR 0 fails");
 	}
 
+	/* DE2 channel stacking: zorder is a channel priority, not a per-layer one.
+	 * The overlay must use a UI channel that is not fb0's and a zorder strictly
+	 * above fb0's so de_al_lyr_apply() routes it to a higher blend pipe. */
+	{
+		int channel = 0;
+		int zorder = 0;
+		CHECK(SystemOverlay_planStacking(1, 16, &channel, &zorder) == 0 && channel == 2 &&
+				  zorder == 17,
+			  "overlay goes to UI channel 2 at fb0 zorder + 1");
+		CHECK(SystemOverlay_planStacking(2, 16, &channel, &zorder) == 0 && channel == 3,
+			  "overlay avoids a fb0 that already uses channel 2");
+		CHECK(SystemOverlay_planStacking(1, 254, &channel, &zorder) == 0 && zorder == 254,
+			  "zorder clamps below the driver's 255 sentinel");
+		CHECK(SystemOverlay_planStacking(1, 16, NULL, &zorder) != 0, "plan rejects NULL channel");
+	}
+
 	memset(&fake, 0, sizeof fake);
 	memset(&display, 0, sizeof display);
 	display.user = &fake;
@@ -416,6 +628,7 @@ int main(void)
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "initial HOME render");
 	CHECK(fake.commit_calls == 1, "opening HOME presents one frame");
 	CHECK(fake.enable_calls == 1, "opening HOME configures the layer once");
+	CHECK(fake.dim == 1, "opening HOME enables the hardware dim");
 	CHECK(fake.buffer == 0, "the first frame uses the first scanout buffer");
 	CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_ACCEPT) == 1,
 		  "HOME selects Resume by default");
@@ -425,23 +638,67 @@ int main(void)
 
 	if (!show_home_and_check()) return 1;
 
-	/* A selection move redraws only the offscreen buffer and flips the layer
-	 * address. It must not disable/re-enable the layer or change its geometry. */
+	/* A selection move redraws only the panel rectangle in the offscreen
+	 * buffer. It must not disable/re-enable the layer, change its geometry or
+	 * touch a single pixel outside the panel (in particular not re-blend the
+	 * dim). The first move after opening also repaints the chrome in the
+	 * second scanout buffer, so the panel-only claim is measured on the next
+	 * move. */
 	{
 		int commits = fake.commit_calls;
 		int enables = fake.enable_calls;
 		int disables = fake.disable_calls;
-		int buffer = fake.buffer;
+		int dim_calls = fake.dim_calls;
+		int first_front = fake.buffer;
+		int target;
+		SDL_Rect panel = home_panel_rect();
+		uint32_t* before;
+
 		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "move selection");
-		CHECK(fake.commit_calls == commits + 1, "selection move presents one frame");
+		CHECK(fake.buffer != first_front, "selection move flips to the other scanout buffer");
+
+		target = fake.buffer == 0 ? 1 : 0;
+		before = (uint32_t*)malloc(fake.size);
+		CHECK(before != NULL, "snapshot allocation");
+		if (before) memcpy(before, fake.pixels[target], fake.size);
+
+		struct timespec started;
+		struct timespec finished;
+		clock_gettime(CLOCK_MONOTONIC, &started);
+		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_UP) == 0, "panel-only move");
+		clock_gettime(CLOCK_MONOTONIC, &finished);
+		printf("panel-only redraw: %.1f ms on the host (includes the 34 ms vsync guard)\n",
+			   (double)(finished.tv_sec - started.tv_sec) * 1000.0 +
+				   (double)(finished.tv_nsec - started.tv_nsec) / 1000000.0);
+
+		CHECK(fake.commit_calls == commits + 2, "each move presents one frame");
 		CHECK(fake.enabled, "selection move keeps the layer enabled");
 		CHECK(fake.enable_calls == enables, "selection move does not re-enable the layer");
 		CHECK(fake.disable_calls == disables, "selection move does not disable the layer");
-		CHECK(fake.buffer != buffer, "selection move flips to the other scanout buffer");
+		CHECK(fake.buffer == target, "panel-only move flips to the other scanout buffer");
 		CHECK(fake.width == 1024 && fake.height == 768,
 			  "selection move keeps the full-screen geometry");
-		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_UP) == 0,
-			  "restore the Close selection");
+		CHECK(fake.dim == 1 && fake.dim_calls == dim_calls,
+			  "selection move leaves the hardware dim untouched");
+
+		if (before)
+		{
+			int changed_outside = 0;
+			uint32_t* after = fake.pixels[target];
+			for (int y = 0; y < fake.height; y++)
+			{
+				for (int x = 0; x < fake.width; x++)
+				{
+					if (x >= panel.x && x < panel.x + panel.w && y >= panel.y &&
+						y < panel.y + panel.h)
+						continue;
+					if (after[y * fake.width + x] != before[y * fake.width + x])
+						changed_outside++;
+				}
+			}
+			CHECK(changed_outside == 0, "selection move redraws only the panel rectangle");
+			free(before);
+		}
 	}
 
 	green = THEME_COLOR1;
@@ -497,6 +754,7 @@ int main(void)
 		CHECK(fake.enabled, "HOME to HUD keeps the layer enabled");
 		CHECK(fake.enable_calls == enables, "HOME to HUD does not re-enable the layer");
 		CHECK(fake.disable_calls == disables, "HOME to HUD does not disable the layer");
+		CHECK(fake.dim == 0, "HOME to HUD turns the dim layer off");
 		CHECK(fake.buffer != buffer, "HOME to HUD flips to the other scanout buffer");
 	}
 
@@ -560,6 +818,7 @@ int main(void)
 		CHECK(fake.enabled, "HUD to HOME keeps the layer enabled");
 		CHECK(fake.enable_calls == enables, "HUD to HOME does not re-enable the layer");
 		CHECK(fake.disable_calls == disables, "HUD to HOME does not disable the layer");
+		CHECK(fake.dim == 1, "HUD to HOME turns the dim layer back on");
 		CHECK(fake.buffer != buffer, "HUD to HOME flips to the other scanout buffer");
 	}
 
@@ -618,6 +877,8 @@ int main(void)
 			  "every grab got a release ioctl");
 		SystemGrab_setIoctl(NULL);
 	}
+
+	production_backend_test();
 
 	if (failures)
 	{

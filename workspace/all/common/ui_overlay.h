@@ -43,6 +43,9 @@
  * 140/255 leaves about 45% of the app visible. The resident system overlay used
  * to inherit 232/255 from the launcher's modal, which leaves only 9% of a game
  * frame and reads as an opaque black layer on the Brick Pro.
+ *
+ * The resident system overlay disables this software wash and gives the same
+ * alpha to a disp2 colour layer, so the value is shared by both paths.
  */
 #define UI_OVERLAY_DIM_ALPHA 140
 
@@ -212,6 +215,26 @@ int UIOverlay_pollInput(UIOverlay* overlay);
 
 /* Draw the overlay over an app frame. The app must call this last. */
 void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen);
+
+/*
+ * Draw only the centred panel (body, header, rows and message). The resident
+ * system overlay uses this for a selection move so it does not repaint the
+ * footer and hardware group on every keypress. The caller is responsible for
+ * clearing the panel rectangle first; UIOverlay_getPanelRect() returns it.
+ * Does nothing while the overlay is closed.
+ */
+void UIOverlay_drawPanel(UIOverlay* overlay, SDL_Surface* screen);
+
+/* Screen rectangle UIOverlay_draw()/UIOverlay_drawPanel() use for the panel.
+ * Returns 1 and fills rect while the overlay is open, 0 otherwise. */
+int UIOverlay_getPanelRect(const UIOverlay* overlay, const SDL_Surface* screen, SDL_Rect* rect);
+
+/*
+ * The resident system overlay composites its own full-screen dim with a disp2
+ * colour layer, so it hides the software wash instead of blending 786k pixels
+ * on every change. The default is visible.
+ */
+void UIOverlay_setDimVisible(UIOverlay* overlay, int visible);
 
 /* Update the optional app name shown at the right of the panel header. The
  * pointer must outlive the overlay; NULL clears it. */

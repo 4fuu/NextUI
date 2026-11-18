@@ -25,10 +25,13 @@ and the existing session supervisor, never `kill --`.
    black frame.
 2. **Input is owned while HOME is open.** With the panel open, press the d-pad
    up/down: the row highlight moves only in the panel and Moonlight receives no
-   input. Press A: the selected row runs (Resume closes, Exit closes the app,
-   Wi-Fi/Bluetooth toggle). Press B or HOME: the panel closes immediately.
-   After closing, Moonlight must receive d-pad/A/B again. Confirm with
-   `evtest`/the Moonlight input test that no key is stuck or swallowed.
+   input. The Moonlight picture around the panel must not flicker or go black
+   and each step must feel immediate: only the panel rectangle is repainted, the
+   dim layer is never re-blended. Press A: the selected row runs (Resume closes,
+   Exit closes the app, Wi-Fi/Bluetooth toggle). Press B or HOME: the panel
+   closes immediately. After closing, Moonlight must receive d-pad/A/B again.
+   Confirm with `evtest`/the Moonlight input test that no key is stuck or
+   swallowed.
 3. **Exit to desktop.** Open HOME, move to `Exit to desktop`, press A. The panel
    closes, Moonlight exits through the session supervisor, and the desktop
    returns within about 1.5 s. `ps` must show one keymon and no orphaned app
@@ -83,10 +86,13 @@ and the existing session supervisor, never `kill --`.
 
 ## Known limits
 
-- The overlay is a full-screen sunxi disp2 layer above fb0. The app still owns
-  fb0; disabling the layer restores its untouched frame. The 55% dim, the
-  per-pixel alpha layer mode and the double-buffered flip still need this
-  physical pass.
+- The overlay is two sunxi disp2 layers on a UI channel above fb0: a static
+  full-screen colour layer with global alpha 140 for the dim, and a full-screen
+  ARGB buffer layer for the panel. The app still owns fb0; disabling both layers
+  restores its untouched frame. The 55% dim, the channel stacking, the
+  per-pixel alpha panel layer and the double-buffered flip still need this
+  physical pass. On retest the app must be visible through the dim, and a
+  selection move must not repaint the whole screen.
 - While HOME is open, keymon holds `EVIOCGRAB` on the evdev nodes that expose
   HOME/volume/navigation. This is intentional: the app must not receive panel
   input. Every close, session-end, HUD switch, normal exit and SIGTERM path

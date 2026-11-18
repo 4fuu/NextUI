@@ -6,6 +6,19 @@
 // framebuffer. Field order, sizes and ioctl numbers must match the kernel ABI.
 // This mirrors workspace/h700/libmsettings/sunxi_display2_min.h; keep the two
 // copies in sync if the display driver ever changes.
+//
+// Stacking on DE2 (include/video/sunxi_display2.h, DE2.0 spec 5.10):
+//   - layer_id is the layer priority *within* a channel: layer3 > layer2 >
+//     layer1 > layer0. de_rtmx_set_lay_cfg() programs OVL_UI_LAY_x, and no
+//     per-layer zorder register exists.
+//   - zorder is a *channel* priority. de_al_lyr_apply() sorts the used channels
+//     by it and de_rtmx_set_route() assigns the lowest zorder to BLD pipe 0
+//     (the bottom pipe), so a channel only covers another channel when its
+//     zorder is greater.
+//   - A UI-format layer placed on a VI channel has its alpha ignored (DE2.0
+//     spec "All ui layers' alpha is useless"), and de_rtmx_set_lay_fcolor()
+//     forces an opaque fill colour on VI channels. Alpha blending between
+//     layers and the colour-mode dim therefore need a UI channel.
 #ifndef NEXTUI_DISP2_LAYER_H
 #define NEXTUI_DISP2_LAYER_H
 
@@ -23,6 +36,7 @@
 #define DISP_BF_NORMAL 0
 #define DISP_SCAN_PROGRESSIVE 0
 #define LAYER_MODE_BUFFER 0
+#define LAYER_MODE_COLOR 1
 
 /* disp_layer_info.alpha_mode (sunxi_display2.h): 0 uses the pixel alpha,
  * 1 uses alpha_value for the whole layer, 2 multiplies pixel and global. */

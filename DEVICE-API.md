@@ -70,10 +70,17 @@ C4 has one resident observer, one hardware display layer, and one launch parent:
   `GFX_blitHardwareIndicator()` for
   volume/brightness/colour-temperature HUDs, and `GFX_blitButtonGroup()` for the
   launcher-style bottom hint bar. Theme colours and fonts come from the user's
-  `minuisettings.txt` through `CFG`. The layer is channel 1, layer 1-3 (fb0 is
-  layer 0); hiding disables it and the app's frame was never touched. If
-  `/dev/disp`, a free layer or the scanout allocation is unavailable, keymon
-  logs the reason and HOME falls back to the previous return-to-desktop exit.
+  `minuisettings.txt` through `CFG`. The overlay uses a UI channel of its own
+  (channel 2; fb0 is channel 1, layer 0). Its zorder is read from fb0's layer
+  config and set one above it, because DE2 stacks channels by zorder and ignores
+  the alpha of UI-format layers placed on a VI channel. The dim is a static
+  full-screen disp2 colour layer with global alpha 140, so the app shows through
+  it and no pixels are blended for it; the ARGB panel buffer is a second layer
+  above the dim. Hiding disables both layers and the app's frame was never
+  touched. A selection move clears and redraws only the panel rectangle; the dim
+  layer is not reconfigured. If `/dev/disp`, a free layer or the scanout
+  allocation is unavailable, keymon logs the reason and HOME falls back to the
+  previous return-to-desktop exit.
 - **the launch parent enforces exit.** `nextui_session_run` starts the app in a
   new process group with nextdev's built-in launcher (or a system `setsid` when
   an older nextdev is installed), polls `session-status`, sends `SIGTERM` to
