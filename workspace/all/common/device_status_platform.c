@@ -67,6 +67,21 @@ static int is_desktop(void)
     return platform_is("desktop");
 }
 
+/*
+ * WIFI_enabled/PLAT_btIsConnected read the CFG flags, and PLAT_wifiConnection
+ * returns early when the flag is off. devserv is a separate process, so it
+ * must load minuisettings.txt itself; passing no callbacks keeps it free of
+ * font and color side effects (and it never touches msettings).
+ */
+static void ensure_config(void)
+{
+    static int loaded;
+
+    if (loaded) return;
+    loaded = 1;
+    CFG_init(NULL, NULL);
+}
+
 /* --- battery ------------------------------------------------------------- */
 
 static int read_int_file(const char* path, int* out)
@@ -164,6 +179,7 @@ static void network_read(void* context, DeviceStatusWifi* wifi, DeviceStatusBlue
         return;
     }
 
+    ensure_config();
     wifi->available = 1;
     wifi->enabled = WIFI_enabled() ? 1 : 0;
     if (wifi->enabled)
