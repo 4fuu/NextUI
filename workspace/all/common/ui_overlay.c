@@ -35,6 +35,7 @@ struct UIOverlay
 	SDL_Surface* dim;
 	int dim_width;
 	int dim_height;
+	int dim_visible;
 	int footer_visible;
 };
 
@@ -341,6 +342,7 @@ UIOverlay* UIOverlay_create(const OverlayAppHooks* hooks, const UIOverlayStrings
 
 	copy_strings(&overlay->strings, strings);
 	overlay->footer_visible = 1;
+	overlay->dim_visible = 1;
 	overlay->selected = 0;
 	refresh_items(overlay);
 
@@ -481,13 +483,9 @@ static void blit_text(TTF_Font* font, const char* text, SDL_Color color, SDL_Sur
 	SDL_SetClipRect(dst, &old_clip);
 }
 
-void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
+static int panel_geometry(const UIOverlay* overlay, const SDL_Surface* screen, SDL_Rect* rect)
 {
-	if (!overlay || !overlay->open || !screen) return;
-	if (overlay->item_count == 0) refresh_items(overlay);
-
-	ensure_dim(overlay, screen);
-	if (overlay->dim) SDL_BlitSurface(overlay->dim, NULL, screen, NULL);
+	if (!overlay || !overlay->open || !screen || !rect) return 0;
 
 	const int padding = SCALE1(8);
 	const int header_height = SCALE1(24);
@@ -500,13 +498,38 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 	int panel_y = (screen->h - panel_height) / 2;
 	if (panel_y < SCALE1(PADDING + PILL_SIZE + PADDING)) panel_y = SCALE1(PADDING + PILL_SIZE + PADDING);
 
+	rect->x = panel_x;
+	rect->y = panel_y;
+	rect->w = panel_width;
+	rect->h = panel_height;
+	return 1;
+}
+
+/* Panel body, header, rows and message. footer draws the built-in bottom bar
+ * between the panel background and its contents, preserving the original
+ * UIOverlay_draw() order. */
+static void draw_panel(UIOverlay* overlay, SDL_Surface* screen, int footer)
+{
+	const int padding = SCALE1(8);
+	const int header_height = SCALE1(24);
+	const int row_height = SCALE1(22);
+	SDL_Rect panel;
+
+	if (!panel_geometry(overlay, screen, &panel)) return;
+	int panel_x = panel.x;
+	int panel_y = panel.y;
+	int panel_width = panel.w;
+	int panel_height = panel.h;
+
 	GFX_blitRectColor(ASSET_STATE_BG, screen, &(SDL_Rect){panel_x, panel_y, panel_width, panel_height},
 					  THEME_COLOR3);
 
-	int footer_y = screen->h - SCALE1(PADDING + PILL_SIZE);
-	if (overlay->footer_visible)
+	if (footer)
+	{
+		int footer_y = screen->h - SCALE1(PADDING + PILL_SIZE);
 		SDL_FillRect(screen, &(SDL_Rect){0, footer_y, screen->w, screen->h - footer_y},
 					 THEME_COLOR7);
+	}
 
 	int header_x = panel_x + padding;
 	int header_y = panel_y + padding;
@@ -593,6 +616,20 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 		int message_y = panel_y + panel_height - padding - SCALE1(FONT_SMALL);
 		blit_text(font.small, overlay->message, uintToColour(THEME_COLOR6_255), screen, message_x, message_y, NULL);
 	}
+}
+
+void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
+{
+	if (!overlay || !overlay->open || !screen) return;
+	if (overlay->item_count == 0) refresh_items(overlay);
+
+	if (overlay->dim_visible)
+	{
+		ensure_dim(overlay, screen);
+		if (overlay->dim) SDL_BlitSurface(overlay->dim, NULL, screen, NULL);
+	}
+
+	draw_panel(overlay, screen, overlay->footer_visible);
 
 	GFX_blitHardwareGroup(screen, 0);
 
@@ -605,6 +642,23 @@ void UIOverlay_draw(UIOverlay* overlay, SDL_Surface* screen)
 		GFX_blitButtonGroup(close_hint, 0, screen, 0);
 		GFX_blitButtonGroup(select_hint, 0, screen, 1);
 	}
+}
+
+void UIOverlay_drawPanel(UIOverlay* overlay, SDL_Surface* screen)
+{
+	if (!overlay || !overlay->open || !screen) return;
+	if (overlay->item_count == 0) refresh_items(overlay);
+	draw_panel(overlay, screen, 0);
+}
+
+int UIOverlay_getPanelRect(const UIOverlay* overlay, const SDL_Surface* screen, SDL_Rect* rect)
+{
+	return panel_geometry(overlay, screen, rect);
+}
+
+void UIOverlay_setDimVisible(UIOverlay* overlay, int visible)
+{
+	if (overlay) overlay->dim_visible = visible ? 1 : 0;
 }
 
 void UIOverlay_setFooterVisible(UIOverlay* overlay, int visible)

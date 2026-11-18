@@ -3,21 +3,25 @@
  *
  * The foreground application owns the display; a second process cannot create
  * an SDL window over it, and writing /dev/fb0 races the application's own page
- * flips. This module renders into a separate sunxi disp2 layer above fb0
- * (channel 1 / layer 0). The display engine composites the layer over any SDL
- * app, and disabling the layer restores the untouched application frame.
+ * flips. This module renders into separate sunxi disp2 layers above fb0
+ * (channel 1 / layer 0). The display engine composites those layers over any
+ * SDL app, and disabling them restores the untouched application frame.
  *
- * The layer is a full-screen ARGB buffer. The renderer is the same
- * GFX/UIOverlay stack NextUI uses: the HOME panel is UIOverlay_draw(), the
- * top-right battery is GFX_blitHardwareGroup(), and volume/brightness/
- * colortemp use GFX_blitHardwareIndicator(). Colors and fonts come from the
- * user's minuisettings.txt through CFG_init/CFG_setColor.
+ * The overlay uses two layers on a UI channel of its own:
+ *   - a full-screen black COLOR layer with global alpha 140, which provides
+ *     the dim for zero CPU and zero scanout pixels, and
+ *   - a full-screen ARGB buffer layer with pixel alpha above it, which holds
+ *     only the HOME panel or the hardware HUD pill.
  *
- * Two scanout buffers are used when the backend can allocate them: the frame is
- * drawn into the buffer that the display engine is not scanning, then presented
- * by changing the layer address in one DISP_LAYER_SET_CONFIG. The layer stays
- * enabled for the whole HOME/HUD session, so a selection move never disables or
- * reconfigures its geometry.
+ * A UI channel is required: DE2 ignores the alpha of UI-format layers on a VI
+ * channel, and a VI channel's colour-layer fill is forced opaque. The channel
+ * sits above fb0's channel through its zorder (see disp2_layer.h).
+ *
+ * The panel buffer is double buffered: the frame is drawn into the buffer the
+ * display engine is not scanning, then presented by changing the layer address
+ * in one DISP_LAYER_SET_CONFIG. The layers stay enabled for the whole
+ * HOME/HUD session, so a selection move never disables or reconfigures the dim
+ * layer and only the panel rectangle is cleared and drawn again.
  */
 #ifndef NEXTUI_SYSTEM_OVERLAY_H
 #define NEXTUI_SYSTEM_OVERLAY_H
@@ -50,11 +54,12 @@ typedef enum
 /*
  * Display backend. acquire allocates up to count CPU-writable scanout buffers
  * of size bytes each and returns how many it got (1..count, or 0 on failure).
- * commit enables or disables the layer, positions width x height of the named
- * buffer on screen, and is called once per visual update. A backend that
- * supports two buffers should present them by changing the layer address in one
- * config commit; the layer itself stays enabled. The test harness supplies a
- * malloc-backed backend with two buffers.
+ * commit enables or disables the layers, positions width x height of the named
+ * buffer on screen, and is called once per visual update. dim selects the
+ * hardware dim layer for this frame (HOME yes, HUD no). A backend that
+ * supports two buffers presents them by changing the panel layer address in
+ * one config commit; the layers themselves stay enabled. The test harness
+ * supplies a malloc-backed backend with two buffers.
  */
 typedef struct
 {
@@ -67,8 +72,8 @@ typedef struct
 	void* user;
 	int (*acquire)(void* user, size_t size, int count, SystemOverlayBuffer* buffers);
 	void (*release)(void* user, SystemOverlayBuffer* buffers, int count, size_t size);
-	int (*commit)(void* user, int enabled, int buffer, int screen_x, int screen_y, int width,
-				  int height, int buffer_width, int buffer_height);
+	int (*commit)(void* user, int enabled, int dim, int buffer, int screen_x, int screen_y,
+				  int width, int height, int buffer_width, int buffer_height);
 } SystemOverlayDisplay;
 
 /*
@@ -87,6 +92,16 @@ typedef struct
  */
 int SystemOverlay_decodeScanoutAddress(int getadr_result, unsigned long long* physical);
 
+/*
+ * Pick the DE2 channel and zorder for the overlay given fb0's channel and
+ * zorder. The overlay goes on a UI channel (2, then 3) that is not fb0's, and
+ * its zorder is one above fb0's so de_al_lyr_apply() routes it to a higher
+ * blend pipe. zorder is clamped to 254: de_al_lyr_apply() seeds its selection
+ * with 255 and only accepts a strictly smaller value, so 255 never routes.
+ * Returns 0 on success, -1 when no usable channel exists.
+ */
+int SystemOverlay_planStacking(int fb0_channel, int fb0_zorder, int* channel, int* zorder);
+
 /* Production /dev/disp backend; returns 0 when the overlay can be drawn. */
 int SystemOverlay_init(int screen_width, int screen_height);
 
@@ -101,7 +116,7 @@ int SystemOverlay_visible(void);
 SystemOverlayMode SystemOverlay_mode(void);
 
 /* Re-read color1..color7 from minuisettings.txt and refresh the GFX palette.
- * showHome()/input() also call this before drawing. Returns 0. */
+ * showHome()/showIndicator() also call this before drawing. Returns 0. */
 int SystemOverlay_applyTheme(void);
 
 /* Draw and commit the shared UIOverlay panel. Call PWR_setBatteryStatus first.
@@ -120,6 +135,15 @@ int SystemOverlay_input(SystemOverlayInput input);
 
 /* Last rendered buffer, full screen dimensions. Read-only; tests/diagnostics. */
 const uint32_t* SystemOverlay_pixels(int* width, int* height);
+
+/*
+ * Host-test seams for the production backend. The tests substitute a real
+ * temporary file for /dev/disp (so mmap still works) and an ioctl fake that
+ * records layer configs. Passing NULL restores the device path/ioctl.
+ */
+typedef int (*SystemOverlayIoctl)(int descriptor, unsigned long request, unsigned long argument);
+void SystemOverlay_setDispPath(const char* path);
+void SystemOverlay_setDispIoctl(SystemOverlayIoctl ioctl_fn);
 
 #ifdef __cplusplus
 }
