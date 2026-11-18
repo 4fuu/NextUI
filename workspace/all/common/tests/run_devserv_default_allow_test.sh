@@ -27,6 +27,7 @@ common="$ROOT/workspace/all/common"
 
 cat > "$BUILD_DIR/session_ops_none.c" <<'EOF'
 #include "device_session_platform.h"
+#include "device_status_platform.h"
 
 #include <stdio.h>
 
@@ -82,6 +83,14 @@ const DeviceSessionOps* device_session_platform_ops(void)
 {
     return &OPS;
 }
+
+/* No platform status stack in this host build: every section must report
+ * available:false with a detail (CONTRACT.md §8.1), which is also the
+ * desktop-preview rule. */
+const DeviceStatusOps* device_status_platform_ops(void)
+{
+    return device_status_unavailable_ops();
+}
 EOF
 
 "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 \
@@ -89,11 +98,14 @@ EOF
     "$ROOT/workspace/all/devserv/devserv.c" \
     "$common/device_backend.c" \
     "$common/device_caps.c" \
+    "$common/device_coop.c" \
     "$common/device_gate.c" \
     "$common/device_grants.c" \
     "$common/device_identity.c" \
     "$common/device_protocol.c" \
     "$common/device_session.c" \
+    "$common/device_status.c" \
+    "$common/device_subscription.c" \
     "$BUILD_DIR/session_ops_none.c" \
     "$common/json_lite.c" \
     "$common/pak_manifest.c" \
@@ -104,6 +116,7 @@ EOF
     "$ROOT/workspace/all/nextdev/nextdev.c" \
     "$common/device_protocol.c" \
     "$common/device_session.c" \
+    "$common/device_status.c" \
     "$common/json_lite.c" \
     -o "$BUILD_DIR/nextdev"
 
@@ -177,6 +190,40 @@ run_nd --pak "$GATED" status
 expect_contains "$OUT" '"name":"display.brightness","supported":true,"grant_required":false'
 expect_contains "$OUT" '"available":false,"authorized":true'
 expect_contains "$OUT" '"name":"led.control","supported":true,"grant_required":false'
+
+# Protocol negotiation is additive: the C1 fields stay and a host build with
+# no status backend reports every section available:false with a detail.
+run_nd ping
+[[ "$STATUS" -eq 0 ]] || fail "ping failed: $OUT"
+expect_contains "$OUT" '"protocol":1'
+expect_contains "$OUT" '"contract":"nextui-app/1"'
+expect_contains "$OUT" '"sleep_ack_ms":1500'
+
+run_nd hello
+[[ "$STATUS" -eq 0 ]] || fail "hello failed: $OUT"
+expect_contains "$OUT" '"session":{"active":false}'
+expect_contains "$OUT" '"battery":{"available":false'
+
+run_nd battery
+[[ "$STATUS" -eq 0 ]] || fail "battery.status failed: $OUT"
+expect_contains "$OUT" '"battery":{"available":false'
+expect_contains "$OUT" '"detail":"no status backend on this platform"'
+
+run_nd status-get battery,wifi,bluetooth,volume,display,theme
+[[ "$STATUS" -eq 0 ]] || fail "status.get failed: $OUT"
+expect_contains "$OUT" '"battery":{"available":false'
+expect_contains "$OUT" '"wifi":{"available":false'
+expect_contains "$OUT" '"bluetooth":{"available":false'
+expect_contains "$OUT" '"volume":{"available":false'
+expect_contains "$OUT" '"display":{"available":false'
+expect_contains "$OUT" '"theme":{"available":false'
+expect_not_contains "$OUT" '"percent"'
+expect_not_contains "$OUT" '"level"'
+
+run_nd sleep-status
+[[ "$STATUS" -eq 0 ]] || fail "sleep.status failed: $OUT"
+expect_contains "$OUT" '"phase":"awake"'
+expect_contains "$OUT" '"last":null'
 
 # Corrupt legacy grant state must not block the default path.
 printf 'not a grant store' > "$GRANTS"

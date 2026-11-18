@@ -29,6 +29,7 @@ common="$ROOT/workspace/all/common"
 
 cat > "$BUILD_DIR/session_ops_none.c" <<'EOF'
 #include "device_session_platform.h"
+#include "device_status_platform.h"
 
 #include <stdio.h>
 
@@ -89,6 +90,14 @@ const DeviceSessionOps* device_session_platform_ops(void)
 {
     return &OPS;
 }
+
+/* No platform status stack in this host build: every section must report
+ * available:false with a detail (CONTRACT.md §8.1), which is also the
+ * desktop-preview rule. */
+const DeviceStatusOps* device_status_platform_ops(void)
+{
+    return device_status_unavailable_ops();
+}
 EOF
 
 "$compiler" -std=gnu99 -Wall -Wextra -Werror -pedantic -O2 \
@@ -96,11 +105,14 @@ EOF
     "$ROOT/workspace/all/devserv/devserv.c" \
     "$common/device_backend.c" \
     "$common/device_caps.c" \
+    "$common/device_coop.c" \
     "$common/device_gate.c" \
     "$common/device_grants.c" \
     "$common/device_identity.c" \
     "$common/device_protocol.c" \
     "$common/device_session.c" \
+    "$common/device_status.c" \
+    "$common/device_subscription.c" \
     "$BUILD_DIR/session_ops_none.c" \
     "$common/json_lite.c" \
     "$common/pak_manifest.c" \
@@ -111,6 +123,7 @@ EOF
     "$ROOT/workspace/all/nextdev/nextdev.c" \
     "$common/device_protocol.c" \
     "$common/device_session.c" \
+    "$common/device_status.c" \
     "$common/json_lite.c" \
     -o "$BUILD_DIR/nextdev"
 
@@ -552,7 +565,18 @@ expect_contains "$OUTPUT" '"handled_by_system":false'
 expect_contains "$OUTPUT" '"exit_requested":false'
 run_nextdev --pak "$OVERLAY" session-status
 expect_contains "$OUTPUT" '"overlay_host":true'
+expect_contains "$OUTPUT" '"overlay_host_declared":true'
+expect_contains "$OUTPUT" '"overlay_open":false'
 expect_contains "$OUTPUT" '"exit_requested":false'
+
+# The session response reports the effective host and the declaration; while
+# the adapted session hosts, HOME carries overlay.home on the event stream is
+# covered by run_coop_integration_test.sh.
+run_nextdev --pak "$OVERLAY" hello
+[[ "$STATUS" -eq 0 ]] || { echo "FAIL: hello: $OUTPUT" >&2; exit 1; }
+expect_contains "$OUTPUT" '"protocol":1'
+expect_contains "$OUTPUT" '"overlay_host":true'
+expect_contains "$OUTPUT" '"overlay_host_declared":true'
 
 # An adapted app owns its own volume/brightness indicators too.
 OUTPUT="$("$RAW" "$SOCKET" '{"op":"system-feedback","action":"volume"}')"

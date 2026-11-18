@@ -11,6 +11,7 @@
 #include "device_backend_leds.h"
 #include "device_session.h"
 #include "device_session_platform.h"
+#include "device_status_platform.h"
 #include "led_lease.h"
 
 #include <stdio.h>
@@ -274,4 +275,11 @@ const DeviceBackend* device_backend_leds(void)
 
 void device_backend_leds_shutdown(void)
 {
+}
+
+/* The session E2E build has no status stack; every section must report
+ * available:false (CONTRACT.md §8.1). */
+const DeviceStatusOps* device_status_platform_ops(void)
+{
+    return device_status_unavailable_ops();
 }

@@ -98,11 +98,14 @@ tests="$common/tests"
     "$common/device_backend_leds.c" \
     "$common/device_backend_rumble.c" \
     "$common/device_caps.c" \
+    "$common/device_coop.c" \
     "$common/device_gate.c" \
     "$common/device_grants.c" \
     "$common/device_identity.c" \
     "$common/device_protocol.c" \
     "$common/device_session.c" \
+    "$common/device_status.c" \
+    "$common/device_subscription.c" \
     "$common/led_lease.c" \
     "$common/json_lite.c" \
     "$common/pak_manifest.c" \
@@ -114,6 +117,7 @@ tests="$common/tests"
     "$ROOT/workspace/all/nextdev/nextdev.c" \
     "$common/device_protocol.c" \
     "$common/device_session.c" \
+    "$common/device_status.c" \
     "$common/json_lite.c" \
     -o "$BUILD_DIR/nextdev"
 

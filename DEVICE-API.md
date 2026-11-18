@@ -724,3 +724,238 @@ C2 adds the LED app lease and the `nextui-leds` backend. C3 adds session-end
 release; C4 adds the bounded app-exit path described above. R3 adds the
 `nextui-rumble` backend. Device behavior of all of them remains unverified
 until the physical-key/device batch.
+
+## Cooperation protocol (protocol 1)
+
+This is the system-side implementation of
+[`nextui-app-sdk` `docs/CONTRACT.md`](https://github.com/4fuu/nextui-app-sdk/blob/main/docs/CONTRACT.md).
+That document is the source of truth; this section records what `devserv`,
+`keymon` and the launcher power path actually do, where they decide things the
+contract leaves open, and what is not implemented yet.
+
+Everything is additive to C1/C3/C4. `ping` gains `protocol`, `contract`,
+`features` and `limits`; request connections keep exactly one line in, one line
+out; `app-action`, `system-feedback`, sessions and `call` keep their shapes.
+An old `nextdev` still works, and an old devserv answers `hello` with
+`bad_request`/`"unknown operation"`, which clients must treat as "no
+cooperation protocol" (CONTRACT.md §12).
+
+### Negotiation
+
+```
+{"op":"ping"}
+{"op":"hello","client":"app/1.0","protocol":1,"features":["sleep","status"],"app":"id","pak":"/path.pak"}
+```
+
+`ping` and `hello` advertise protocol `1`, contract `nextui-app/1`, the six
+features (`events`, `sleep`, `status`, `hud`, `overlay`, `battery`) and the
+limits below. `hello` adds the active session (`active`, `session_id`, `app`,
+`pak`, `overlay_host`, `overlay_host_declared`, `overlay_open`, `started_at`,
+`matches_pak`), the battery section, and `features` intersected with the
+client's request. `matches_pak` is false when the request named a different
+canonical pak than the active session; the client must then not use that
+`session_id`. A client protocol below 1 gets
+`{"ok":false,"error":"protocol_unsupported","server_protocol":1,"min_protocol":1}`.
+
+The server enforces these limits (CONTRACT.md §15); it never advertises a
+value it does not enforce:
+
+| Limit | Value |
+| --- | --- |
+| `line_max` | 8192 bytes including the newline |
+| `event_queue` | 64 events per subscription |
+| `subscribe_max` | 8 concurrent event connections |
+| `sleep_ack_ms` | 1500 (request `timeout_ms` 0-5000) |
+| `inhibit_max_ms` | 300000 (inhibit `timeout_ms` 1000-300000) |
+| `sleep_cooldown_ms` | 1000, enforced by the initiator (keymon) |
+| `heartbeat_ms` | 15000 |
+| `status_min_interval_ms` | 500 (per subscription 250-5000) |
+| `status_resync_ms` | 30000 |
+| `feedback_min_interval_ms` | 100 |
+
+### Event connections
+
+`subscribe` is the only operation on its connection:
+
+```
+{"op":"subscribe","session_id":"0123456789abcdef","features":["sleep","status","hud","overlay"],"status":{"fields":["battery","volume"],"min_interval_ms":500}}
+```
+
+The first line is `subscription.ready` with `seq:0`, the enabled feature subset,
+`session_id` when bound, `overlay_host` (effective), `protocol:1` and `limits`.
+Every later line is one event with a strictly increasing `seq` and `at_ms`.
+`features` omits `hud`/`overlay` when there is no session (they would be
+unattributable) and omits `overlay` for a session that did not declare it.
+Unknown feature and field names are ignored. A second line on the connection is
+answered with `bad_request` and the connection closes.
+
+* `heartbeat` after 15 s without another event.
+* `status.snapshot` immediately after `ready` (`initial:true`) and every 30 s.
+* `status.changed` coalesced per subscription at `min_interval_ms`, carrying
+  only changed sections and a trailing patch when a burst ends.
+* `sleep.prepare` / `wake.done` for the session that owned the cycle, or for
+  system-scope subscriptions when no session was active.
+* `session.ended` (`stopped` on `session-stop`; `server_shutdown` on exit),
+  then the connection closes.
+* `overflow` (best effort) and close when the queue cannot make room.
+
+Drop order: `status.*` and `heartbeat` are dropped first; `sleep.prepare`,
+`wake.done` and `session.ended` never are. A pending `sleep.prepare` is replayed
+to a subscriber that connects mid-handshake, with the remaining deadline, and
+that subscriber is added to the ack set.
+
+### Sleep handshake
+
+Only system components send `sleep.request` (`reason` user/idle/low_battery/lid,
+`initiator`, `timeout_ms`). The response is sent after the handshake resolves
+(`proceed` or `defer`). `sleep.ack`, `sleep.inhibit`, `sleep.release`,
+`sleep.finished` and `sleep.status` have the shapes in the contract.
+
+* `sleep_id` is 16 lowercase hex digits, unique per devserv lifetime.
+* A missing ack never blocks sleep: at the deadline the server proceeds unless
+  a prepare-scoped inhibit is active. That is the liveness guarantee for a
+  crashed or wedged app.
+* An ack is attributed by `session_id` (one app session normally has one event
+  connection); two event connections bound to the same session are acked
+  together, so one app can never wedge the deadline with a forgotten stream.
+* `sleep_busy` while an attempt is preparing or the device is sleeping.
+  A `sleep.request` that arrives while `phase:sleeping` first finalizes the old
+  cycle as `result:"unknown"` and emits its `wake.done`, then starts a new one.
+* `defer_until_ms`, `inhibit.until_ms` and `expires_at_ms` are **absolute**
+  `CLOCK_MONOTONIC` milliseconds, not durations (the contract's example values
+  are consistent with this; the SDK does not interpret them).
+* The automatic pre-inhibit (`sleep.inhibit` without `sleep_id`) suppresses
+  `idle` and `low_battery` requests only. A user request always produces a
+  `sleep.prepare`; the app can inhibit that prepare instead.
+* An inhibit lease is per session and is cleared by expiry, `sleep.release`,
+  session end, or a newer attempt. A prepare-scoped inhibit outlives the
+  resolved attempt until its expiry or an explicit release, so an idle retry
+  stays suppressed.
+
+`api.c` (the launcher) performs the same handshake in `PWR_sleep`, before
+`PWR_enterSleep`, and calls `sleep.finished` after `PWR_exitSleep`. A
+process-local cycle flag stops `PWR_sleep -> PWR_waitForWake -> PWR_deepSleep`
+from asking twice. If devserv is absent, or answers with a pre-protocol-1
+error, the launcher proceeds exactly as before: that fail-open is required so
+the desktop preview and an old devserv keep their autosleep. A real `defer`
+from a protocol-1 server is always honoured. The handshake is deliberately not
+inside `PLAT_deepSleep()`: that is the platform primitive and other callers may
+use it.
+
+### Status provider
+
+`battery.status` and `status.get` read the same data the shared overlay rows
+need. Availability is honest:
+
+* devserv never calls `InitSettings()`. It reads the shared settings segment
+  only when it already exists, and parses theme/clock values directly from
+  `$SHARED_USERDATA_PATH/minuisettings.txt` (it does not run `CFG_init`, which
+  loads a font).
+* The desktop preview reports battery, volume, display and theme
+  `available:false` with a `detail`; it never fabricates a reading. The host
+  tests assert that.
+* A platform value outside 0-100 is `available:false` with
+  `backend_error:true`, never clamped.
+* Sampling: battery every 5 s, Wi-Fi/Bluetooth every 2 s, volume/display/mute
+  every 250 ms, theme/clock every 5 s and after a session start. A read
+  operation forces the sections it needs.
+* Wi-Fi/Bluetooth use `WIFI_enabled`, `WIFI_connected`,
+  `PLAT_connectionStrength`, `WIFI_connectionInfo`, `BT_enabled` and
+  `PLAT_btIsConnected` on the device. The C1 `net.wifi`/`net.bluetooth` **set**
+  backends still do not exist, so the shared rows can be displayed but not
+  toggled through `call`; an app that must toggle uses its own platform binding
+  and refreshes `status.get`.
+
+### HUD and overlay ownership
+
+`hud.policy` stores per-kind app/system intent for the session; the response
+shows both the stored `policy` and the routing in `effective`. Routing is app
+only when the session is hosting and either the stored kind is `app` or the
+in-process overlay is open. `system-feedback` (keymon's ownership query) and
+`app-action overlay` consult the same effective routing on every request.
+
+`overlay.state` requires an effective host: an unadapted session gets
+`not_adapted`, a declared session that yielded gets `not_hosting`.
+`overlay.host false` (the §7.9 dynamic yield) closes `overlay_open`, routes
+HOME and the HUD back to the system, stores the policy for later, and leaves
+`overlay_host_declared` true. `overlay.host true` restores the stored policy and
+requires the declaration; a new session always starts from the declaration.
+The session response reports `overlay_host` (**effective**),
+`overlay_host_declared`, and `overlay_open`, so a C3 client sees the same
+routing the HUD uses.
+
+`system-feedback` still returns keymon's exact C4 shape, and keymon still draws
+its 1.6 s indicator when the answer is system. When the answer is app, devserv
+emits one `feedback` event per change (100 ms per kind, `source:"key"` for the
+keymon path, `source:"change"` for sampled changes) and keymon draws nothing.
+Volume and brightness are applied only by keymon; an app must not double-apply
+them.
+
+### Errors
+
+New stable names: `not_adapted`, `not_hosting`, `sleep_busy`, `sleep_stale`,
+`too_many_subscriptions`, `protocol_unsupported`. The C1/C3/C4 names keep their
+meaning. A malformed line, including a second line on an event connection,
+gets exactly one `bad_request` line and a close. A pre-protocol-1 server still
+answers unknown operations with `bad_request`/`"unknown operation"`.
+
+### Resident suspend while an app is foreground (design)
+
+This was the contract's biggest open item (§13.3): while a third-party app is
+foreground the launcher is blocked in `nextui_session_run`, `PWR_*` lives in
+that launcher process, and keymon had no power-key handling.
+
+**Decision: keymon is both the resident source and the executor.** It is the
+only resident process that already links msettings and the platform layer, and
+it is the process that already owns system keys under an app's `EVIOCGRAB`.
+
+* `discover_system_keys()`/`read_system_key_state()` now observe `KEY_POWER`,
+  and `system_key_events()` emits one `SYSKEY_EVENT_POWER` per press (no
+  repeat). A press is coalesced with `sleep_cooldown_ms` and ignored while a
+  request is in flight.
+* The press sends `sleep.request` through a new long-timeout request helper
+  (`sleep_ack_ms + 1200 ms`; the original 100 ms helper is kept for the other
+  system keys). Nothing suspends without an answered handshake: no devserv or
+  a timeout drops the press and the next press retries.
+* On `decision:"proceed"` keymon releases the overlay grab and HUD
+  (`hide_overlay()`), mutes the raw volume, disables the backlight, `sync()`s,
+  runs `${SYSTEM_PATH}/bin/suspend` (the same platform script `PWR_deepSleep`
+  uses; it owns Wi-Fi/Bluetooth/alsa teardown), then restores the backlight and
+  volume and `sync()`s again. A missing script fails the attempt before any
+  display or mixer change.
+* After the resume it reports `sleep.finished` with `result:ok|failed` and
+  `woke_by:"power"`, which makes devserv emit exactly one `wake.done`.
+* keymon does **not** stop itself (api.c's `PWR_enterSleep` stops keymon
+  because it is the process calling the platform path; here keymon must survive
+  to report the resume) and does not STOP batmon/audiomon.
+* Platform coverage is **tg5040 only** for now. `tg5050` and `h700` have
+  separate minimal keymon daemons without the devserv seam; they keep the
+  desktop/autosleep path and their power key behavior is unchanged. Porting the
+  same handler is mechanical but needs its own device pass.
+* **No resident idle timer.** keymon polls `EVIOCGKEY`, which cannot see the
+  app's analog stick input, so an idle timer in keymon would suspend during
+  gameplay. Automatic sleep while a third-party app is foreground therefore
+  still does not happen; the pre-inhibit API and `reason:"idle"` are implemented
+  and ready for a future source that can see real app input.
+* The desktop launcher path keeps `api.c`'s handshake (above), so autosleep on
+  the desktop is unchanged.
+
+### `nextdev` additions
+
+`hello`, `battery`, `status-get [fields]`, `sleep-status`, `sleep-request
+[reason]` (`--initiator`, `--timeout-ms`), `sleep-ack`, `sleep-inhibit`,
+`sleep-release`, `sleep-finished`, `hud-policy`, `overlay-state`,
+`overlay-host`, and `subscribe [features] [fields]` (prints events until the
+server closes). These are diagnostics; the app-facing surface is the SDK.
+
+### Verification
+
+Host: `make -C tests test-coop` runs the pure state-machine/queue unit test and
+a fake-app integration test that drives the real devserv over a Unix socket
+(negotiation, subscribe/seq/heartbeat/resync, sleep ack/inhibit/defer/deadline/
+stale/busy/replay/wake, dynamic host yield/restore, unadapted fallback, status
+coalescing, subscribe limit, session end). The existing devserv, default-allow
+and device-gate suites cover the unchanged C1/C3/C4 wire shapes, including the
+desktop `available:false` rule. Device acceptance (real power key, HOME
+visibility under a grab, audio after wake, timing) is
+[DEVICE-TEST.md](DEVICE-TEST.md).

@@ -105,3 +105,109 @@ and the existing session supervisor, never `kill --`.
 - Apps that grab and hold the ALSA mixer can override keymon's volume write;
   brightness is a global display setting. Report this separately from the
   overlay feedback path.
+
+## Protocol 1 cooperation acceptance
+
+Target: tg5040 (device builds run in CI; this is the physical pass). Bring a
+fake app that speaks the protocol, or use `nextdev` as a scripted stand-in.
+Keep a second shell for `nextdev ... subscribe` and the devserv log.
+
+### Prepare
+
+- Flash the branch build. Confirm `ps` shows `devserv.elf` and one
+  `keymon.elf`; devserv started with the same socket as `$NEXTUI_DEVSERV_SOCKET`
+  (default `/tmp/nextui-devserv.sock`).
+- Install an adapted app (declares `"overlay"` in the top-level `pak.json`
+  `"capabilities"`, e.g. Clock) and an unadapted app (e.g. Moonlight).
+- `nextdev battery` and `nextdev status-get` must report real values:
+  `battery.percent` matching the status pill, `volume.level`/`min`/`max`
+  matching the system HUD, `display.brightness` matching brightness changes,
+  `wifi`/`bluetooth` matching Settings. `theme`/`clock` match
+  `minuisettings.txt`.
+- `nextdev --session-id <id> subscribe sleep,status,hud,overlay battery,volume`
+  in a spare shell prints `subscription.ready` (`seq:0`) then a status snapshot
+  with `"initial":true`.
+
+### Input coexistence (hard unknown)
+
+1. Launch an app that grabs its evdev node (Moonlight). While it runs, press
+   HOME, volume up/down, brightness, and power. Each must be seen by keymon:
+   HOME opens the panel (unadapted) or the app handles it (adapted), volume and
+   brightness change and the correct HUD is drawn, power starts the handshake.
+   This proves `EVIOCGKEY` works under the app's `EVIOCGRAB`.
+2. On Brick Pro, verify HOME is `KEY_HOMEPAGE` and visible to a normal PAD read
+   in the app *and* to keymon's `EVIOCGKEY` query. If the app cannot see it,
+   the `overlay.home` event must still reach an adapted app's subscription.
+3. Hold HOME/volume/power for several seconds: no repeat storms from the power
+   key, normal repeat for volume/brightness.
+
+### Power key and the resident suspend path
+
+1. **Adapted app, ack.** Have the app subscribe to `sleep`. Press power. Expect
+   `sleep.prepare` within ~50 ms with `reason:"user"`, the app's `sleep.ack`,
+   the `sleep.request` response `decision:"proceed"` in the devserv log, the
+   app's in-app pause/save, then the screen off and `mem` suspend. On wake press
+   power again: the app gets exactly one `wake.done` with `woke_by:"power"` and
+   `slept_ms` matching the wall time asleep.
+2. **Inhibit.** Re-run with the app sending `sleep.inhibit` (reason
+   `playing_video`, 60 s). Power must not suspend; the `sleep.request` response
+   is `decision:"defer"`; the app keeps playing. After expiry, a new power press
+   prepares again.
+3. **Missing ack.** Have the app ignore `sleep.prepare`. At 1.5 s the request
+   must answer `proceed` and the device must suspend. This is the liveness
+   guarantee; a crashed app must not keep the device awake.
+4. **No subscribers (unadapted/desktop).** With no app subscription, power must
+   suspend through the same resident path and `sleep.request` returns
+   `subscribers:0`/`proceed` immediately.
+5. **No devserv.** Stop `devserv.elf` and press power. Nothing must suspend and
+   keymon must log that the press was dropped. This is deliberate: the resident
+   path never suspends without a handshake.
+6. **Grab release.** Open the system panel over an unadapted app (keymon holds
+   `EVIOCGRAB`), press power to suspend, then wake. The panel input must still
+   work or be cleanly closed; no key may be stuck and the app must receive
+   input again. Repeat with an adapted app that holds its own grab.
+7. **Audio/display after wake.** After a resident suspend wake, audio plays,
+   the backlight returns at the previous brightness, volume is not muted, and
+   the status pill/Settings agree. The suspend script restores the alsa mixer;
+   keymon restores the raw volume and backlight.
+8. **Wake attribution.** Suspend with the lid (h700) or by power (tg5040) and
+   check `wake.done.woke_by`. The current resident path reports `"power"` for
+   any wake; if lid wake is distinguishable on a target, file the follow-up
+   (the contract allows `lid`; the event must not lie).
+9. **Timing.** Measure prepare→screen-off and note whether a video player can
+   pause within 1500 ms. If not, raise `sleep_ack_ms` in the advertised limits
+   rather than special-casing an app.
+10. **Desktop autosleep.** On the desktop preview (no devserv, or the host
+    devserv), let the screen timeout expire. It must still sleep/suspend exactly
+    as before this change; with a protocol-1 devserv and no subscriber it
+    proceeds immediately.
+
+### Overlay hosting and HUD (on device)
+
+1. Adapted app: HOME returns `handled_by_app`, keymon draws and grabs nothing,
+   the app receives `overlay.home`, opens its panel and reports
+   `overlay.state open:true`. Volume then arrives as `feedback`, not as a
+   keymon indicator.
+2. `overlay.host false` while streaming: HOME must open the C4 system panel
+   over the app, `system-feedback` must answer `handled_by_system`, and
+   `overlay.state open:true` must fail `not_hosting`. `overlay.host true` after
+   the stream returns HOME to the app.
+3. Unadapted app: `app-action overlay` still returns `handled_by_system`, the
+   shared UIOverlay panel looks and behaves exactly as in the C4 checklist, and
+   `overlay.state` returns `not_adapted`.
+4. Kill/relaunch the app: a new session starts from the manifest declaration
+   (yielded state must not leak), and the old event connection gets
+   `session.ended`.
+
+### Status, Wi-Fi/Bluetooth
+
+1. Change volume/brightness with the keys while subscribed: one
+   `status.changed` per coalescing window with the right section and value,
+   plus one `feedback` event when the app owns that HUD kind.
+2. Toggle Wi-Fi/Bluetooth in Settings and watch `status.changed` (2 s cadence).
+   The C1 `net.wifi`/`net.bluetooth` **set** backends do not exist yet: an app
+   that calls them gets `unavailable`. Rows can be displayed; toggles through
+   C1 are a follow-up (the app uses its own platform binding for now).
+3. Battery: percent/charging/USB must match the status pill and a charger
+   plug/unplug. A missing or out-of-range platform value must appear as
+   `available:false` with `detail`, never as 0 % or 100 %.
