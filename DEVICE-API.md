@@ -61,10 +61,13 @@ C4 has one resident observer, one hardware display layer, and one launch parent:
 - **keymon draws the fallback overlay in a separate display layer.** The
   foreground app owns `/dev/fb0` and presents at 60 fps, often with page
   flipping; writing fb0 from another process would race the app and could not be
-  restored cleanly. keymon creates a full-screen ARGB GFX surface over a sunxi
-  disp2 scanout buffer and draws the real shared components into it:
-  `UIOverlay_draw()` for the centred panel, `GFX_blitHardwareGroup()` for the
-  top-right battery/status group, `GFX_blitHardwareIndicator()` for
+  restored cleanly. keymon creates two full-screen ARGB scanout buffers when
+  the driver allows (and falls back to one), draws the real shared components
+  into the buffer the display engine is not scanning, then presents it by
+  changing the layer address in one config commit. It draws the real shared
+  components: `UIOverlay_draw()` for the centred panel,
+  `GFX_blitHardwareGroup()` for the top-right battery/status group,
+  `GFX_blitHardwareIndicator()` for
   volume/brightness/colour-temperature HUDs, and `GFX_blitButtonGroup()` for the
   launcher-style bottom hint bar. Theme colours and fonts come from the user's
   `minuisettings.txt` through `CFG`. The layer is channel 1, layer 1-3 (fb0 is

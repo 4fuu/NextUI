@@ -446,7 +446,7 @@ static void ensure_dim(UIOverlay* overlay, SDL_Surface* screen)
 	overlay->dim_height = screen->h;
 	if (!overlay->dim) return;
 
-	SDL_FillRect(overlay->dim, NULL, SDL_MapRGBA(screen->format, 0, 0, 0, 232));
+	SDL_FillRect(overlay->dim, NULL, SDL_MapRGBA(screen->format, 0, 0, 0, UI_OVERLAY_DIM_ALPHA));
 	SDL_SetSurfaceBlendMode(overlay->dim, SDL_BLENDMODE_BLEND);
 }
 

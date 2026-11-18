@@ -12,6 +12,12 @@
  * top-right battery is GFX_blitHardwareGroup(), and volume/brightness/
  * colortemp use GFX_blitHardwareIndicator(). Colors and fonts come from the
  * user's minuisettings.txt through CFG_init/CFG_setColor.
+ *
+ * Two scanout buffers are used when the backend can allocate them: the frame is
+ * drawn into the buffer that the display engine is not scanning, then presented
+ * by changing the layer address in one DISP_LAYER_SET_CONFIG. The layer stays
+ * enabled for the whole HOME/HUD session, so a selection move never disables or
+ * reconfigures its geometry.
  */
 #ifndef NEXTUI_SYSTEM_OVERLAY_H
 #define NEXTUI_SYSTEM_OVERLAY_H
@@ -42,17 +48,26 @@ typedef enum
 } SystemOverlayInput;
 
 /*
- * Display backend. acquire returns a CPU-writable scanout buffer of at least
- * size bytes and stores its physical address in *phys; commit enables or
- * disables the layer and positions width x height of the buffer on screen.
- * The test harness supplies a malloc-backed backend.
+ * Display backend. acquire allocates up to count CPU-writable scanout buffers
+ * of size bytes each and returns how many it got (1..count, or 0 on failure).
+ * commit enables or disables the layer, positions width x height of the named
+ * buffer on screen, and is called once per visual update. A backend that
+ * supports two buffers should present them by changing the layer address in one
+ * config commit; the layer itself stays enabled. The test harness supplies a
+ * malloc-backed backend with two buffers.
  */
 typedef struct
 {
+	void* pixels;
+	unsigned long long physical;
+} SystemOverlayBuffer;
+
+typedef struct
+{
 	void* user;
-	void* (*acquire)(void* user, size_t size, unsigned long long* phys);
-	void (*release)(void* user, void* pixels, size_t size);
-	int (*commit)(void* user, int enabled, int screen_x, int screen_y, int width,
+	int (*acquire)(void* user, size_t size, int count, SystemOverlayBuffer* buffers);
+	void (*release)(void* user, SystemOverlayBuffer* buffers, int count, size_t size);
+	int (*commit)(void* user, int enabled, int buffer, int screen_x, int screen_y, int width,
 				  int height, int buffer_width, int buffer_height);
 } SystemOverlayDisplay;
 
