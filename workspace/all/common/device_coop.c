@@ -128,6 +128,9 @@ int device_coop_set_overlay_host(DeviceCoop* coop, int host, unsigned long long 
 {
     if (coop == NULL || !coop->active) return 0;
     host = host ? 1 : 0;
+    /* Restoring hosting requires the static declaration; a session can never
+     * grant itself the capability at runtime (CONTRACT.md §7.9.1). */
+    if (host && !coop->overlay_host_declared) return 0;
     if (coop->overlay_host == host) return 0;
     coop->overlay_host = host;
     coop->host_changed_at_ms = now_ms;
@@ -205,6 +208,7 @@ DeviceCoopSleepResult device_coop_sleep_request(DeviceCoop* coop, const char* re
         stale = coop->last;
         coop->last.valid = 1;
         set_text(coop->last.sleep_id, sizeof coop->last.sleep_id, coop->sleep_id);
+        set_text(coop->last.session_id, sizeof coop->last.session_id, coop->sleep_session_id);
         set_text(coop->last.reason, sizeof coop->last.reason, coop->sleep_reason);
         set_text(coop->last.result, sizeof coop->last.result, "unknown");
         set_text(coop->last.woke_by, sizeof coop->last.woke_by, "unknown");
@@ -246,6 +250,7 @@ DeviceCoopSleepResult device_coop_sleep_request(DeviceCoop* coop, const char* re
     }
 
     device_coop_next_sleep_id(coop, coop->sleep_id, sizeof coop->sleep_id);
+    set_text(coop->sleep_session_id, sizeof coop->sleep_session_id, coop->session_id);
     set_text(coop->sleep_reason, sizeof coop->sleep_reason, reason != NULL ? reason : "user");
     coop->sleep_started_at_ms = now_ms;
     coop->sleep_deadline_ms = timeout_ms > 0 ? timeout_ms : DEVICE_PROTOCOL_SLEEP_ACK_MS;
@@ -410,6 +415,7 @@ const char* device_coop_sleep_finished(DeviceCoop* coop, const char* sleep_id,
 
     coop->last.valid = 1;
     set_text(coop->last.sleep_id, sizeof coop->last.sleep_id, sleep_id);
+    set_text(coop->last.session_id, sizeof coop->last.session_id, coop->sleep_session_id);
     set_text(coop->last.reason, sizeof coop->last.reason, coop->sleep_reason);
     set_text(coop->last.result, sizeof coop->last.result,
              result != NULL ? result : "ok");

@@ -1,7 +1,7 @@
 #include "device_status_platform.h"
 
-#include "api.h"
 #include "defines.h"
+#include "api.h"
 
 #include <msettings.h>
 

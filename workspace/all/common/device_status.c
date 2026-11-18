@@ -68,10 +68,63 @@ const char* device_status_section_name(DeviceStatusSection section)
  * what CONTRACT.md §8.1 requires of a preview build: an honest "unavailable",
  * never a fabricated reading.
  */
+#define UNAVAILABLE_DETAIL "no status backend on this platform"
+
+static void unavailable_battery(void* context, DeviceStatusBattery* out)
+{
+    (void)context;
+    out->available = 0;
+    set_text(out->detail, sizeof out->detail, UNAVAILABLE_DETAIL);
+}
+
+static void unavailable_network(void* context, DeviceStatusWifi* wifi,
+                                DeviceStatusBluetooth* bluetooth)
+{
+    (void)context;
+    wifi->available = 0;
+    bluetooth->available = 0;
+    set_text(wifi->detail, sizeof wifi->detail, UNAVAILABLE_DETAIL);
+    set_text(bluetooth->detail, sizeof bluetooth->detail, UNAVAILABLE_DETAIL);
+}
+
+static void unavailable_volume(void* context, DeviceStatusVolume* out)
+{
+    (void)context;
+    out->available = 0;
+    set_text(out->detail, sizeof out->detail, UNAVAILABLE_DETAIL);
+}
+
+static void unavailable_display(void* context, DeviceStatusDisplay* out)
+{
+    (void)context;
+    out->available = 0;
+    set_text(out->detail, sizeof out->detail, UNAVAILABLE_DETAIL);
+}
+
+static void unavailable_theme(void* context, DeviceStatusTheme* out)
+{
+    (void)context;
+    out->available = 0;
+    set_text(out->detail, sizeof out->detail, UNAVAILABLE_DETAIL);
+}
+
+static void unavailable_clock(void* context, DeviceStatusClock* out)
+{
+    (void)context;
+    out->show = 0;
+    out->hour24 = 0;
+}
+
 const DeviceStatusOps* device_status_unavailable_ops(void)
 {
-    static const DeviceStatusOps ops = {"unavailable", NULL, NULL, NULL,
-                                        NULL,          NULL, NULL, NULL};
+    static const DeviceStatusOps ops = {"unavailable",
+                                        NULL,
+                                        unavailable_battery,
+                                        unavailable_network,
+                                        unavailable_volume,
+                                        unavailable_display,
+                                        unavailable_theme,
+                                        unavailable_clock};
     return &ops;
 }
 

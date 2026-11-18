@@ -226,11 +226,12 @@ int device_protocol_write_subscription_ready(unsigned long long at_ms, unsigned 
                                              char* out, size_t out_size);
 
 /* `battery.status` and `status.get` (CONTRACT.md §8). */
-int device_protocol_write_battery_response(const DeviceStatusBattery* battery, char* out,
-                                           size_t out_size);
+int device_protocol_write_battery_response(const DeviceStatusBattery* battery,
+                                           unsigned long long at_ms, char* out, size_t out_size);
 int device_protocol_write_status_response_sections(const DeviceStatusSnapshot* status,
                                                    unsigned sections, int overlay_open,
-                                                   char* out, size_t out_size);
+                                                   unsigned long long at_ms, char* out,
+                                                   size_t out_size);
 
 /* `sleep.status` (CONTRACT.md §6.9). */
 typedef struct
@@ -362,7 +363,11 @@ int device_protocol_write_ok_response(const char* extra_json, char* out, size_t 
 int device_protocol_write_call_response(const DeviceCallResult* result, char* out, size_t out_size);
 int device_protocol_write_status_response(const DeviceStatusResult* status, char* out,
                                           size_t out_size);
-int device_protocol_write_session_response(const DeviceSession* session,
+/* The session response carries the runtime overlay state alongside the C3
+ * fields: effective host, manifest declaration, and whether the in-process
+ * overlay is open (CONTRACT.md §4, §7.9.1). */
+int device_protocol_write_session_response(const DeviceSession* session, int overlay_host,
+                                           int overlay_host_declared, int overlay_open,
                                            DeviceSessionResult result, int cleaned,
                                            const char* error, const char* detail, char* out,
                                            size_t out_size);

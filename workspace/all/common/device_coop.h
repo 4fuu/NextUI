@@ -59,6 +59,10 @@ typedef enum
 typedef struct
 {
     char sleep_id[DEVICE_COOP_SLEEP_ID_SIZE];
+    /* The session that owned the cycle when it started; empty for a
+     * system-scope cycle. wake.done carries it, and a cycle whose session
+     * ended during sleep is not delivered to a newer session. */
+    char session_id[DEVICE_SESSION_ID_MAX];
     char reason[DEVICE_COOP_REASON_MAX];
     unsigned long long started_at_ms;
     unsigned long long deadline_at_ms;
@@ -90,6 +94,7 @@ typedef struct
     unsigned long long sleep_deadline_at_ms;
     int sleep_deadline_ms; /* the configured ack window for this attempt */
     unsigned long long sleep_proceed_at_ms;
+    char sleep_session_id[DEVICE_SESSION_ID_MAX];
     DeviceCoopDecision decision;
     /* Bitmap of subscriptions that acked this attempt, indexed by slot. */
     unsigned acked;

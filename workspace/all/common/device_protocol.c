@@ -766,6 +766,15 @@ static int parse_message(const char* line, DeviceRequestMessage* message, int co
                 return 0;
             }
         }
+        else if (key_length < sizeof key && strcmp(key, "fields") == 0)
+        {
+            /* status.get carries the section list at the top level; subscribe
+             * nests it under "status" (CONTRACT.md §5.1, §8.1). */
+            if (!parse_string_array(&cursor, message->fields, DEVICE_PROTOCOL_SECTION_MAX,
+                                    &message->field_count, NULL))
+                return 0;
+            message->has_fields = 1;
+        }
         else if (key_length < sizeof key && strcmp(key, "status") == 0)
         {
             if (!(seen & SEEN_STATUS_OBJECT))
@@ -1407,8 +1416,8 @@ static void write_status_sections(DeviceJsonWriter* writer, const DeviceStatusSn
     }
 }
 
-int device_protocol_write_battery_response(const DeviceStatusBattery* battery, char* out,
-                                           size_t out_size)
+int device_protocol_write_battery_response(const DeviceStatusBattery* battery,
+                                           unsigned long long at_ms, char* out, size_t out_size)
 {
     DeviceJsonWriter writer;
     int first = 1;
@@ -1426,6 +1435,8 @@ int device_protocol_write_battery_response(const DeviceStatusBattery* battery, c
     device_json_prefix(&writer, &first);
     device_json_field_string(&writer, "service", "devserv");
     device_json_prefix(&writer, &first);
+    device_json_key(&writer, "at_ms");
+    device_json_ull(&writer, at_ms);
     write_section_header(&writer, &first, "battery");
     write_battery_object(&writer, battery);
     device_json_char(&writer, '}');
@@ -1434,7 +1445,8 @@ int device_protocol_write_battery_response(const DeviceStatusBattery* battery, c
 
 int device_protocol_write_status_response_sections(const DeviceStatusSnapshot* status,
                                                    unsigned sections, int overlay_open,
-                                                   char* out, size_t out_size)
+                                                   unsigned long long at_ms, char* out,
+                                                   size_t out_size)
 {
     DeviceJsonWriter writer;
     int first = 1;
@@ -1451,6 +1463,9 @@ int device_protocol_write_status_response_sections(const DeviceStatusSnapshot* s
     device_json_field_bool(&writer, "ok", 1);
     device_json_prefix(&writer, &first);
     device_json_field_string(&writer, "service", "devserv");
+    device_json_prefix(&writer, &first);
+    device_json_key(&writer, "at_ms");
+    device_json_ull(&writer, at_ms);
     device_json_prefix(&writer, &first);
     device_json_field_bool(&writer, "overlay_open", overlay_open);
     write_status_sections(&writer, status, sections, &first);
@@ -2414,7 +2429,8 @@ int device_protocol_write_status_response(const DeviceStatusResult* status, char
     return device_json_finish(&writer);
 }
 
-int device_protocol_write_session_response(const DeviceSession* session,
+int device_protocol_write_session_response(const DeviceSession* session, int overlay_host,
+                                           int overlay_host_declared, int overlay_open,
                                            DeviceSessionResult result, int cleaned,
                                            const char* error, const char* detail, char* out,
                                            size_t out_size)
@@ -2514,8 +2530,17 @@ int device_protocol_write_session_response(const DeviceSession* session,
         }
     }
     device_json_char(&writer, '}');
+    /* Protocol 1 reports the effective host and the manifest declaration
+     * separately (CONTRACT.md §4, §7.9.1); at session start they are equal. */
     device_json_prefix(&writer, &first);
-    device_json_field_bool(&writer, "overlay_host", session->overlay_host);
+    device_json_field_bool(&writer, "overlay_host", overlay_host);
+    device_json_prefix(&writer, &first);
+    device_json_field_bool(&writer, "overlay_host_declared", overlay_host_declared);
+    if (session->active)
+    {
+        device_json_prefix(&writer, &first);
+        device_json_field_bool(&writer, "overlay_open", overlay_open);
+    }
     device_json_prefix(&writer, &first);
     device_json_key(&writer, "restored");
     device_json_int(&writer, session->restored_count);
