@@ -352,3 +352,23 @@ failure can delay, but never block, the app launch.
 
 All of the above is host-only. It is not evidence of real brightness, volume,
 mute, audio-route or LED restoration on a Brick Pro.
+
+## Protocol 1 additions to the session response (additive)
+
+The device-cooperation protocol (see [DEVICE-API.md](DEVICE-API.md)) carries
+runtime overlay state on the existing session response. C3 fields are
+unchanged; three fields are added:
+
+- `overlay_host` is now the **effective** host. At session start it equals the
+  manifest declaration, and it changes only through `overlay.host` (CONTRACT.md
+  §7.9). C4 clients that only read it keep working and see the routing the
+  system actually uses.
+- `overlay_host_declared` is the manifest permission
+  (`"capabilities":["overlay"]`), which never changes during a session.
+- `overlay_open` is the in-process overlay state the app reported with
+  `overlay.state` (false when inactive).
+
+C3's snapshot/restore fields, dirty-only restore, ids and error names are
+untouched. The `device_session` struct still stores only the declaration; the
+effective host, HUD policy, overlay-open flag and sleep lease live in devserv's
+cooperation state and are reset at session start/end.
