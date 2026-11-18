@@ -9,6 +9,7 @@
 #include "platform.h"
 #include "api.h"
 
+#include <msettings.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,6 +20,20 @@ void PLAT_initPlatform(void) {
 	const char* device = getenv("DEVICE");
 	is_brick = device && strcmp(device, "brick") == 0;
 	is_brickpro = device && strcmp(device, "brickpro") == 0;
+}
+
+// Mirrors platform.c's helper (which keymon does not link): Brick models need
+// SetRawBrightness(8) to come back from a raw 0, other panels restore through
+// the user's brightness. The resident suspend path uses this instead of the
+// video backend's copy.
+void PLAT_enableBacklight(int enable) {
+	if (enable) {
+		if (is_brick || is_brickpro) SetRawBrightness(8);
+		SetBrightness(GetBrightness());
+	}
+	else {
+		SetRawBrightness(0);
+	}
 }
 
 ConnectionStrength PLAT_connectionStrength(void) {

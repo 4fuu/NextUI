@@ -33,6 +33,9 @@
  * keymon only needs this one setter. */
 void PWR_setBatteryStatus(int charging, int percent);
 void PLAT_initPlatform(void);
+/* keymon_platform.c mirrors platform.c's backlight helper; platform.h does not
+ * declare it because the video backend owns the original. */
+void PLAT_enableBacklight(int enable);
 
 #define VOLUME_MIN 		0
 #define VOLUME_MAX 		20
@@ -183,7 +186,8 @@ static int connect_devserv(void) {
 	return descriptor;
 }
 
-static int devserv_request(const char* request, char* response, size_t response_size) {
+static int devserv_request_timeout(const char* request, char* response, size_t response_size,
+									int read_timeout_ms) {
 	int descriptor;
 	size_t length;
 	size_t written = 0;
@@ -227,7 +231,7 @@ static int devserv_request(const char* request, char* response, size_t response_
 		wait.fd = descriptor;
 		wait.events = POLLIN;
 		wait.revents = 0;
-		if (poll(&wait, 1, 100) <= 0) break;
+		if (poll(&wait, 1, read_timeout_ms) <= 0) break;
 		count = read(descriptor, response + total, response_size - 1 - total);
 		if (count < 0) {
 			if (errno == EINTR) continue;
@@ -240,6 +244,12 @@ static int devserv_request(const char* request, char* response, size_t response_
 	response[total] = '\0';
 	close(descriptor);
 	return total > 0 ? 0 : -1;
+}
+
+// The ordinary path answers immediately; 100 ms keeps a system key snappy when
+// devserv is busy or restarting.
+static int devserv_request(const char* request, char* response, size_t response_size) {
+	return devserv_request_timeout(request, response, response_size, 100);
 }
 
 static int response_field_true(const char* response, const char* field) {
@@ -493,6 +503,127 @@ static void handle_home_press(void) {
 	(void)request_exit(at_ms, session_id);
 }
 
+#define SLEEP_ACK_TIMEOUT_MS 1500
+#define SLEEP_REQUEST_TIMEOUT_MS (SLEEP_ACK_TIMEOUT_MS + 1200)
+#define SLEEP_COOLDOWN_MS 1000
+
+static unsigned long long last_sleep_at = 0;
+static int sleep_in_flight = 0;
+
+/*
+ * Resident suspend executor.
+ *
+ * While a third-party app is foreground the launcher is blocked in
+ * nextui_session_run, so api.c's PWR_sleep/PWR_deepSleep are not running.
+ * keymon is the only resident process that already links msettings and the
+ * platform layer, so it performs the same platform steps PWR_enterSleep/
+ * PWR_deepSleep would: release the overlay grab, mute the raw volume, turn the
+ * backlight off, sync, run the platform suspend script, then undo it and sync
+ * again. The script is the proven path PWR_deepSleep uses (BIN_PATH/suspend) and
+ * owns the wifi/BT/alsa power handling; keymon does not duplicate that.
+ *
+ * Deliberately NOT done here: stopping keymon itself (api.c does that because
+ * it calls PWR_deepSleep; this function must survive to report the resume) and
+ * stopping batmon/audiomon (the kernel freezes them with everything else, and
+ * a STOP/CONT pair from a process that is itself about to block adds a failure
+ * mode without saving measurable power).
+ *
+ * Returns 0 on a completed suspend/resume cycle, -1 when the platform suspend
+ * path is missing or failed. The caller reports the result with sleep.finished
+ * either way.
+ */
+static int resident_suspend(void) {
+	const char* suspend_path = BIN_PATH "/suspend";
+	int ret;
+
+	if (access(suspend_path, X_OK) != 0) {
+		// No platform suspend path: fail the attempt before touching the
+		// display or the mixer, and let the caller report result:"failed".
+		fprintf(stderr, "keymon: resident suspend unavailable: %s\n", suspend_path);
+		return -1;
+	}
+
+	// Release EVIOCGRAB and the overlay layer before the display goes away.
+	hide_overlay();
+
+	SetRawVolume(MUTE_VOLUME_RAW);
+	PLAT_enableBacklight(0);
+	sync();
+
+	ret = system(suspend_path);
+	if (ret != 0) {
+		fprintf(stderr, "keymon: resident suspend failed (%d)\n", ret);
+		PLAT_enableBacklight(1);
+		SetVolume(GetVolume());
+		sync();
+		return -1;
+	}
+
+	PLAT_enableBacklight(1);
+	// SetVolume re-applies the mixer state after the script restored it.
+	SetVolume(GetVolume());
+	sync();
+
+	return 0;
+}
+
+/*
+ * A power press becomes a sleep.request. Never suspend without a completed
+ * handshake: if devserv is absent or does not answer, the press is dropped
+ * (the next press retries). A defer is final for this press: the contract says
+ * an explicitly deferred user request is not retried silently.
+ */
+static void handle_power_press(void) {
+	char request[192];
+	char response[DEVSERV_RESPONSE_MAX];
+	char sleep_id[32];
+	char decision[16];
+	unsigned long long now = monotonic_ms();
+	int suspended;
+
+	if (sleep_in_flight) return;
+	if (last_sleep_at != 0 && now - last_sleep_at < SLEEP_COOLDOWN_MS) return;
+
+	sleep_in_flight = 1;
+	snprintf(request, sizeof request,
+		"{\"op\":\"sleep.request\",\"reason\":\"user\",\"initiator\":\"keymon\","
+		"\"timeout_ms\":%d}\n", SLEEP_ACK_TIMEOUT_MS);
+	if (devserv_request_timeout(request, response, sizeof response,
+								SLEEP_REQUEST_TIMEOUT_MS) != 0) {
+		fprintf(stderr, "keymon: power press dropped; no sleep handshake available\n");
+		sleep_in_flight = 0;
+		return;
+	}
+	decision[0] = '\0';
+	response_string(response, "decision", decision, sizeof decision);
+	if (!response_string(response, "sleep_id", sleep_id, sizeof sleep_id)
+		|| strcmp(sleep_id, "null") == 0 || sleep_id[0] == '\0') {
+		fprintf(stderr, "keymon: sleep.request answered without a sleep_id\n");
+		sleep_in_flight = 0;
+		return;
+	}
+	if (strcmp(decision, "proceed") != 0) {
+		// Deferred (or a decision this keymon does not understand): do not suspend.
+		last_sleep_at = monotonic_ms();
+		sleep_in_flight = 0;
+		return;
+	}
+
+	suspended = resident_suspend();
+
+	// A failed attempt was not woken by anything: report woke_by unknown rather
+	// than claiming a power wake.
+	snprintf(request, sizeof request,
+		"{\"op\":\"sleep.finished\",\"sleep_id\":\"%s\",\"result\":\"%s\","
+		"\"woke_by\":\"%s\",\"detail\":\"resident keymon suspend\"}\n",
+		sleep_id, suspended == 0 ? "ok" : "failed",
+		suspended == 0 ? "power" : "unknown");
+	(void)devserv_request_timeout(request, response, sizeof response, 2000);
+
+	last_sleep_at = monotonic_ms();
+	sleep_in_flight = 0;
+}
+
 static int adjust_volume(int delta) {
 	int value = GetVolume();
 	if (delta > 0 && value < VOLUME_MAX) value++;
@@ -565,6 +696,9 @@ typedef struct {
 	unsigned nav_down;
 	unsigned accept;
 	unsigned cancel;
+	/* KEY_POWER is edge-detected (no repeat) and drives the resident sleep
+	 * handshake; see handle_power_press(). */
+	unsigned power;
 } SystemKeyState;
 
 typedef struct {
@@ -589,6 +723,7 @@ typedef enum {
 	SYSKEY_EVENT_NAV_DOWN,
 	SYSKEY_EVENT_ACCEPT,
 	SYSKEY_EVENT_CANCEL,
+	SYSKEY_EVENT_POWER,
 } SystemKeyEvent;
 
 static int key_bit(const unsigned char* bits, int code) {
@@ -645,6 +780,7 @@ static void read_system_key_state(SystemKeyState* state, uint32_t mask) {
 		 * mapping so A confirms and B cancels on the device. */
 		state->accept |= key_bit(bits, BTN_EAST) || key_bit(bits, KEY_ENTER);
 		state->cancel |= key_bit(bits, BTN_SOUTH) || key_bit(bits, KEY_ESC);
+		state->power |= key_bit(bits, KEY_POWER);
 
 		struct input_absinfo hat;
 		if (ioctl(inputs[index], EVIOCGABS(ABS_HAT0Y), &hat) == 0) {
@@ -671,6 +807,9 @@ static int system_key_events(const SystemKeyState* previous, const SystemKeyStat
 	int count = 0;
 
 	if (current->home && !previous->home) count = push_event(events, count, capacity, SYSKEY_EVENT_HOME);
+	/* Power has no repeat: one press is one sleep attempt. */
+	if (current->power && !previous->power)
+		count = push_event(events, count, capacity, SYSKEY_EVENT_POWER);
 
 	if (!current->volume_up) repeat->volume_up_at = 0;
 	else if (!previous->volume_up) {
@@ -796,6 +935,9 @@ static void handle_system_event(SystemKeyEvent event) {
 			break;
 		case SYSKEY_EVENT_CANCEL:
 			handle_overlay_nav(SYSTEM_OVERLAY_INPUT_CANCEL);
+			break;
+		case SYSKEY_EVENT_POWER:
+			handle_power_press();
 			break;
 		default:
 			break;

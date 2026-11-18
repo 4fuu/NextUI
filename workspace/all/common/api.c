@@ -13,6 +13,9 @@
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <poll.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -4703,6 +4706,8 @@ int PWR_ignoreSettingInput(int btn, int show_setting)
 	return show_setting && (btn == BTN_MOD_PLUS || btn == BTN_MOD_MINUS);
 }
 
+static void PWR_sleep_internal(const char* reason);
+
 void PWR_update(int *_dirty, int *_show_setting, PWR_callback_t before_sleep, PWR_callback_t after_sleep)
 {
 	int dirty = _dirty ? *_dirty : 0;
@@ -5007,21 +5012,197 @@ static void PWR_waitForWake(void)
 
 	return;
 }
-void PWR_sleep(void)
+/* --- Sleep handshake (CONTRACT.md §6) ------------------------------------
+ * The launcher is the system-side initiator whenever it owns the foreground
+ * (desktop, settings, a first-party screen). While a third-party app is
+ * foreground the launcher is blocked in nextui_session_run and keymon owns the
+ * handshake instead (§13.3); this code is not running then.
+ *
+ * One process-local cycle makes PWR_sleep -> PWR_waitForWake -> PWR_deepSleep
+ * a single handshake: the deep-sleep step must never start a second one.
+ *
+ * Fail-open is deliberate and required for compatibility: a devserv that
+ * predates protocol 1 answers bad_request to sleep.request, and the desktop
+ * preview may have no devserv at all. In both cases autosleep keeps working
+ * exactly as before. A real "defer" decision from a protocol-1 server is
+ * always honoured.
+ */
+typedef struct
 {
-	LOG_info("Entering hybrid sleep\n");
+	int active;
+	char sleep_id[32];
+} PWR_sleep_cycle_t;
 
-	GFX_clear(gfx.screen);
-	PAD_reset();
-	PWR_enterSleep();
-	PWR_waitForWake();
-	PWR_exitSleep();
-	PAD_reset();
+static PWR_sleep_cycle_t pwr_sleep_cycle;
 
-	pwr.resume_tick = SDL_GetTicks();
+static int pwr_json_string(const char* json, const char* field, char* out, size_t out_size)
+{
+	char needle[64];
+	const char* cursor;
+	size_t used = 0;
+
+	if (!out || out_size == 0) return 0;
+	out[0] = '\0';
+	if (!json || !field) return 0;
+	snprintf(needle, sizeof needle, "\"%s\":\"", field);
+	cursor = strstr(json, needle);
+	if (!cursor) return 0;
+	cursor += strlen(needle);
+	while (cursor[used] && cursor[used] != '"' && used + 1 < out_size)
+	{
+		out[used] = cursor[used];
+		used++;
+	}
+	out[used] = '\0';
+	return used > 0;
 }
 
-int PWR_deepSleep(void)
+static int pwr_devserv_exchange(const char* request, char* response, size_t response_size)
+{
+	struct sockaddr_un address;
+	struct pollfd wait;
+	const char* path = getenv("NEXTUI_DEVSERV_SOCKET");
+	size_t length;
+	size_t written = 0;
+	size_t total = 0;
+	int descriptor;
+
+	if (!request || !request[0] || !response || response_size < 2) return -1;
+	response[0] = '\0';
+	if (!path || !path[0]) path = "/tmp/nextui-devserv.sock";
+	if (strlen(path) >= sizeof address.sun_path) return -1;
+
+	descriptor = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (descriptor < 0) return -1;
+	/* This runs on the launcher's UI thread at the screen timeout. A hung or
+	 * restarting devserv must never freeze the device, so the whole exchange is
+	 * non-blocking with bounded waits. */
+	{
+		int flags = fcntl(descriptor, F_GETFL, 0);
+		if (flags >= 0) (void)fcntl(descriptor, F_SETFL, flags | O_NONBLOCK);
+	}
+	memset(&address, 0, sizeof address);
+	address.sun_family = AF_UNIX;
+	memcpy(address.sun_path, path, strlen(path) + 1);
+	if (connect(descriptor, (struct sockaddr*)&address, sizeof address) != 0)
+	{
+		if (errno != EINPROGRESS)
+		{
+			close(descriptor);
+			return -1;
+		}
+		wait.fd = descriptor;
+		wait.events = POLLOUT;
+		wait.revents = 0;
+		if (poll(&wait, 1, 200) != 1)
+		{
+			close(descriptor);
+			return -1;
+		}
+		{
+			int error = 0;
+			socklen_t error_size = sizeof error;
+			if (getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &error, &error_size) != 0
+				|| error != 0)
+			{
+				close(descriptor);
+				return -1;
+			}
+		}
+	}
+
+	length = strlen(request);
+	while (written < length)
+	{
+		ssize_t count = write(descriptor, request + written, length - written);
+		if (count < 0)
+		{
+			if (errno == EINTR) continue;
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+			{
+				wait.fd = descriptor;
+				wait.events = POLLOUT;
+				wait.revents = 0;
+				if (poll(&wait, 1, 200) == 1) continue;
+			}
+			close(descriptor);
+			return -1;
+		}
+		written += (size_t)count;
+	}
+
+	/* sleep_ack_ms (1500) plus generous transport slack. The server answers at
+	 * the ack deadline at the latest, so this never waits for a stuck peer. */
+	while (total + 1 < response_size)
+	{
+		ssize_t count;
+		wait.fd = descriptor;
+		wait.events = POLLIN;
+		wait.revents = 0;
+		if (poll(&wait, 1, 3000) <= 0) break;
+		count = read(descriptor, response + total, response_size - 1 - total);
+		if (count < 0)
+		{
+			if (errno == EINTR) continue;
+			break;
+		}
+		if (count == 0) break;
+		total += (size_t)count;
+		if (memchr(response, '\n', total)) break;
+	}
+	response[total] = '\0';
+	close(descriptor);
+	return total > 0 ? 0 : -1;
+}
+
+/* 1 = the caller may suspend, 0 = the app deferred this attempt. */
+static int PWR_sleep_begin(const char* reason)
+{
+	char request[192];
+	char response[2048];
+	char sleep_id[32];
+	char decision[16];
+
+	if (pwr_sleep_cycle.active) return 1;
+	snprintf(request, sizeof request,
+			 "{\"op\":\"sleep.request\",\"reason\":\"%s\",\"initiator\":\"api\","
+			 "\"timeout_ms\":%d}\n",
+			 reason, 1500 /* limits.sleep_ack_ms */);
+	if (pwr_devserv_exchange(request, response, sizeof response) != 0)
+	{
+		LOG_info("sleep handshake unavailable; proceeding without it\n");
+		return 1;
+	}
+	if (pwr_json_string(response, "decision", decision, sizeof decision)
+		&& strcmp(decision, "defer") == 0)
+	{
+		LOG_info("sleep deferred by the foreground application\n");
+		return 0;
+	}
+	if (pwr_json_string(response, "sleep_id", sleep_id, sizeof sleep_id))
+	{
+		snprintf(pwr_sleep_cycle.sleep_id, sizeof pwr_sleep_cycle.sleep_id, "%s", sleep_id);
+		pwr_sleep_cycle.active = 1;
+	}
+	return 1;
+}
+
+static void PWR_sleep_finish(const char* result, const char* woke_by)
+{
+	char request[256];
+	char response[1024];
+
+	if (!pwr_sleep_cycle.active) return;
+	snprintf(request, sizeof request,
+			 "{\"op\":\"sleep.finished\",\"sleep_id\":\"%s\",\"result\":\"%s\","
+			 "\"woke_by\":\"%s\",\"detail\":\"launcher power path\"}\n",
+			 pwr_sleep_cycle.sleep_id, result, woke_by);
+	(void)pwr_devserv_exchange(request, response, sizeof response);
+	pwr_sleep_cycle.active = 0;
+	pwr_sleep_cycle.sleep_id[0] = '\0';
+}
+
+static int PWR_suspendNow(void)
 {
 	// Run `${BIN_PATH}/suspend` if it exists, then fall back
 	// to the PLAT_deepSleep implementation.
@@ -5045,6 +5226,53 @@ int PWR_deepSleep(void)
 	}
 
 	return PLAT_deepSleep();
+}
+
+static void PWR_sleep_internal(const char* reason)
+{
+	const char* woke_by = "power";
+
+	if (!PWR_sleep_begin(reason))
+	{
+		/* The handshake completed with "defer": do not suspend and do not
+		 * report a cycle. A user request needs a new press; an idle attempt is
+		 * retried by the normal autosleep timer. */
+		return;
+	}
+
+	LOG_info("Entering hybrid sleep\n");
+
+	GFX_clear(gfx.screen);
+	PAD_reset();
+	PWR_enterSleep();
+	PWR_waitForWake();
+	PWR_exitSleep();
+	PAD_reset();
+
+	PWR_sleep_finish("ok", woke_by);
+
+	pwr.resume_tick = SDL_GetTicks();
+}
+
+void PWR_sleep(void)
+{
+	/* A direct call is an explicit request; only PWR_update's screen timeout
+	 * passes the automatic reason. */
+	PWR_sleep_internal("user");
+}
+
+int PWR_deepSleep(void)
+{
+	int standalone = !pwr_sleep_cycle.active;
+	int ret;
+
+	/* A standalone caller (nothing in this process asked devserv yet) still
+	 * needs the handshake. A defer must not suspend, so report success: the
+	 * caller treats non-zero as "suspend failed" and may power off. */
+	if (standalone && !PWR_sleep_begin("idle")) return 0;
+	ret = PWR_suspendNow();
+	if (standalone) PWR_sleep_finish(ret == 0 ? "ok" : "failed", "power");
+	return ret;
 }
 
 void PWR_disableAutosleep(void)

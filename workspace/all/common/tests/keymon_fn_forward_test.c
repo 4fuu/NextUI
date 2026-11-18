@@ -26,6 +26,7 @@ static char requests[MAX_REQUESTS][REQUEST_MAX];
 static volatile int request_count;
 static volatile int reply_overlay_system;
 static volatile int reply_feedback_system;
+static volatile int reply_sleep_defer;
 
 static int grab_calls;
 static int release_calls;
@@ -96,6 +97,24 @@ static void* request_server(void* unused)
                                 "\"app\":\"Moonlight.pak\","
                                 "\"handled_by_app\":false,\"handled_by_system\":true,"
                                 "\"exit_requested\":false}\n";
+            (void)write(client, reply, strlen(reply));
+        }
+        else if (strstr(requests[request_count - 1], "\"op\":\"sleep.request\""))
+        {
+            const char* reply = reply_sleep_defer
+                ? "{\"ok\":true,\"decision\":\"defer\",\"sleep_id\":\"9f3c1a2b4d5e6f70\","
+                  "\"subscribers\":1,\"acks\":0,\"inhibit\":{\"reason\":\"playing_video\","
+                  "\"until_ms\":360000},\"defer_until_ms\":360000,"
+                  "\"detail\":\"deferred by the application\"}\n"
+                : "{\"ok\":true,\"decision\":\"proceed\",\"sleep_id\":\"9f3c1a2b4d5e6f70\","
+                  "\"subscribers\":0,\"acks\":0,\"inhibit\":null,\"defer_until_ms\":0,"
+                  "\"detail\":\"no subscribers\"}\n";
+            (void)write(client, reply, strlen(reply));
+        }
+        else if (strstr(requests[request_count - 1], "\"op\":\"sleep.finished\""))
+        {
+            const char* reply = "{\"ok\":true,\"sleep_id\":\"9f3c1a2b4d5e6f70\","
+                                "\"slept_ms\":1000}\n";
             (void)write(client, reply, strlen(reply));
         }
         else if (strstr(requests[request_count - 1], "\"op\":\"system-feedback\"")
@@ -384,6 +403,83 @@ int main(void)
         count = system_key_events(&previous, &current, 6600, &repeat, events, 8);
         if (count != 1 || events[0] != SYSKEY_EVENT_CANCEL) {
             fprintf(stderr, "B/cancel was not emitted\n");
+            return 1;
+        }
+
+        /* KEY_POWER is a single edge-detected event with no repeat. */
+        current.cancel = 0;
+        previous = current;
+        current.power = 1;
+        count = system_key_events(&previous, &current, 7000, &repeat, events, 8);
+        if (count != 1 || events[0] != SYSKEY_EVENT_POWER) {
+            fprintf(stderr, "power press was not emitted\n");
+            return 1;
+        }
+        previous = current;
+        count = system_key_events(&previous, &current, 7166, &repeat, events, 8);
+        if (count != 0) {
+            fprintf(stderr, "held power key repeated\n");
+            return 1;
+        }
+    }
+
+    /* Resident sleep handshake. The fake service answers defer first, then
+     * proceed. The host has no /mnt/SDCARD/.system/tg5040/bin/suspend, so the
+     * proceed path reports result:"failed" without touching real hardware. */
+    {
+        int before;
+
+        reply_sleep_defer = 1;
+        last_sleep_at = 0;
+        sleep_in_flight = 0;
+        before = request_count;
+        handle_power_press();
+        if (!wait_for_requests(before + 1)) {
+            fprintf(stderr, "power press did not send sleep.request\n");
+            return 1;
+        }
+        if (!strstr(requests[before], "\"op\":\"sleep.request\"")
+            || !strstr(requests[before], "\"initiator\":\"keymon\"")
+            || !strstr(requests[before], "\"reason\":\"user\"")
+            || !strstr(requests[before], "\"timeout_ms\":1500")) {
+            fprintf(stderr, "sleep.request shape is wrong: %s\n", requests[before]);
+            return 1;
+        }
+        /* Deferred: no suspend report and the cooldown swallows a second press. */
+        usleep(50000);
+        if (request_count != before + 1) {
+            fprintf(stderr, "deferred request produced another call: %s\n",
+                    requests[before + 1]);
+            return 1;
+        }
+        handle_power_press();
+        usleep(50000);
+        if (request_count != before + 1) {
+            fprintf(stderr, "cooldown did not swallow the second power press\n");
+            return 1;
+        }
+
+        reply_sleep_defer = 0;
+        last_sleep_at = 0;
+        sleep_in_flight = 0;
+        before = request_count;
+        handle_power_press();
+        if (!wait_for_requests(before + 2)) {
+            fprintf(stderr, "proceed did not report sleep.finished: %s\n",
+                    requests[before]);
+            return 1;
+        }
+        if (!strstr(requests[before], "\"op\":\"sleep.request\"")) {
+            fprintf(stderr, "proceed path did not start with sleep.request: %s\n",
+                    requests[before]);
+            return 1;
+        }
+        if (!strstr(requests[before + 1], "\"op\":\"sleep.finished\"")
+            || !strstr(requests[before + 1], "\"sleep_id\":\"9f3c1a2b4d5e6f70\"")
+            || !strstr(requests[before + 1], "\"result\":\"failed\"")
+            || !strstr(requests[before + 1], "\"woke_by\":\"unknown\"")) {
+            fprintf(stderr, "sleep.finished shape is wrong: %s\n",
+                    requests[before + 1]);
             return 1;
         }
     }
