@@ -29,6 +29,7 @@ sdl_cflags="$(pkg-config --cflags sdl2 SDL2_image SDL2_ttf 2>/dev/null || true)"
     ../device_identity.c \
     ../device_protocol.c \
     ../device_session.c \
+    ../device_status.c \
     ../json_lite.c \
     ../pak_manifest.c \
     ../sha256_lite.c \

@@ -29,12 +29,16 @@ SOURCE = $(TARGET).c \
 	../common/device_backend_rumble.c \
 	../common/device_backend_rumble_platform.c \
 	../common/device_caps.c \
+	../common/device_coop.c \
 	../common/device_gate.c \
 	../common/device_grants.c \
 	../common/device_identity.c \
 	../common/device_protocol.c \
 	../common/device_session.c \
 	../common/device_session_platform.c \
+	../common/device_status.c \
+	../common/device_status_platform.c \
+	../common/device_subscription.c \
 	../common/json_lite.c \
 	../common/led_lease.c \
 	../common/led_lease_platform.c \

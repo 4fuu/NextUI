@@ -3,9 +3,9 @@ CFLAGS ?= -std=c99 -Wall -Wextra -Werror
 INCLUDES = -I../workspace/all/common
 TEST_BIN ?= /tmp/nextui-fn-action-test
 
-.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-updater test-led-i18n test-boot-strings test-settings test-led-render test-show2-render test-update-package test-sysupdate clean
+.PHONY: test test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-led-profile test-led-refresh test-session test-session-race test-session-e2e test-coop test-updater test-led-i18n test-boot-strings test-settings test-led-render test-show2-render test-update-package test-sysupdate clean
 
-test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-updater test-led-i18n test-boot-strings test-settings test-update-package test-sysupdate
+test: test-fn test-text test-manifest test-i18n test-i18n-width test-app-state test-app-capabilities test-device test-keymon test-home test-clock test-led test-display-audio test-session test-coop test-updater test-led-i18n test-boot-strings test-settings test-update-package test-sysupdate
 
 test-fn:
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) fn_action_test.c
@@ -52,6 +52,13 @@ test-device:
 
 test-keymon:
 	../workspace/all/common/tests/run_keymon_fn_forward_test.sh
+
+# Cooperation protocol 1: the pure state machine/event queue, then the real
+# devserv driven over a Unix socket by a fake app (coop_integration_test.py).
+# The integration test waits ~32 s for the heartbeat and resync timers.
+test-coop:
+	../workspace/all/common/tests/run_device_coop_test.sh
+	../workspace/all/common/tests/run_coop_integration_test.sh
 
 # Host-only render proof for the resident system overlay: a malloc-backed
 # display backend, the production renderer and the repository's system font.

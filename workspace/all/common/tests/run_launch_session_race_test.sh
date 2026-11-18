@@ -66,6 +66,7 @@ export REAL_NEXTDEV
     "$ROOT/workspace/all/nextdev/nextdev.c" \
     "$ROOT/workspace/all/common/device_protocol.c" \
     "$ROOT/workspace/all/common/device_session.c" \
+    "$ROOT/workspace/all/common/device_status.c" \
     "$ROOT/workspace/all/common/json_lite.c" \
     -o "$REAL_NEXTDEV"
 
