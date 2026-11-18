@@ -73,14 +73,19 @@ C4 has one resident observer, one hardware display layer, and one launch parent:
   `minuisettings.txt` through `CFG`. The overlay uses a UI channel of its own
   (channel 2; fb0 is channel 1, layer 0). Its zorder is read from fb0's layer
   config and set one above it, because DE2 stacks channels by zorder and ignores
-  the alpha of UI-format layers placed on a VI channel. The dim is a static
-  full-screen disp2 colour layer with global alpha 140, so the app shows through
-  it and no pixels are blended for it; the ARGB panel buffer is a second layer
-  above the dim. Hiding disables both layers and the app's frame was never
-  touched. A selection move clears and redraws only the panel rectangle; the dim
-  layer is not reconfigured. If `/dev/disp`, a free layer or the scanout
-  allocation is unavailable, keymon logs the reason and HOME falls back to the
-  previous return-to-desktop exit.
+  the alpha of UI-format layers placed on a VI channel. The dim is a third,
+  static ARGB scanout buffer holding a black top-to-bottom alpha ramp (lighter
+  at the top), presented as a buffer layer with pixel alpha below the panel; it
+  is rendered once at init and never re-blended, so navigation costs no CPU for
+  it. A COLOR-mode fill layer is not used: its `OVL_UI_FILL_COLOR` alpha byte is
+  written verbatim from `info.color`, so a 0x00000000 fill composites fully
+  transparent (the v2026.1118.3 "no dim" regression). The bottom hint bar uses
+  `GFX_blitButtonGroup()` over a semi-transparent theme strip instead of the
+  launcher's opaque background slab. Hiding disables both layers and the app's
+  frame was never touched. A selection move clears and redraws only the panel
+  rectangle; the dim layer is not reconfigured. If `/dev/disp`, a free layer or
+  the scanout allocation is unavailable, keymon logs the reason and HOME falls
+  back to the previous return-to-desktop exit.
 - **the launch parent enforces exit.** `nextui_session_run` starts the app in a
   new process group with nextdev's built-in launcher (or a system `setsid` when
   an older nextdev is installed), polls `session-status`, sends `SIGTERM` to

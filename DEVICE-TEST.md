@@ -86,13 +86,16 @@ and the existing session supervisor, never `kill --`.
 
 ## Known limits
 
-- The overlay is two sunxi disp2 layers on a UI channel above fb0: a static
-  full-screen colour layer with global alpha 140 for the dim, and a full-screen
-  ARGB buffer layer for the panel. The app still owns fb0; disabling both layers
-  restores its untouched frame. The 55% dim, the channel stacking, the
-  per-pixel alpha panel layer and the double-buffered flip still need this
-  physical pass. On retest the app must be visible through the dim, and a
-  selection move must not repaint the whole screen.
+- The overlay is two sunxi disp2 buffer layers on a UI channel above fb0: a
+  static full-screen ARGB gradient for the dim (black, alpha ramping from 56 at
+  the top to 160 at the bottom), and a full-screen ARGB buffer layer for the
+  panel. The gradient is rendered once at init, so a selection move must not
+  repaint it. The app still owns fb0; disabling both layers restores its
+  untouched frame. The channel stacking, the per-pixel alpha panel layer, the
+  gradient and the double-buffered flip still need this physical pass. On retest
+  the app must be visible and clearly dimmer at the bottom than at the top, the
+  hint bar must not be an opaque black slab, and a selection move must not
+  repaint the whole screen.
 - While HOME is open, keymon holds `EVIOCGRAB` on the evdev nodes that expose
   HOME/volume/navigation. This is intentional: the app must not receive panel
   input. Every close, session-end, HUD switch, normal exit and SIGTERM path
