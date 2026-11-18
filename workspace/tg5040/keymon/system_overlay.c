@@ -21,7 +21,6 @@
 /* Full 1024x768 ARGB requires 3 MiB per buffer. Leave headroom for the larger
  * panels without silently accepting an absurd request. */
 #define SYSTEM_OVERLAY_MAX_BYTES (8u * 1024u * 1024u)
-#define SYSTEM_OVERLAY_BUFFERS 2
 
 /* A flip is applied by the display engine on its next vsync. Do not draw into
  * the buffer that was just retired before the DE has had a chance to switch
@@ -33,9 +32,11 @@ typedef struct
 	SystemOverlayDisplay display;
 	int screen_width;
 	int screen_height;
-	SystemOverlayBuffer buffers[SYSTEM_OVERLAY_BUFFERS];
-	SDL_Surface* screens[SYSTEM_OVERLAY_BUFFERS];
+	SystemOverlayBuffer buffers[SYSTEM_OVERLAY_SCANOUT_BUFFERS];
+	SDL_Surface* screens[SYSTEM_OVERLAY_SCANOUT_BUFFERS];
 	int buffer_count;
+	int scanout_count;
+	int dim_ready;
 	int draw_index;
 	int front_index;
 	Uint32 presented_at;
@@ -62,9 +63,9 @@ static Overlay overlay;
 typedef struct
 {
 	int descriptor;
-	int slots[SYSTEM_OVERLAY_BUFFERS];
-	unsigned long long physical[SYSTEM_OVERLAY_BUFFERS];
-	void* pixels[SYSTEM_OVERLAY_BUFFERS];
+	int slots[SYSTEM_OVERLAY_SCANOUT_BUFFERS];
+	unsigned long long physical[SYSTEM_OVERLAY_SCANOUT_BUFFERS];
+	void* pixels[SYSTEM_OVERLAY_SCANOUT_BUFFERS];
 	int count;
 	size_t size;
 	/* Overlay channel and channel zorder chosen from fb0's layer config. */
@@ -98,7 +99,10 @@ static int overlay_commit(int enabled, int dim)
 
 	int index = overlay.draw_index;
 	if (index < 0 || index >= overlay.buffer_count) index = 0;
-	int result = overlay.display.commit(overlay.display.user, 1, dim, index, 0, 0,
+	/* dim asks for the gradient layer; without a gradient buffer the overlay
+	 * still works, it just cannot darken the app. */
+	int dim_layer = (dim && overlay.dim_ready) ? 1 : 0;
+	int result = overlay.display.commit(overlay.display.user, 1, dim_layer, index, 0, 0,
 										overlay.screen_width, overlay.screen_height,
 										overlay.screen_width, overlay.screen_height);
 	if (result == 0)
@@ -158,10 +162,39 @@ static SDL_Rect battery_rect(SDL_Surface* screen)
 }
 
 
+/* The gradient dim lives in its own scanout buffer and is painted once at init:
+ * black RGB with a linear vertical alpha ramp, lighter at the top. Navigation
+ * only repaints the panel buffer, so this costs no CPU after startup. */
+static void render_dim_gradient(SDL_Surface* screen)
+{
+	int stride;
+	uint32_t* pixels;
+	int span;
+
+	if (!screen || !screen->pixels || screen->w <= 0 || screen->h <= 0) return;
+	pixels = (uint32_t*)screen->pixels;
+	stride = (int)(screen->pitch / sizeof(uint32_t));
+	span = screen->h > 1 ? screen->h - 1 : 0;
+
+	for (int y = 0; y < screen->h; y++)
+	{
+		int alpha = SYSTEM_OVERLAY_DIM_TOP_ALPHA;
+		if (span > 0)
+			alpha += (SYSTEM_OVERLAY_DIM_BOTTOM_ALPHA - SYSTEM_OVERLAY_DIM_TOP_ALPHA) * y / span;
+		uint32_t value = (uint32_t)alpha << 24;
+		uint32_t* row = pixels + (size_t)y * (size_t)stride;
+		for (int x = 0; x < screen->w; x++) row[x] = value;
+	}
+}
+
 static void home_footer(SDL_Surface* screen)
 {
-	SDL_Rect footer = footer_rect(screen);
-	SDL_FillRect(screen, &footer, THEME_COLOR7);
+	/* No background fill. The launcher paints an opaque THEME_COLOR7 slab, and
+	 * even a translucent version compounds with the gradient's darkest stop at
+	 * the bottom of the screen and reads as a black band. Leaving the strip
+	 * transparent makes the hint bar part of the gradient; every label already
+	 * sits on its own opaque GFX_blitButtonGroup pill, so contrast does not
+	 * depend on a bar behind it. */
 
 	/* Same GFX_blitButtonGroup primitives as the launcher's bottom bar. The
 	 * resident panel owns the key set, so it labels the actual d-pad/A/B/HOME
@@ -339,7 +372,7 @@ static UIOverlay* create_overlay(void)
 	if (ui)
 	{
 		UIOverlay_setFooterVisible(ui, 0);
-		/* The resident overlay dims with a static disp2 colour layer. */
+		/* The resident overlay dims with its own static gradient layer. */
 		UIOverlay_setDimVisible(ui, 0);
 	}
 	return ui;
@@ -500,18 +533,21 @@ void SystemOverlay_shutdown(void)
 		GFX_quitAttached();
 		overlay.gfx_ready = 0;
 	}
-	/* screens[0] was owned and freed by GFX_quitAttached(); screens[1] wraps
-	 * the second scanout buffer and only its SDL wrapper is ours to free. */
+	/* screens[0] was owned and freed by GFX_quitAttached(); the other screens
+	 * wrap scanout buffers and only their SDL wrappers are ours to free. */
 	overlay.screens[0] = NULL;
-	if (overlay.screens[1])
+	for (int i = 1; i < SYSTEM_OVERLAY_SCANOUT_BUFFERS; i++)
 	{
-		SDL_FreeSurface(overlay.screens[1]);
-		overlay.screens[1] = NULL;
+		if (overlay.screens[i])
+		{
+			SDL_FreeSurface(overlay.screens[i]);
+			overlay.screens[i] = NULL;
+		}
 	}
-	if (overlay.display.release && overlay.buffer_count > 0)
+	if (overlay.display.release && overlay.scanout_count > 0)
 	{
 		overlay.display.release(overlay.display.user, overlay.buffers,
-								overlay.buffer_count, overlay.pixel_bytes);
+								overlay.scanout_count, overlay.pixel_bytes);
 	}
 
 	memset(&overlay, 0, sizeof overlay);
@@ -542,14 +578,14 @@ int SystemOverlay_initWithDisplay(const SystemOverlayDisplay* display, int scree
 		return -1;
 	}
 
-	count = display->acquire(display->user, pixel_bytes, SYSTEM_OVERLAY_BUFFERS,
+	count = display->acquire(display->user, pixel_bytes, SYSTEM_OVERLAY_SCANOUT_BUFFERS,
 							 overlay.buffers);
 	if (count < 1)
 	{
 		fprintf(stderr, "system-overlay: no scanout buffer\n");
 		return -1;
 	}
-	if (count > SYSTEM_OVERLAY_BUFFERS) count = SYSTEM_OVERLAY_BUFFERS;
+	if (count > SYSTEM_OVERLAY_SCANOUT_BUFFERS) count = SYSTEM_OVERLAY_SCANOUT_BUFFERS;
 
 	/* start transparent: the renderer only clears the small damage rectangles
 	 * it repaints, so the untouched scanout memory must not hold garbage. */
@@ -587,10 +623,36 @@ int SystemOverlay_initWithDisplay(const SystemOverlayDisplay* display, int scree
 		overlay.buffer_count = 2;
 	}
 
+	/* The extra buffer is the static gradient dim. A backend that could not
+	 * give it still runs the panel; it just has nothing to dim with. */
+	if (count >= SYSTEM_OVERLAY_SCANOUT_BUFFERS)
+	{
+		overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER] = SDL_CreateRGBSurfaceWithFormatFrom(
+			overlay.buffers[SYSTEM_OVERLAY_DIM_BUFFER].pixels, screen_width, screen_height, 32,
+			screen_width * 4, SDL_PIXELFORMAT_ARGB8888);
+		if (!overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER])
+		{
+			fprintf(stderr, "system-overlay: dim buffer wrapper failed: %s\n", SDL_GetError());
+			SDL_FreeSurface(overlay.screens[1]);
+			overlay.screens[1] = NULL;
+			GFX_quitAttached();
+			overlay.screens[0] = NULL;
+			display->release(display->user, overlay.buffers, count, pixel_bytes);
+			return -1;
+		}
+		/* Rendered once here and never again: navigation repaints the panel
+		 * only, which is the PR #69 latency fix. */
+		render_dim_gradient(overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER]);
+		overlay.dim_ready = 1;
+	}
+
 	overlay.display = *display;
 	overlay.screen_width = screen_width;
 	overlay.screen_height = screen_height;
 	overlay.pixel_bytes = pixel_bytes;
+	/* Only a fully initialised overlay owns its scanout slots; a failure above
+	 * released them already and must not release them again on shutdown. */
+	overlay.scanout_count = count;
 	overlay.front_index = -1;
 	overlay.draw_index = 0;
 	overlay.gfx_ready = 1;
@@ -626,7 +688,7 @@ const uint32_t* SystemOverlay_pixels(int* width, int* height)
 }
 
 /* ------------------------------------------------------------------------- */
-/* Production backend: dim colour layer + panel buffer layer on a UI channel
+/* Production backend: gradient dim buffer + panel buffer on a UI channel
  * above fb0 (channel 1 / layer 0).                                           */
 
 #define DISP_FB0_CHANNEL 1
@@ -844,7 +906,7 @@ static int disp_acquire(void* user, size_t size, int count, SystemOverlayBuffer*
 	disp_backend.dim_configured = -1;
 	disp_backend.panel_configured = -1;
 	disp_backend.configured_buffer = -1;
-	for (index = 0; index < SYSTEM_OVERLAY_BUFFERS; index++) disp_backend.slots[index] = -1;
+	for (index = 0; index < SYSTEM_OVERLAY_SCANOUT_BUFFERS; index++) disp_backend.slots[index] = -1;
 
 	disp_backend.descriptor = open(disp_device_path, O_RDWR | O_CLOEXEC);
 	if (disp_backend.descriptor < 0)
@@ -870,7 +932,7 @@ static int disp_acquire(void* user, size_t size, int count, SystemOverlayBuffer*
 	fprintf(stderr, "system-overlay: fb0 ch%d z%d -> overlay ch%d z%d\n", fb0_channel, fb0_zorder,
 			channel, zorder);
 
-	if (count > SYSTEM_OVERLAY_BUFFERS) count = SYSTEM_OVERLAY_BUFFERS;
+	if (count > SYSTEM_OVERLAY_SCANOUT_BUFFERS) count = SYSTEM_OVERLAY_SCANOUT_BUFFERS;
 	disp_backend.size = size;
 	for (index = 0; index < count; index++)
 	{
@@ -915,7 +977,7 @@ static int layer_is_free(unsigned int channel, unsigned int layer)
 	return config.enable ? 0 : 1;
 }
 
-/* The dim colour layer has to be below the panel buffer layer; layer3 is the
+/* The gradient dim layer has to be below the panel buffer layer; layer3 is the
  * highest priority inside a channel, layer0 the lowest (DE2.0 spec 5.10.3.2). */
 static int plan_layers(void)
 {
@@ -968,20 +1030,26 @@ static void set_geometry(struct disp_layer_info* info, int x, int y, int width, 
 
 static void build_dim_layer(struct disp_layer_config* config, int enabled, int width, int height)
 {
-	init_layer_config(config, disp_backend.dim_layer, enabled);
-	if (!enabled) return;
+	int have_buffer = disp_backend.count > (int)SYSTEM_OVERLAY_DIM_BUFFER;
 
-	config->info.mode = LAYER_MODE_COLOR;
-	/* Global alpha is the point: the DE paints the whole rectangle as black at
-	 * UI_OVERLAY_DIM_ALPHA, so the wash costs no CPU and no scanout pixels. */
-	config->info.alpha_mode = DISP_ALPHA_MODE_GLOBAL;
-	config->info.alpha_value = UI_OVERLAY_DIM_ALPHA;
-	config->info.color = 0x00000000;
+	init_layer_config(config, disp_backend.dim_layer, enabled && have_buffer);
+	if (!enabled || !have_buffer) return;
+
+	/* Static ARGB buffer with the vertical alpha ramp, composited with pixel
+	 * alpha exactly like the panel. A COLOR-mode layer is deliberately not
+	 * used: OVL_UI_FILL_COLOR has its own alpha byte (DE2.0 spec 5.10.8.7,
+	 * bits 31:24) and de_rtmx_set_lay_fcolor() writes info.color verbatim on a
+	 * UI channel, so a 0x00000000 fill is fully transparent on the Brick Pro.
+	 * The panel layer already proves buffer pixel alpha works on this channel. */
+	config->info.mode = LAYER_MODE_BUFFER;
+	config->info.alpha_mode = DISP_ALPHA_MODE_PIXEL;
+	config->info.alpha_value = 0xff;
 	set_geometry(&config->info, 0, 0, width, height);
-	/* de_al_lyr_apply() reads fb.crop even for a colour layer; the BSP's own
-	 * disp_draw_colorbar() fills it the same way. No image is fetched. */
+	config->info.fb.addr[0] = disp_backend.physical[SYSTEM_OVERLAY_DIM_BUFFER];
 	config->info.fb.size[0].width = (unsigned int)width;
 	config->info.fb.size[0].height = (unsigned int)height;
+	/* SDL writes straight (unpremultiplied) alpha. */
+	config->info.fb.pre_multiply = false;
 }
 
 static void build_panel_layer(struct disp_layer_config* config, int enabled, int buffer, int x, int y,

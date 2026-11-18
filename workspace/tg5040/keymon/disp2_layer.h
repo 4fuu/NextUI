@@ -18,7 +18,14 @@
 //   - A UI-format layer placed on a VI channel has its alpha ignored (DE2.0
 //     spec "All ui layers' alpha is useless"), and de_rtmx_set_lay_fcolor()
 //     forces an opaque fill colour on VI channels. Alpha blending between
-//     layers and the colour-mode dim therefore need a UI channel.
+//     layers therefore needs a UI channel.
+//   - A COLOR-mode layer on a UI channel gets its fill from
+//     OVL_UI_FILL_COLOR, whose bits 31:24 are the fill alpha (DE2.0 spec
+//     5.10.8.7), and de_rtmx_set_lay_fcolor() writes info.color verbatim there.
+//     v2026.1118.3 configured a black fill at alpha_mode=GLOBAL, alpha_value=140
+//     and color=0x00000000, and the Brick Pro showed no dim at all: the fill is
+//     fully transparent. Put the dim in an ARGB buffer layer (pixel alpha),
+//     which is also the only way to express the top-to-bottom gradient.
 #ifndef NEXTUI_DISP2_LAYER_H
 #define NEXTUI_DISP2_LAYER_H
 
