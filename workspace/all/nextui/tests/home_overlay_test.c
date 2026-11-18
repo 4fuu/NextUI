@@ -10,10 +10,35 @@
  * text below the icon.
  */
 #define main nextui_launcher_main
+/* The launcher clears the post-screen compositor layers through PLAT_clearLayers.
+ * Route those calls to the test so it can assert the HOME overlay owns the
+ * frame: every layer that PLAT_flip composites above the screen must be
+ * cleared after UIOverlay_draw. */
+#define PLAT_clearLayers overlay_test_clear_layers
 #include "../nextui.c"
+#undef PLAT_clearLayers
 #undef main
 
 #include <stdio.h>
+
+static int overlay_test_clear_calls[LAYER_IDK2 + 1];
+static int overlay_test_layer_text_visible;
+static int overlay_test_clear_before_draw;
+static SDL_Surface* overlay_test_screen;
+
+void overlay_test_clear_layers(int layer)
+{
+	if (layer >= 0 && layer <= LAYER_IDK2) overlay_test_clear_calls[layer]++;
+	if (layer == LAYER_SCROLLTEXT) overlay_test_layer_text_visible = 0;
+	/* The dim wash changes the screen's blue test background. Seeing the
+	 * untouched background during a clear means the layers were cleared before
+	 * UIOverlay_draw, which is the bug. */
+	if (overlay_test_screen && overlay_test_screen->pixels) {
+		uint32_t corner = ((uint32_t*)overlay_test_screen->pixels)[0];
+		uint32_t background = SDL_MapRGB(overlay_test_screen->format, 0, 0, 96);
+		if (corner == background) overlay_test_clear_before_draw = 1;
+	}
+}
 
 /* Defined in api.c; CFG owns the callback type, the test needs the reload. */
 int GFX_loadSystemFont(const char* fontPath);
@@ -193,7 +218,9 @@ static int overlay_test_check_alignment(SDL_Surface* screen, const char* languag
 
 static void overlay_test_clear(SDL_Surface* screen)
 {
-	SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
+	/* Distinct from black and from the theme so the clear-before-draw check can
+	 * tell whether UIOverlay_draw already applied the dim wash. */
+	SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 96));
 }
 
 static int overlay_test_device_available(void* user)
@@ -290,9 +317,47 @@ int main(int argc, char** argv)
 		else
 		{
 			overlay_test_clear(screen);
-			UIOverlay_draw(home_overlay, screen);
+			memset(overlay_test_clear_calls, 0, sizeof overlay_test_clear_calls);
+			overlay_test_layer_text_visible = 1;
+			overlay_test_clear_before_draw = 0;
+			overlay_test_screen = screen;
+			home_overlay_draw_topmost(screen);
+			overlay_test_screen = NULL;
 			failed |= overlay_test_check_alignment(screen, "English");
+			/* The Clock label lives on LAYER_SCROLLTEXT, which PLAT_flip
+			 * composites after the screen; every layer above the screen must
+			 * be cleared after the panel is drawn. */
+			if (!overlay_test_clear_calls[LAYER_TRANSITION] ||
+				!overlay_test_clear_calls[LAYER_THUMBNAIL] ||
+				!overlay_test_clear_calls[LAYER_SCROLLTEXT] ||
+				!overlay_test_clear_calls[LAYER_IDK2])
+			{
+				fprintf(stderr, "HOME overlay did not clear every layer above the screen\n");
+				failed = 1;
+			}
+			if (overlay_test_layer_text_visible)
+			{
+				fprintf(stderr, "HOME overlay left the desktop entry text above the panel\n");
+				failed = 1;
+			}
+			if (overlay_test_clear_before_draw)
+			{
+				fprintf(stderr, "HOME overlay cleared layers before drawing the panel\n");
+				failed = 1;
+			}
 			UIOverlay_close(home_overlay);
+
+			/* A closed overlay must not touch the compositor layers. */
+			memset(overlay_test_clear_calls, 0, sizeof overlay_test_clear_calls);
+			home_overlay_draw_topmost(screen);
+			if (overlay_test_clear_calls[LAYER_TRANSITION] ||
+				overlay_test_clear_calls[LAYER_THUMBNAIL] ||
+				overlay_test_clear_calls[LAYER_SCROLLTEXT] ||
+				overlay_test_clear_calls[LAYER_IDK2])
+			{
+				fprintf(stderr, "closed HOME overlay still cleared compositor layers\n");
+				failed = 1;
+			}
 		}
 
 		if (GFX_loadSystemFont(font_zh) != 0 || !font.medium)

@@ -1100,6 +1100,18 @@ static int home_overlay_toggle(void) {
 	return 1;
 }
 
+/* The launcher's overlay is drawn into the screen surface, but PLAT_flip
+ * composites several layers *after* the screen. Clear all of them so no
+ * desktop text, selection pill or game art can float above the panel. */
+static void home_overlay_draw_topmost(SDL_Surface* screen) {
+	if (!home_overlay || !UIOverlay_isOpen(home_overlay)) return;
+	UIOverlay_draw(home_overlay, screen);
+	GFX_clearLayers(LAYER_TRANSITION);
+	GFX_clearLayers(LAYER_THUMBNAIL);
+	GFX_clearLayers(LAYER_SCROLLTEXT);
+	GFX_clearLayers(LAYER_IDK2);
+}
+
 // Run the action bound to a user-assignable button (0 == FN1, 1 == FN2,
 // 2 == FN3/HOME). Returns 1 if the action was handled.
 //
@@ -2399,6 +2411,13 @@ int main (int argc, char *argv[]) {
 		if (home_overlay_dirty) {
 			dirty = 1;
 			home_overlay_dirty = 0;
+			// The overlay clears the layers above the screen while it is open;
+			// rebuild the thumbnail/background after it closes so nothing stays
+			// missing. Opening does not need this: those layers are hidden.
+			if (!UIOverlay_isOpen(home_overlay)) {
+				thumbchanged = 1;
+				folderbgchanged = 1;
+			}
 		}
 
 		if(dirty) {
@@ -2950,8 +2969,7 @@ int main (int argc, char *argv[]) {
 				}
 				SDL_UnlockMutex(animMutex);
 			}
-			if (home_overlay && UIOverlay_isOpen(home_overlay))
-				UIOverlay_draw(home_overlay, screen);
+			home_overlay_draw_topmost(screen);
 			if(!startgame) // dont flip if game gonna start
 				GFX_flip(screen);
 
