@@ -12,7 +12,8 @@
  * opaque, HUD corners must be fully transparent, and a selection move or
  * HOME/HUD switch must present the other buffer without disabling the layer.
  * The gradient is written once at init: navigation must never repaint it, and
- * the hint bar must not fall back to the launcher's opaque background slab.
+ * the hint bar paints no background of its own, so only the opacity of its pills
+ * separates it from the gradient.
  *
  * No /dev/disp, SDL window, evdev node or device is touched.
  */
@@ -774,15 +775,13 @@ int main(void)
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "HOME render after device actions");
 
 	/* The bottom hint bar is outside the panel and uses the launcher's button
-	 * primitives, but without the launcher's opaque black slab: the uncovered
-	 * strip is the theme background at hint-bar alpha, so the gradient dim and
-	 * the app frame stay visible behind the pills. */
+	 * primitives, but paints no background: the gradient dim is the only thing
+	 * behind the pills, so the bar reads as part of the ramp instead of a black
+	 * band. Every label sits on its own opaque pill, so contrast is unaffected. */
 	{
 		int bottom = 0;
-		int slab = 0;
+		int backdrop = 0;
 		int footer_y = fake.height - SCALE1(PADDING + PILL_SIZE);
-		uint32_t corner = pixel_at(0, fake.height - 1);
-		uint32_t right = pixel_at(fake.width - 1, fake.height - 1);
 
 		for (int y = footer_y; y < fake.height; y++)
 		{
@@ -790,18 +789,17 @@ int main(void)
 			{
 				uint32_t value = pixel_at(x, y);
 				if ((value >> 24) != 0) bottom++;
-				/* The strip's outer columns are never covered by a pill, so an
-				 * opaque pixel there would be a full-width background slab. */
-				if (x < SCALE1(PADDING) && (value >> 24) == 0xFF) slab = 1;
+				/* The strip's outer columns are never covered by a pill, so any
+				 * pixel there would be a background fill. */
+				if (x < SCALE1(PADDING) && (value >> 24) != 0) backdrop = 1;
 			}
 		}
-		CHECK(bottom > 1000, "bottom hint bar is drawn at the screen bottom");
-		CHECK(!slab, "hint bar has no opaque background slab");
-		CHECK((corner >> 24) == SYSTEM_OVERLAY_FOOTER_ALPHA,
-			  "hint bar background uses the translucent overlay alpha");
-		CHECK((corner & 0x00FFFFFFu) == (THEME_COLOR7 & 0x00FFFFFFu),
-			  "hint bar background keeps the theme colour");
-		CHECK(corner == right, "hint bar background spans the full width");
+		CHECK(bottom > 1000, "bottom hint bar pills are drawn at the screen bottom");
+		CHECK(!backdrop, "hint bar paints no background over the gradient");
+		CHECK((pixel_at(0, fake.height - 1) >> 24) == 0,
+			  "the gradient shows through at the bottom-left corner");
+		CHECK((pixel_at(fake.width - 1, fake.height - 1) >> 24) == 0,
+			  "the gradient shows through at the bottom-right corner");
 	}
 
 	/* HOME -> HUD keeps the layer enabled and flips the finished HUD frame. It

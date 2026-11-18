@@ -80,8 +80,9 @@ C4 has one resident observer, one hardware display layer, and one launch parent:
   it. A COLOR-mode fill layer is not used: its `OVL_UI_FILL_COLOR` alpha byte is
   written verbatim from `info.color`, so a 0x00000000 fill composites fully
   transparent (the v2026.1118.3 "no dim" regression). The bottom hint bar uses
-  `GFX_blitButtonGroup()` over a semi-transparent theme strip instead of the
-  launcher's opaque background slab. Hiding disables both layers and the app's
+  `GFX_blitButtonGroup()` with no background of its own: the gradient is the
+  only thing behind the opaque pills, so the bar reads as part of the ramp
+  instead of a black band. Hiding disables both layers and the app's
   frame was never touched. A selection move clears and redraws only the panel
   rectangle; the dim layer is not reconfigured. If `/dev/disp`, a free layer or
   the scanout allocation is unavailable, keymon logs the reason and HOME falls

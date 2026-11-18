@@ -59,10 +59,10 @@ extern "C" {
 #define SYSTEM_OVERLAY_DIM_TOP_ALPHA 56
 #define SYSTEM_OVERLAY_DIM_BOTTOM_ALPHA 160
 
-/* Background alpha of the overlay's bottom hint bar. The launcher fills its
- * footer with an opaque THEME_COLOR7; a translucent strip lets the gradient dim
- * and the app frame show through instead of leaving a black slab. */
-#define SYSTEM_OVERLAY_FOOTER_ALPHA 140
+/* The bottom hint bar has no background fill of its own: the gradient dim is
+ * the only thing behind GFX_blitButtonGroup's opaque pills. A launcher-style
+ * slab, even translucent, compounds with the gradient's darkest stop at the
+ * bottom of the screen and reads as a black band. */
 
 typedef enum
 {

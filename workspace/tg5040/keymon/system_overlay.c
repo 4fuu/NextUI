@@ -189,15 +189,12 @@ static void render_dim_gradient(SDL_Surface* screen)
 
 static void home_footer(SDL_Surface* screen)
 {
-	SDL_Rect footer = footer_rect(screen);
-
-	/* The launcher paints an opaque THEME_COLOR7 slab; the resident overlay
-	 * keeps the same theme colour but at hint-bar alpha, so the gradient dim
-	 * and the app frame stay visible behind the pills instead of a black box.
-	 * The strip is cleared to transparent by begin_frame(), so a plain fill
-	 * writes the intended semi-transparent pixels. */
-	SDL_FillRect(screen, &footer,
-				 (THEME_COLOR7 & 0x00FFFFFFu) | ((uint32_t)SYSTEM_OVERLAY_FOOTER_ALPHA << 24));
+	/* No background fill. The launcher paints an opaque THEME_COLOR7 slab, and
+	 * even a translucent version compounds with the gradient's darkest stop at
+	 * the bottom of the screen and reads as a black band. Leaving the strip
+	 * transparent makes the hint bar part of the gradient; every label already
+	 * sits on its own opaque GFX_blitButtonGroup pill, so contrast does not
+	 * depend on a bar behind it. */
 
 	/* Same GFX_blitButtonGroup primitives as the launcher's bottom bar. The
 	 * resident panel owns the key set, so it labels the actual d-pad/A/B/HOME

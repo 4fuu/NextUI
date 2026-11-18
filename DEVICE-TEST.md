@@ -94,8 +94,8 @@ and the existing session supervisor, never `kill --`.
   untouched frame. The channel stacking, the per-pixel alpha panel layer, the
   gradient and the double-buffered flip still need this physical pass. On retest
   the app must be visible and clearly dimmer at the bottom than at the top, the
-  hint bar must not be an opaque black slab, and a selection move must not
-  repaint the whole screen.
+  hint bar must show the gradient behind its pills (no black band), and a
+  selection move must not repaint the whole screen.
 - While HOME is open, keymon holds `EVIOCGRAB` on the evdev nodes that expose
   HOME/volume/navigation. This is intentional: the app must not receive panel
   input. Every close, session-end, HUD switch, normal exit and SIGTERM path
