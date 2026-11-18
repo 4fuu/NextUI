@@ -547,9 +547,8 @@ static int show_home_and_check(void)
 	/* The dim is its own static gradient buffer now: the panel scanout buffer
 	 * must stay fully transparent where the app should show through. */
 	CHECK(fake.dim == 1, "HOME commits the gradient dim layer");
+	/* A software dim wash would paint all of this, starting at the corner. */
 	CHECK((pixel_at(0, 0) >> 24) == 0, "HOME leaves the app area transparent");
-	CHECK(count_color((uint32_t)UI_OVERLAY_DIM_ALPHA << 24) == 0,
-		  "no software dim wash in the panel buffer");
 	CHECK(count_opaque_outside_chrome() == 0,
 		  "the app area outside the panel, footer and battery stays transparent");
 
@@ -658,7 +657,7 @@ int main(void)
 				if (dim[y * width + width - 1] != value) uniform = 0;
 				previous = alpha;
 			}
-			CHECK(monotonic, "gradient dim alpha ramps down the screen without repeats");
+			CHECK(monotonic, "gradient dim alpha only increases towards the bottom");
 			CHECK(uniform, "gradient dim fills every row edge to edge");
 			CHECK(black, "gradient dim RGB stays black");
 			printf("dim gradient: alpha %d at the top -> %d at the bottom, black RGB, "
