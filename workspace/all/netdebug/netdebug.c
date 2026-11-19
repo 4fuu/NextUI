@@ -1478,7 +1478,9 @@ static void handle_request(int descriptor, const char* request, size_t request_l
     request_body = request + header_end;
     if (!request_content_length(request, &content_length, &content_length_present))
     {
-        send_response(descriptor, 400, "Bad Request", "text/plain", "Bad Content-Length\n", 20, 0);
+        static const char bad_length[] = "Bad Content-Length\n";
+        send_response(descriptor, 400, "Bad Request", "text/plain", bad_length,
+                      sizeof bad_length - 1, 0);
         return;
     }
     if (content_length_present && content_length > body_available)
@@ -1500,8 +1502,9 @@ static void handle_request(int descriptor, const char* request, size_t request_l
         header_value(request, "Transfer-Encoding", transfer_encoding, sizeof transfer_encoding);
         if (transfer_encoding[0] != '\0' && content_length_present == 0)
         {
+            static const char length_required[] = "Content-Length required\n";
             send_response(descriptor, 411, "Length Required", "text/plain",
-                          "Content-Length required\n", 25, 0);
+                          length_required, sizeof length_required - 1, 0);
             return;
         }
     }
@@ -1876,7 +1879,8 @@ int main(int argc, char* argv[])
             struct sockaddr_in peer;
             socklen_t peer_length = sizeof peer;
             int client = accept(g_listener, (struct sockaddr*)&peer, &peer_length);
-            struct timeval timeout;
+            struct timeval receive_timeout;
+            struct timeval send_timeout;
             char request[NETDEBUG_MAX_REQUEST + 1];
             size_t used = 0;
 
@@ -1887,10 +1891,14 @@ int main(int argc, char* argv[])
                     fprintf(stderr, "netdebug: accept: %s\n", strerror(errno));
                 continue;
             }
-            timeout.tv_sec = 2;
-            timeout.tv_usec = 0;
-            (void)setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
-            (void)setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof timeout);
+            receive_timeout.tv_sec = 3;
+            receive_timeout.tv_usec = 0;
+            send_timeout.tv_sec = 10; /* a full 1024x768 PNG on slow Wi-Fi */
+            send_timeout.tv_usec = 0;
+            (void)setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &receive_timeout,
+                             sizeof receive_timeout);
+            (void)setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &send_timeout,
+                             sizeof send_timeout);
 
             while (used < NETDEBUG_MAX_REQUEST)
             {
