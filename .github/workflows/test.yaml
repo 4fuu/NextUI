@@ -59,6 +59,7 @@ jobs:
           test -f workspace/all/settings/build/tg5040/settings.elf
           test -f workspace/all/devserv/build/tg5040/devserv.elf
           test -f workspace/all/nextdev/build/tg5040/nextdev.elf
+          test -f workspace/tg5040/keymon/keymon.elf
 
       # Transactional update package content, reusing the tree built above.
       # Test-only: the archive is unsigned, the version is a placeholder, and
@@ -113,6 +114,12 @@ jobs:
         uses: actions/upload-artifact@v7.0.2
         with:
           name: tg5040-target-${{ github.sha }}
-          path: workspace/**/build/tg5040/*.elf
+          # keymon is built by workspace/tg5040/keymon/makefile into its own
+          # directory (no build/ subdirectory), so the build-tree glob alone
+          # never matched it. Keep both paths: the device test replaces
+          # keymon.elf alone.
+          path: |
+            workspace/**/build/tg5040/*.elf
+            workspace/tg5040/keymon/keymon.elf
           if-no-files-found: error
           retention-days: 7

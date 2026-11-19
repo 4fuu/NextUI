@@ -36,7 +36,6 @@ typedef struct
 	SDL_Surface* screens[SYSTEM_OVERLAY_SCANOUT_BUFFERS];
 	int buffer_count;
 	int scanout_count;
-	int dim_ready;
 	int draw_index;
 	int front_index;
 	Uint32 presented_at;
@@ -51,6 +50,10 @@ typedef struct
 	SDL_Rect last_panel;
 	int have_last_panel;
 	int full_frames;
+	/* Per-buffer content state: 1 means the buffer carries the baked HOME
+	 * dim, 0 means it was cleared to transparent for a HUD. A HUD needs a
+	 * full-screen clear of every dimmed buffer before its first frame. */
+	int buffer_dim[SYSTEM_OVERLAY_SCANOUT_BUFFERS];
 
 	int available;
 	int visible;
@@ -59,6 +62,13 @@ typedef struct
 } Overlay;
 
 static Overlay overlay;
+
+static int any_buffer_dim(void)
+{
+	for (int i = 0; i < overlay.buffer_count; i++)
+		if (overlay.buffer_dim[i]) return 1;
+	return 0;
+}
 
 typedef struct
 {
@@ -71,10 +81,8 @@ typedef struct
 	/* Overlay channel and channel zorder chosen from fb0's layer config. */
 	unsigned int channel;
 	unsigned char zorder;
-	unsigned int dim_layer;
 	unsigned int panel_layer;
 	int planned;
-	int dim_configured;
 	int panel_configured;
 	int configured_buffer;
 	int configured_width;
@@ -84,25 +92,22 @@ typedef struct
 
 static DispBackend disp_backend;
 
-static int set_layer(int enabled, int dim, int buffer, int x, int y, int width, int height,
+static int set_layer(int enabled, int buffer, int x, int y, int width, int height,
 					 int buffer_width, int buffer_height);
 
-static int overlay_commit(int enabled, int dim)
+static int overlay_commit(int enabled)
 {
 	if (!overlay.display.commit) return -1;
 	if (!enabled)
 	{
-		int result = overlay.display.commit(overlay.display.user, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+		int result = overlay.display.commit(overlay.display.user, 0, 0, 0, 0, 0, 0, 0, 0);
 		if (result == 0) overlay.front_index = -1;
 		return result == 0 ? 0 : -1;
 	}
 
 	int index = overlay.draw_index;
 	if (index < 0 || index >= overlay.buffer_count) index = 0;
-	/* dim asks for the gradient layer; without a gradient buffer the overlay
-	 * still works, it just cannot darken the app. */
-	int dim_layer = (dim && overlay.dim_ready) ? 1 : 0;
-	int result = overlay.display.commit(overlay.display.user, 1, dim_layer, index, 0, 0,
+	int result = overlay.display.commit(overlay.display.user, 1, index, 0, 0,
 										overlay.screen_width, overlay.screen_height,
 										overlay.screen_width, overlay.screen_height);
 	if (result == 0)
@@ -113,10 +118,13 @@ static int overlay_commit(int enabled, int dim)
 	return result == 0 ? 0 : -1;
 }
 
-/* Pick the buffer the display engine is not scanning and clear only the regions
- * this frame will repaint. The rest of the buffer stays transparent, so the app
- * shows through and no full-screen clear or dim blend is needed. */
-static SDL_Surface* begin_frame(const SDL_Rect* damage, int damage_count)
+/* Pick the buffer the display engine is not scanning and prepare only the
+ * regions this frame will repaint. A full HOME frame fills the whole buffer
+ * with the baked dim before the panel and chrome are drawn. A panel-only frame
+ * refills just the panel rectangle with that same dim so the rounded corners
+ * still show the wash; the rest of the dimmed background is untouched. HUD
+ * frames clear to transparent instead, so the app is not dimmed. */
+static SDL_Surface* begin_frame(const SDL_Rect* damage, int damage_count, int full, uint32_t fill)
 {
 	int target = 0;
 
@@ -136,9 +144,16 @@ static SDL_Surface* begin_frame(const SDL_Rect* damage, int damage_count)
 	SDL_Surface* screen = overlay.screens[target];
 	if (screen)
 	{
-		for (int i = 0; i < damage_count; i++)
+		if (full)
 		{
-			if (damage[i].w > 0 && damage[i].h > 0) SDL_FillRect(screen, &damage[i], 0);
+			SDL_FillRect(screen, NULL, fill);
+		}
+		else
+		{
+			for (int i = 0; i < damage_count; i++)
+			{
+				if (damage[i].w > 0 && damage[i].h > 0) SDL_FillRect(screen, &damage[i], fill);
+			}
 		}
 	}
 	return screen;
@@ -162,39 +177,12 @@ static SDL_Rect battery_rect(SDL_Surface* screen)
 }
 
 
-/* The gradient dim lives in its own scanout buffer and is painted once at init:
- * black RGB with a linear vertical alpha ramp, lighter at the top. Navigation
- * only repaints the panel buffer, so this costs no CPU after startup. */
-static void render_dim_gradient(SDL_Surface* screen)
-{
-	int stride;
-	uint32_t* pixels;
-	int span;
-
-	if (!screen || !screen->pixels || screen->w <= 0 || screen->h <= 0) return;
-	pixels = (uint32_t*)screen->pixels;
-	stride = (int)(screen->pitch / sizeof(uint32_t));
-	span = screen->h > 1 ? screen->h - 1 : 0;
-
-	for (int y = 0; y < screen->h; y++)
-	{
-		int alpha = SYSTEM_OVERLAY_DIM_TOP_ALPHA;
-		if (span > 0)
-			alpha += (SYSTEM_OVERLAY_DIM_BOTTOM_ALPHA - SYSTEM_OVERLAY_DIM_TOP_ALPHA) * y / span;
-		uint32_t value = (uint32_t)alpha << 24;
-		uint32_t* row = pixels + (size_t)y * (size_t)stride;
-		for (int x = 0; x < screen->w; x++) row[x] = value;
-	}
-}
-
 static void home_footer(SDL_Surface* screen)
 {
-	/* No background fill. The launcher paints an opaque THEME_COLOR7 slab, and
-	 * even a translucent version compounds with the gradient's darkest stop at
-	 * the bottom of the screen and reads as a black band. Leaving the strip
-	 * transparent makes the hint bar part of the gradient; every label already
-	 * sits on its own opaque GFX_blitButtonGroup pill, so contrast does not
-	 * depend on a bar behind it. */
+	/* No background fill. The dim baked into the panel buffer is the only
+	 * thing behind the hint bar; every label already sits on its own opaque
+	 * GFX_blitButtonGroup pill, so contrast does not depend on a bar behind
+	 * it. */
 
 	/* Same GFX_blitButtonGroup primitives as the launcher's bottom bar. The
 	 * resident panel owns the key set, so it labels the actual d-pad/A/B/HOME
@@ -222,9 +210,10 @@ static IndicatorType hud_indicator(SystemOverlayMode mode)
 	}
 }
 
-/* full repaints the panel plus the chrome (footer and battery group). A
- * selection move passes full=0 and only clears/draws the panel rectangle; the
- * dim lives in a static hardware layer and is never touched again. */
+/* full repaints the dim background, panel and chrome (footer and battery
+ * group). A selection move passes full=0, refills only the panel rectangle
+ * with the dim colour so the rounded corners stay dim, and redraws the panel;
+ * the rest of the static dim is untouched. */
 static int render_home(int full)
 {
 	SDL_Rect damage[4];
@@ -243,17 +232,18 @@ static int render_home(int full)
 	}
 
 	damage[damage_count++] = panel;
+	if (overlay.have_last_panel &&
+		(overlay.last_panel.x != panel.x || overlay.last_panel.y != panel.y ||
+		 overlay.last_panel.w != panel.w || overlay.last_panel.h != panel.h))
+		damage[damage_count++] = overlay.last_panel;
 	if (full)
 	{
 		damage[damage_count++] = footer_rect(overlay.screens[0]);
 		damage[damage_count++] = battery_rect(overlay.screens[0]);
 	}
-	if (overlay.have_last_panel &&
-		(overlay.last_panel.x != panel.x || overlay.last_panel.y != panel.y ||
-		 overlay.last_panel.w != panel.w || overlay.last_panel.h != panel.h))
-		damage[damage_count++] = overlay.last_panel;
 
-	SDL_Surface* screen = begin_frame(damage, damage_count);
+	SDL_Surface* screen =
+		begin_frame(damage, damage_count, full, SYSTEM_OVERLAY_DIM_COLOR);
 	if (!screen) return -1;
 
 	if (full)
@@ -270,37 +260,37 @@ static int render_home(int full)
 
 	overlay.last_panel = panel;
 	overlay.have_last_panel = 1;
-	return overlay_commit(1, 1);
+	overlay.buffer_dim[overlay.draw_index] = 1;
+	return overlay_commit(1);
 }
 
 static int render_indicator(SystemOverlayMode mode)
 {
-	SDL_Rect damage[4];
+	SDL_Rect damage[1];
 	int damage_count = 0;
 	int full = 0;
 
 	if (!overlay.screens[0]) return -1;
 
-	/* The HUD has no dim and no panel. The first frames after a mode change
-	 * clear every region a HOME frame could have left in each buffer; later
-	 * repeats only repaint the top-right pill. */
+	/* A HUD has no dim and no panel. The first frames after a HOME session
+	 * clear the whole buffer to transparent in each buffer; later repeats
+	 * only repaint the top-right pill. */
 	if (overlay.full_frames > 0)
 	{
 		full = 1;
 		overlay.full_frames--;
 	}
-	if (full && overlay.have_last_panel) damage[damage_count++] = overlay.last_panel;
-	if (full) damage[damage_count++] = footer_rect(overlay.screens[0]);
 	damage[damage_count++] = battery_rect(overlay.screens[0]);
 
-	SDL_Surface* screen = begin_frame(damage, damage_count);
+	SDL_Surface* screen = begin_frame(damage, damage_count, full, 0);
 	if (!screen) return -1;
 
 	int width = SCALE1(PILL_SIZE + SETTINGS_WIDTH + 10 + 4);
 	int x = screen->w - SCALE1(PADDING) - width;
 	int y = SCALE1(PADDING);
 	GFX_blitHardwareIndicator(screen, x, y, hud_indicator(mode));
-	return overlay_commit(1, 0);
+	if (full) overlay.buffer_dim[overlay.draw_index] = 0;
+	return overlay_commit(1);
 }
 
 static int overlay_exit_to_desktop(void* user)
@@ -372,7 +362,7 @@ static UIOverlay* create_overlay(void)
 	if (ui)
 	{
 		UIOverlay_setFooterVisible(ui, 0);
-		/* The resident overlay dims with its own static gradient layer. */
+		/* The resident overlay bakes its dim into the same panel buffer. */
 		UIOverlay_setDimVisible(ui, 0);
 	}
 	return ui;
@@ -448,7 +438,12 @@ int SystemOverlay_showIndicator(SystemOverlayMode mode)
 
 	SystemOverlay_applyTheme();
 	if (overlay.ui) UIOverlay_close(overlay.ui);
-	overlay.full_frames = overlay.buffer_count > 0 ? overlay.buffer_count : 1;
+	/* A HUD over HOME must clear the baked dim from every buffer before the
+	 * first pill frame. A HUD over another HUD only repaints its pill. */
+	if (any_buffer_dim())
+		overlay.full_frames = overlay.buffer_count > 0 ? overlay.buffer_count : 1;
+	else
+		overlay.full_frames = 0;
 	if (render_indicator(mode) != 0)
 	{
 		SystemOverlay_hide();
@@ -513,7 +508,7 @@ int SystemOverlay_input(SystemOverlayInput input)
 void SystemOverlay_hide(void)
 {
 	if (overlay.ui && UIOverlay_isOpen(overlay.ui)) UIOverlay_close(overlay.ui);
-	if (overlay.available && overlay.front_index >= 0) (void)overlay_commit(0, 0);
+	if (overlay.available && overlay.front_index >= 0) (void)overlay_commit(0);
 	overlay.visible = 0;
 	overlay.mode = SYSTEM_OVERLAY_HIDDEN;
 	overlay.full_frames = 0;
@@ -623,28 +618,8 @@ int SystemOverlay_initWithDisplay(const SystemOverlayDisplay* display, int scree
 		overlay.buffer_count = 2;
 	}
 
-	/* The extra buffer is the static gradient dim. A backend that could not
-	 * give it still runs the panel; it just has nothing to dim with. */
-	if (count >= SYSTEM_OVERLAY_SCANOUT_BUFFERS)
-	{
-		overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER] = SDL_CreateRGBSurfaceWithFormatFrom(
-			overlay.buffers[SYSTEM_OVERLAY_DIM_BUFFER].pixels, screen_width, screen_height, 32,
-			screen_width * 4, SDL_PIXELFORMAT_ARGB8888);
-		if (!overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER])
-		{
-			fprintf(stderr, "system-overlay: dim buffer wrapper failed: %s\n", SDL_GetError());
-			SDL_FreeSurface(overlay.screens[1]);
-			overlay.screens[1] = NULL;
-			GFX_quitAttached();
-			overlay.screens[0] = NULL;
-			display->release(display->user, overlay.buffers, count, pixel_bytes);
-			return -1;
-		}
-		/* Rendered once here and never again: navigation repaints the panel
-		 * only, which is the PR #69 latency fix. */
-		render_dim_gradient(overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER]);
-		overlay.dim_ready = 1;
-	}
+	/* The dim lives in these buffers, so there is nothing else to allocate
+	 * even when the driver could only provide one panel buffer. */
 
 	overlay.display = *display;
 	overlay.screen_width = screen_width;
@@ -688,8 +663,8 @@ const uint32_t* SystemOverlay_pixels(int* width, int* height)
 }
 
 /* ------------------------------------------------------------------------- */
-/* Production backend: gradient dim buffer + panel buffer on a UI channel
- * above fb0 (channel 1 / layer 0).                                           */
+/* Production backend: one full-screen BUF layer on a UI channel above fb0
+ * (channel 1 / layer 0). The buffer itself carries the dim and the panel.     */
 
 #define DISP_FB0_CHANNEL 1
 #define DISP_FB0_LAYER 0
@@ -779,7 +754,7 @@ static void disp_release_memory(void)
 
 	if (disp_backend.enabled)
 	{
-		(void)set_layer(0, 0, 0, 0, 0, 0, 0, 0, 0);
+		(void)set_layer(0, 0, 0, 0, 0, 0, 0, 0);
 		/* Disable is applied to the DE's shadow registers at the next vsync.
 		 * Let it land before the buffers are unmapped and their slots freed. */
 		usleep(34000);
@@ -803,10 +778,8 @@ static void disp_release_memory(void)
 	disp_backend.size = 0;
 	disp_backend.channel = 0;
 	disp_backend.zorder = 0;
-	disp_backend.dim_layer = 0;
 	disp_backend.panel_layer = 0;
 	disp_backend.planned = 0;
-	disp_backend.dim_configured = -1;
 	disp_backend.panel_configured = -1;
 	disp_backend.enabled = 0;
 	disp_backend.configured_buffer = -1;
@@ -903,7 +876,6 @@ static int disp_acquire(void* user, size_t size, int count, SystemOverlayBuffer*
 	(void)user;
 	memset(&disp_backend, 0, sizeof disp_backend);
 	disp_backend.descriptor = -1;
-	disp_backend.dim_configured = -1;
 	disp_backend.panel_configured = -1;
 	disp_backend.configured_buffer = -1;
 	for (index = 0; index < SYSTEM_OVERLAY_SCANOUT_BUFFERS; index++) disp_backend.slots[index] = -1;
@@ -977,28 +949,21 @@ static int layer_is_free(unsigned int channel, unsigned int layer)
 	return config.enable ? 0 : 1;
 }
 
-/* The gradient dim layer has to be below the panel buffer layer; layer3 is the
- * highest priority inside a channel, layer0 the lowest (DE2.0 spec 5.10.3.2). */
-static int plan_layers(void)
+/* One full-screen BUF layer is all the overlay needs: it carries the dim and
+ * the panel. layer3 is the highest priority inside a channel, layer0 the lowest
+ * (DE2.0 spec 5.10.3.2), but there is no second layer to order against. */
+static int plan_layer(void)
 {
 	unsigned int candidate;
-	int found = 0;
 
-	for (candidate = 0; candidate < DISP_LAYERS_PER_CHANNEL && found < 2; candidate++)
+	for (candidate = 0; candidate < DISP_LAYERS_PER_CHANNEL; candidate++)
 	{
 		if (!layer_is_free(disp_backend.channel, candidate)) continue;
-		if (found == 0)
-			disp_backend.dim_layer = candidate;
-		else
-			disp_backend.panel_layer = candidate;
-		found++;
+		disp_backend.panel_layer = candidate;
+		return 0;
 	}
-	if (found < 2)
-	{
-		fprintf(stderr, "system-overlay: channel %u has no free layer pair\n", disp_backend.channel);
-		return -1;
-	}
-	return 0;
+	fprintf(stderr, "system-overlay: channel %u has no free layer\n", disp_backend.channel);
+	return -1;
 }
 
 static void init_layer_config(struct disp_layer_config* config, unsigned int layer, int enabled)
@@ -1026,30 +991,6 @@ static void set_geometry(struct disp_layer_info* info, int x, int y, int width, 
 	info->fb.crop.y = 0;
 	info->fb.crop.width = ((long long)width) << 32;
 	info->fb.crop.height = ((long long)height) << 32;
-}
-
-static void build_dim_layer(struct disp_layer_config* config, int enabled, int width, int height)
-{
-	int have_buffer = disp_backend.count > (int)SYSTEM_OVERLAY_DIM_BUFFER;
-
-	init_layer_config(config, disp_backend.dim_layer, enabled && have_buffer);
-	if (!enabled || !have_buffer) return;
-
-	/* Static ARGB buffer with the vertical alpha ramp, composited with pixel
-	 * alpha exactly like the panel. A COLOR-mode layer is deliberately not
-	 * used: OVL_UI_FILL_COLOR has its own alpha byte (DE2.0 spec 5.10.8.7,
-	 * bits 31:24) and de_rtmx_set_lay_fcolor() writes info.color verbatim on a
-	 * UI channel, so a 0x00000000 fill is fully transparent on the Brick Pro.
-	 * The panel layer already proves buffer pixel alpha works on this channel. */
-	config->info.mode = LAYER_MODE_BUFFER;
-	config->info.alpha_mode = DISP_ALPHA_MODE_PIXEL;
-	config->info.alpha_value = 0xff;
-	set_geometry(&config->info, 0, 0, width, height);
-	config->info.fb.addr[0] = disp_backend.physical[SYSTEM_OVERLAY_DIM_BUFFER];
-	config->info.fb.size[0].width = (unsigned int)width;
-	config->info.fb.size[0].height = (unsigned int)height;
-	/* SDL writes straight (unpremultiplied) alpha. */
-	config->info.fb.pre_multiply = false;
 }
 
 static void build_panel_layer(struct disp_layer_config* config, int enabled, int buffer, int x, int y,
@@ -1080,30 +1021,25 @@ static int apply_layer_configs(struct disp_layer_config* configs, int count)
 	return result == 0 ? 0 : -1;
 }
 
-/* Enable the layers once per overlay session and keep their geometry while
- * visible. A new frame is a page flip: only the panel layer is resubmitted with
+/* Enable the one BUF layer once per overlay session and keep its geometry while
+ * visible. A new frame is a page flip: the layer is resubmitted with
  * fb.addr[0] changed, and the DE applies it from its double-buffered registers
- * at the next vsync. The dim layer is configured once when the session starts
- * or when the dim turns on/off, never per selection move. */
-static int set_layer(int enabled, int dim, int buffer, int x, int y, int width, int height,
+ * at the next vsync. The pixels outside the panel carry the static dim, so no
+ * second layer, COLOR fill or dim toggle is involved. */
+static int set_layer(int enabled, int buffer, int x, int y, int width, int height,
 					 int buffer_width, int buffer_height)
 {
-	struct disp_layer_config configs[2];
-	int count = 0;
+	struct disp_layer_config config;
 	int first;
-	int dim_changed;
 	int panel_changed;
 
 	if (!enabled)
 	{
 		if (!disp_backend.enabled) return 0;
-		build_dim_layer(&configs[count], 0, 0, 0);
-		count++;
-		build_panel_layer(&configs[count], 0, 0, 0, 0, 0, 0, 0, 0);
-		count++;
-		if (apply_layer_configs(configs, count) != 0) return -1;
+		build_panel_layer(&config, 0, 0, 0, 0, 0, 0, 0, 0);
+		if (apply_layer_configs(&config, 1) != 0) return -1;
 		disp_backend.enabled = 0;
-		disp_backend.dim_configured = 0;
+		disp_backend.panel_configured = 0;
 		disp_backend.configured_buffer = -1;
 		return 0;
 	}
@@ -1112,68 +1048,49 @@ static int set_layer(int enabled, int dim, int buffer, int x, int y, int width, 
 
 	if (!disp_backend.planned)
 	{
-		if (plan_layers() != 0) return -1;
+		if (plan_layer() != 0) return -1;
 		disp_backend.planned = 1;
 	}
 
 	first = !disp_backend.panel_configured;
-	dim_changed = first || dim != disp_backend.dim_configured;
 	panel_changed = first || buffer != disp_backend.configured_buffer ||
 					width != disp_backend.configured_width || height != disp_backend.configured_height;
-	if (!dim_changed && !panel_changed) return 0;
+	if (!panel_changed) return 0;
 
-	if (first)
-	{
-		build_dim_layer(&configs[count], dim, width, height);
-		count++;
-		build_panel_layer(&configs[count], 1, buffer, x, y, width, height, buffer_width,
-						  buffer_height);
-		count++;
-	}
-	else if (dim_changed)
-	{
-		build_dim_layer(&configs[count], dim, width, height);
-		count++;
-		/* A dim toggle and a new panel frame arrive together (HOME <-> HUD);
-		 * include the panel so one commit carries the whole scene. */
-		build_panel_layer(&configs[count], 1, buffer, x, y, width, height, buffer_width,
-						  buffer_height);
-		count++;
-		panel_changed = 1;
-	}
-	else
-	{
-		build_panel_layer(&configs[count], 1, buffer, x, y, width, height, buffer_width,
-						  buffer_height);
-		count++;
-	}
-
-	if (apply_layer_configs(configs, count) != 0)
+	build_panel_layer(&config, 1, buffer, x, y, width, height, buffer_width, buffer_height);
+	if (apply_layer_configs(&config, 1) != 0)
 	{
 		fprintf(stderr, "system-overlay: DISP_LAYER_SET_CONFIG failed on ch%u\n", disp_backend.channel);
 		return -1;
 	}
 
-	disp_backend.enabled = 1;
-	disp_backend.dim_configured = dim;
-	if (panel_changed)
+	if (first)
 	{
-		disp_backend.panel_configured = 1;
-		disp_backend.configured_buffer = buffer;
-		disp_backend.configured_width = width;
-		disp_backend.configured_height = height;
+		/* The kernel's layer dump has no pixel format detail; log the single
+		 * BUF layer once. `cat /sys/class/disp/disp/attr/sys` shows the same
+		 * layer as BUF ch2/lyrN/z17. */
+		fprintf(stderr, "system-overlay: ch%u z%u panel lyr%u BUF pixel-alpha, "
+						"baked dim alpha %u\n",
+				disp_backend.channel, (unsigned)disp_backend.zorder,
+				(unsigned)disp_backend.panel_layer, (unsigned)SYSTEM_OVERLAY_DIM_ALPHA);
 	}
+
+	disp_backend.enabled = 1;
+	disp_backend.panel_configured = 1;
+	disp_backend.configured_buffer = buffer;
+	disp_backend.configured_width = width;
+	disp_backend.configured_height = height;
 	return 0;
 }
 
-static int disp_commit(void* user, int enabled, int dim, int buffer, int x, int y, int width, int height,
+static int disp_commit(void* user, int enabled, int buffer, int x, int y, int width, int height,
 					   int buffer_width, int buffer_height)
 {
 	(void)user;
 	(void)x;
 	(void)y;
 	if (disp_backend.descriptor < 0) return -1;
-	return set_layer(enabled, dim, buffer, 0, 0, width, height, buffer_width, buffer_height);
+	return set_layer(enabled, buffer, 0, 0, width, height, buffer_width, buffer_height);
 }
 
 int SystemOverlay_init(int screen_width, int screen_height)

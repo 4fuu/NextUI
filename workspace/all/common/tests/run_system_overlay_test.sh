@@ -2,9 +2,10 @@
 # Host-only render test for the resident system overlay. Uses a malloc-backed
 # display backend and the production GFX/UIOverlay renderer, so the theme,
 # battery group and hardware pill are the same components the app uses.
-# It asserts the static top-to-bottom gradient dim (lighter at the top, painted
-# once at init and never per navigation), that navigation repaints only the
-# panel, and that the hint bar paints no background over the gradient.
+# It asserts the single full-screen BUF layer carries both the baked dim
+# (black, alpha 140 = a uniform 55% wash) and the opaque panel; only the two
+# double-buffer slots are allocated, navigation repaints only the panel, and
+# the hint bar paints no background over the wash.
 # No /dev/disp, SDL window, evdev node or device is touched.
 set -euo pipefail
 
