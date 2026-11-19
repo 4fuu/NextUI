@@ -31,6 +31,10 @@
 
 #define LAST_PATH "/tmp/last.txt" // transient
 #define NOUI_PATH "/tmp/noui"
+// Written by nextui-session.sh at session teardown. The next launcher start
+// consumes it and presents one extra full frame, so a non-graceful app kill
+// cannot leave its last frame on the panel until the next input event.
+#define REDRAW_PATH "/tmp/nextui_redraw"
 
 #define TRIAD_WHITE 		0xff,0xff,0xff
 #define TRIAD_BLACK 		0x00,0x00,0x00

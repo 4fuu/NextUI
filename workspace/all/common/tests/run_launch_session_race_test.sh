@@ -32,6 +32,9 @@ FAKE_EXIT_FILE="$WORK/exit-requested"
 FAKE_STATUS_MODE_FILE="$WORK/status-down"
 FAKE_STATUS_ID_FILE="$WORK/status-id"
 export FAKE_LOG SOCKET FAKE_EXIT_FILE FAKE_STATUS_MODE_FILE FAKE_STATUS_ID_FILE
+# Session teardown writes a one-shot repaint request; keep it inside $WORK so
+# the test never writes /tmp paths outside its own tree.
+export NEXTUI_REDRAW_PATH="$WORK/redraw"
 
 DECOY_PIDS=()
 NEG_CHILD_PID=""

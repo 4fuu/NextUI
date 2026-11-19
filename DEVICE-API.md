@@ -124,6 +124,27 @@ The path never removes `/tmp/nextui_exec`; removing it is power-off semantics.
 A forced exit stops only the app's process group, then the normal
 `nextui_session_stop` path restores the C3 snapshot.
 
+Teardown is also the system's last line of defense against an app that returns
+while its engine survives it. `nextui_session_run` records the pid it spawned
+as a session leader; `nextui_session_stop` scans `/proc` for live processes
+whose session id is that pid and treats them as app leftovers. Session id is
+used instead of process group because a wrapper commonly gives an engine its
+own `PGID` with `setpgid`; the engine still inherits the session, and
+reparenting to PID 1 changes neither. The sweep sends `SIGTERM`, polls for
+`NEXTUI_APP_REAP_GRACE_MS` (default 500 ms, 200 ms polls), sends `SIGKILL` to
+the survivors and confirms they left `/proc`; it cannot `waitpid` a process
+that PID 1 owns, so the confirmation is bounded observation, not a wait. A
+descendant that calls `setsid` itself leaves the boundary and remains the
+pak's responsibility. The sweep runs before the service restores device
+fields, so a leftover cannot still be writing to the display, the mixer or an
+LED lease during the restore.
+
+The same teardown writes `/tmp/nextui_redraw`. The next launcher start consumes
+that marker and presents its first full frame a second time, replacing whichever
+buffer page may still hold the app's last frame after a non-graceful kill. This
+is a fallback: a graceful app exit restores the screen itself. It does not
+change the bounded exit wait, the forced-kill path or the suspend handshake.
+
 ## Manifest: declare supported capabilities in pak.json
 
 `pak.json` is the only manifest (plan X1). Device support declarations live in

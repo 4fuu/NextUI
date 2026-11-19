@@ -13,7 +13,8 @@ PAK="$WORK/My App.pak"
 SOCKET="$WORK/devserv.sock"
 FAKE_LOG="$WORK/fake.log"
 FAKE_EXIT_FILE="$WORK/exit-requested"
-export FAKE_LOG SOCKET FAKE_EXIT_FILE
+REDRAW_FILE="$WORK/redraw"
+export FAKE_LOG SOCKET FAKE_EXIT_FILE REDRAW_FILE NEXTUI_REDRAW_PATH="$REDRAW_FILE"
 
 cleanup() {
     rm -rf "$WORK"
@@ -331,7 +332,8 @@ if pgrep -f "$APP" >/dev/null 2>&1; then fail "stuck app survived the forced cle
 
 # 11. A normal app exit is not held hostage by a descendant. With no exit
 # request the supervisor stops at the direct child and returns promptly; the
-# old foreground behavior is preserved.
+# old foreground behavior is preserved. The descendant is reaped by the
+# bounded session teardown (covered in full by test 12), not by the wait.
 APP="$WORK/app-parent.sh"
 APP_LOG="$WORK/app-parent.log"
 CHILD_PID_FILE="$WORK/child.pid"
@@ -363,5 +365,111 @@ END_MS=$(date +%s%3N)
 ELAPSED=$((END_MS - START_MS))
 [[ "$ELAPSED" -lt 3000 ]] || fail "parent exit waited ${ELAPSED}ms for a descendant"
 if [[ -f "$CHILD_PID_FILE" ]]; then kill "$(cat "$CHILD_PID_FILE")" 2>/dev/null || true; fi
+
+# 12. Defensive orphan reaping. The app command returns while a descendant is
+# still alive in its session, and that descendant is reparented to PID 1. The
+# session id survives reparenting, so teardown must SIGTERM it, confirm it is
+# gone, and leave a process outside the app's session alone. The redraw
+# request must also exist after teardown without any input event.
+APP="$WORK/app-orphan.sh"
+APP_LOG="$WORK/app-orphan.log"
+ORPHAN_PID_FILE="$WORK/orphan.pid"
+export APP APP_LOG ORPHAN_PID_FILE
+cat > "$APP" <<'APPEOF'
+#!/bin/sh
+sleep 30 >/dev/null 2>&1 &
+echo $! > "$ORPHAN_PID_FILE"
+echo "start $$" >> "$APP_LOG"
+exit 0
+APPEOF
+rm -f "$FAKE_EXIT_FILE" "$APP_LOG" "$ORPHAN_PID_FILE" "$REDRAW_FILE"
+sleep 30 >/dev/null 2>&1 &
+BYSTANDER=$!
+reset_log
+START_MS=$(date +%s%3N)
+set +e
+OUTPUT="$(
+    PLATFORM=tg5040 SYSTEM_PATH="$SYSTEM" SHARED_USERDATA_PATH="$SHARED" LOGS_PATH="$LOGS" \
+    NEXTUI_DEVSERV_SOCKET="$SOCKET" HOOK_EMU_PATH="$PAK/launch.sh" \
+    NEXTUI_APP_REAP_GRACE_MS=800 \
+    timeout 15 sh -c '
+        . "$SYSTEM_PATH/../res/nextui-session.sh"
+        nextui_devserv_start
+        nextui_session_start
+        nextui_session_run "sh $APP"
+        nextui_session_stop
+        printf "DONE\n"
+    ' 2>&1
+)"
+STATUS=$?
+set -e
+END_MS=$(date +%s%3N)
+[[ "$STATUS" -eq 0 ]] || fail "orphan teardown exited $STATUS: $OUTPUT"
+grep -Fxq "DONE" <<<"$OUTPUT" || fail "orphan teardown did not return to the launcher"
+[[ -s "$ORPHAN_PID_FILE" ]] || fail "orphan app did not record its descendant"
+ORPHAN_PID="$(cat "$ORPHAN_PID_FILE")"
+orphan_state() {
+    awk '{print $3}' "/proc/$1/stat" 2>/dev/null || true
+}
+for _ in $(seq 1 40); do
+    if ! kill -0 "$ORPHAN_PID" 2>/dev/null; then break; fi
+    [[ "$(orphan_state "$ORPHAN_PID")" = "Z" ]] && break
+    sleep 0.05
+done
+if kill -0 "$ORPHAN_PID" 2>/dev/null && [[ "$(orphan_state "$ORPHAN_PID")" != "Z" ]]; then
+    kill -KILL "$ORPHAN_PID" 2>/dev/null || true
+    fail "orphaned descendant survived session teardown"
+fi
+kill -0 "$BYSTANDER" 2>/dev/null || fail "session teardown killed a process outside the app session"
+kill "$BYSTANDER" 2>/dev/null || true
+[[ -f "$REDRAW_FILE" ]] || fail "session teardown did not request a full repaint"
+ELAPSED=$((END_MS - START_MS))
+[[ "$ELAPSED" -lt 4000 ]] || fail "orphan teardown took ${ELAPSED}ms"
+[[ "$(count_lines '--session-id|0123456789abcdef|session-stop')" -eq 1 ]] \
+    || fail "orphan teardown did not stop the session once"
+
+# 13. A descendant that ignores SIGTERM is SIGKILLed after the bounded grace;
+# teardown still returns and the redraw request is still raised.
+cat > "$APP" <<'APPEOF'
+#!/bin/sh
+( trap '' TERM; while :; do sleep 0.1; done ) &
+echo $! > "$ORPHAN_PID_FILE"
+exit 0
+APPEOF
+rm -f "$FAKE_EXIT_FILE" "$APP_LOG" "$ORPHAN_PID_FILE" "$REDRAW_FILE"
+reset_log
+START_MS=$(date +%s%3N)
+set +e
+OUTPUT="$(
+    PLATFORM=tg5040 SYSTEM_PATH="$SYSTEM" SHARED_USERDATA_PATH="$SHARED" LOGS_PATH="$LOGS" \
+    NEXTUI_DEVSERV_SOCKET="$SOCKET" HOOK_EMU_PATH="$PAK/launch.sh" \
+    NEXTUI_APP_REAP_GRACE_MS=300 \
+    timeout 15 sh -c '
+        . "$SYSTEM_PATH/../res/nextui-session.sh"
+        nextui_devserv_start
+        nextui_session_start
+        nextui_session_run "sh $APP"
+        nextui_session_stop
+        printf "DONE\n"
+    ' 2>&1
+)"
+STATUS=$?
+set -e
+END_MS=$(date +%s%3N)
+[[ "$STATUS" -eq 0 ]] || fail "forced orphan teardown exited $STATUS: $OUTPUT"
+grep -Fxq "DONE" <<<"$OUTPUT" || fail "forced orphan teardown did not return"
+ORPHAN_PID="$(cat "$ORPHAN_PID_FILE")"
+for _ in $(seq 1 40); do
+    if ! kill -0 "$ORPHAN_PID" 2>/dev/null; then break; fi
+    [[ "$(orphan_state "$ORPHAN_PID")" = "Z" ]] && break
+    sleep 0.05
+done
+if kill -0 "$ORPHAN_PID" 2>/dev/null && [[ "$(orphan_state "$ORPHAN_PID")" != "Z" ]]; then
+    kill -KILL "$ORPHAN_PID" 2>/dev/null || true
+    fail "SIGTERM-ignoring descendant survived the forced reap"
+fi
+[[ -f "$REDRAW_FILE" ]] || fail "forced teardown did not request a full repaint"
+ELAPSED=$((END_MS - START_MS))
+[[ "$ELAPSED" -lt 5000 ]] || fail "forced orphan teardown took ${ELAPSED}ms (grace was not bounded)"
 
 echo "launch session tests passed"
