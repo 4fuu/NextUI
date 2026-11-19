@@ -147,8 +147,8 @@ static void renderNetworkDebugRows(const char *outDir, const char *language)
                      {0, 1, 2, 3, 4, 5}, {"Muted", "20%", "40%", "60%", "80%", "100%"},
                      []() -> std::any { return 2; }, nullptr, nullptr},
         new MenuItem{ListItemType::Generic, TR("Network debugging"),
-                     TR("Serve read-only logs and device state to a browser on the\n"
-                        "same network. Turns off automatically."),
+                     TR("Serve logs, device state and a token-gated debug shell on the LAN.\n"
+                        "Turns off automatically."),
                      {false, true}, onOff, []() -> std::any { return true; }, nullptr,
                      nullptr},
         new StaticMenuItem{ListItemType::Generic, TR("Debug URL"), fullUrl,

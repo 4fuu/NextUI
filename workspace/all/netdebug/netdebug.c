@@ -1,14 +1,15 @@
 /*
- * netdebug - read-only LAN diagnostics for NextUI.
+ * netdebug - authenticated LAN debugging transport for NextUI.
  *
- * A small, libc-only HTTP server. It is started by the Settings app only while
- * "Network debugging" is enabled, binds to the device's private LAN address,
+ * A small HTTP server, started by the Settings app only while "Network
+ * debugging" is enabled. It binds to the device's private LAN address,
  * requires the token generated for that session on every request, and exits by
  * itself after the timeout. On exit it clears the enabled flag in
  * minuisettings.txt so the Settings row never lies.
  *
- * There are no write endpoints and no process control here. The dashboard and
- * JSON endpoints only read files and run read-only diagnostics.
+ * The API is JSON-only. /api/exec intentionally runs a shell command for the
+ * token holder; the other endpoints are read-only. The paired client is
+ * scripts/netdebug.py.
  */
 #define _GNU_SOURCE
 
@@ -37,9 +38,12 @@
 #include <time.h>
 #include <unistd.h>
 
-/* Keep this binary dependent on libc only: it also runs on cards whose libs
- * are older than the launcher's. The device paths are fixed; the makefile
- * still passes PLATFORM for the status label. */
+#include "screenshot.h"
+
+/* Keep this binary dependent on libc and zlib only (zlib is already used by
+ * nextupd): it also runs on cards whose libs are older than the launcher's.
+ * The device paths are fixed; the makefile still passes PLATFORM for the
+ * status label. */
 #ifndef PLATFORM
 #define PLATFORM "desktop"
 #endif
@@ -56,10 +60,13 @@
 #define NETDEBUG_DEFAULT_PORT 8686
 #define NETDEBUG_DEFAULT_TIMEOUT_SECS 900
 #define NETDEBUG_TOKEN_MAX 65
-#define NETDEBUG_MAX_REQUEST 8192
+#define NETDEBUG_MAX_REQUEST 16384
 #define NETDEBUG_MAX_LOG_BYTES (256u * 1024u)
-#define NETDEBUG_MAX_BODY (512u * 1024u)
+#define NETDEBUG_MAX_COMMAND 2048
 #define NETDEBUG_MAX_COMMAND_BYTES (64u * 1024u)
+#define NETDEBUG_EXEC_OUTPUT_LIMIT (64u * 1024u)
+#define NETDEBUG_DEFAULT_EXEC_TIMEOUT_SECS 10
+#define NETDEBUG_MAX_EXEC_TIMEOUT_SECS 60
 #define NETDEBUG_POLL_MS 250
 
 static volatile sig_atomic_t g_stop;
@@ -71,10 +78,16 @@ static char g_logs_path[PATH_MAX];
 static char g_sdcard_root[PATH_MAX];
 static char g_sys_root[PATH_MAX];
 static char g_nextdev[PATH_MAX];
+static char g_fb_path[PATH_MAX];
 static char g_bind_ip[INET_ADDRSTRLEN];
 static char g_url[512];
 static int g_port = NETDEBUG_DEFAULT_PORT;
 static int g_timeout = NETDEBUG_DEFAULT_TIMEOUT_SECS;
+static int g_exec_timeout = NETDEBUG_DEFAULT_EXEC_TIMEOUT_SECS;
+static int g_fb_width;
+static int g_fb_height;
+static int g_fb_stride;
+static int g_fb_bpp;
 static int g_listener = -1;
 static double g_started_boot;
 static double g_deadline_boot;
@@ -764,6 +777,172 @@ static int run_command(const char* command, Buffer* output, int* exit_code)
 }
 
 /* ------------------------------------------------------------------------- */
+/* Debug shell                                                               */
+/* ------------------------------------------------------------------------- */
+
+static void append_limited(Buffer* destination, const char* data, size_t length,
+                           int* truncated)
+{
+    size_t room;
+
+    if (destination->length >= NETDEBUG_EXEC_OUTPUT_LIMIT)
+    {
+        if (length > 0) *truncated = 1;
+        return;
+    }
+    room = NETDEBUG_EXEC_OUTPUT_LIMIT - destination->length;
+    if (length > room)
+    {
+        length = room;
+        *truncated = 1;
+    }
+    if (length > 0) (void)buffer_append(destination, data, length);
+}
+
+static int run_shell_command(const char* command, Buffer* standard_out, Buffer* standard_error,
+                             int* exit_code, int* timed_out, int* truncated)
+{
+    int out_pipe[2];
+    int error_pipe[2];
+    pid_t child;
+    double deadline;
+    int status = 0;
+    int out_open = 1;
+    int error_open = 1;
+
+    *exit_code = -1;
+    *timed_out = 0;
+    *truncated = 0;
+    if (pipe(out_pipe) != 0) return 0;
+    if (pipe(error_pipe) != 0)
+    {
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        return 0;
+    }
+
+    child = fork();
+    if (child < 0)
+    {
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(error_pipe[0]);
+        close(error_pipe[1]);
+        return 0;
+    }
+    if (child == 0)
+    {
+        int null_descriptor;
+
+        /* A command that hangs must die with its whole process group. */
+        (void)setsid();
+        null_descriptor = open("/dev/null", O_RDONLY);
+        if (null_descriptor >= 0)
+        {
+            (void)dup2(null_descriptor, STDIN_FILENO);
+            if (null_descriptor > STDIN_FILENO) close(null_descriptor);
+        }
+        (void)dup2(out_pipe[1], STDOUT_FILENO);
+        (void)dup2(error_pipe[1], STDERR_FILENO);
+        close(out_pipe[0]);
+        close(out_pipe[1]);
+        close(error_pipe[0]);
+        close(error_pipe[1]);
+        execl("/bin/sh", "sh", "-c", command, (char*)NULL);
+        _exit(127);
+    }
+
+    close(out_pipe[1]);
+    close(error_pipe[1]);
+    (void)fcntl(out_pipe[0], F_SETFL, fcntl(out_pipe[0], F_GETFL, 0) | O_NONBLOCK);
+    (void)fcntl(error_pipe[0], F_SETFL, fcntl(error_pipe[0], F_GETFL, 0) | O_NONBLOCK);
+
+    deadline = boot_seconds() + (double)g_exec_timeout;
+    while (out_open || error_open)
+    {
+        struct pollfd descriptors[2];
+        int count = 0;
+        int out_index = -1;
+        int error_index = -1;
+        double now = boot_seconds();
+        int wait_ms;
+        int ready;
+
+        if (now >= deadline)
+        {
+            *timed_out = 1;
+            break;
+        }
+        wait_ms = (int)((deadline - now) * 1000.0);
+        if (wait_ms > 100) wait_ms = 100;
+        if (wait_ms < 0) wait_ms = 0;
+
+        if (out_open)
+        {
+            descriptors[count].fd = out_pipe[0];
+            descriptors[count].events = POLLIN;
+            descriptors[count].revents = 0;
+            out_index = count++;
+        }
+        if (error_open)
+        {
+            descriptors[count].fd = error_pipe[0];
+            descriptors[count].events = POLLIN;
+            descriptors[count].revents = 0;
+            error_index = count++;
+        }
+        ready = poll(descriptors, (nfds_t)count, wait_ms);
+        if (ready < 0)
+        {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (ready == 0) continue;
+
+        if (out_index >= 0 && (descriptors[out_index].revents & (POLLIN | POLLHUP)) != 0)
+        {
+            char chunk[4096];
+            ssize_t count_read = read(out_pipe[0], chunk, sizeof chunk);
+
+            if (count_read > 0)
+                append_limited(standard_out, chunk, (size_t)count_read, truncated);
+            else if (count_read == 0 || (count_read < 0 && errno != EAGAIN && errno != EINTR))
+            {
+                close(out_pipe[0]);
+                out_open = 0;
+            }
+        }
+        if (error_index >= 0 && (descriptors[error_index].revents & (POLLIN | POLLHUP)) != 0)
+        {
+            char chunk[4096];
+            ssize_t count_read = read(error_pipe[0], chunk, sizeof chunk);
+
+            if (count_read > 0)
+                append_limited(standard_error, chunk, (size_t)count_read, truncated);
+            else if (count_read == 0 || (count_read < 0 && errno != EAGAIN && errno != EINTR))
+            {
+                close(error_pipe[0]);
+                error_open = 0;
+            }
+        }
+    }
+    if (out_open) close(out_pipe[0]);
+    if (error_open) close(error_pipe[0]);
+
+    if (*timed_out)
+    {
+        (void)kill(-child, SIGKILL);
+        (void)kill(child, SIGKILL);
+    }
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    if (WIFEXITED(status))
+        *exit_code = WEXITSTATUS(status);
+    else if (WIFSIGNALED(status))
+        *exit_code = 128 + WTERMSIG(status);
+    return 1;
+}
+
+/* ------------------------------------------------------------------------- */
 /* JSON endpoints                                                            */
 /* ------------------------------------------------------------------------- */
 
@@ -965,99 +1144,79 @@ static int api_device(Buffer* body)
     return 1;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Dashboard                                                                 */
-/* ------------------------------------------------------------------------- */
+static int api_root(Buffer* body)
+{
+    buffer_append_text(body,
+                       "{\"ok\":true,\"tool\":\"nextui-netdebug\",\"endpoints\":["
+                       "\"/api/status\",\"/api/logs\",\"/api/display\",\"/api/session\","
+                       "\"/api/processes\",\"/api/device\",\"/api/exec\",\"/api/screenshot\"],"
+                       "\"client\":\"scripts/netdebug.py\"}");
+    return 1;
+}
 
-static const char DASHBOARD[] =
-    "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-    "<title>NextUI Network Debug</title><style>"
-    ":root{color-scheme:dark}*{box-sizing:border-box}"
-    "body{margin:0;background:#101318;color:#e6e9ef;font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}"
-    "header{padding:18px 22px 14px;border-bottom:1px solid #2a303b;display:flex;flex-wrap:wrap;gap:12px;align-items:baseline}"
-    "h1{font-size:18px;margin:0;letter-spacing:.04em;color:#fff}"
-    ".muted{color:#8b95a7}.ok{color:#6ee7a8}.warn{color:#ffcc66}.bad{color:#ff7b72}"
-    "main{padding:18px 22px 40px;max-width:1500px}"
-    "nav{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px}"
-    "nav button{background:#1a2029;color:#c7cfdd;border:1px solid #2d3542;border-radius:6px;padding:7px 12px;cursor:pointer;font:inherit}"
-    "nav button.active{background:#e6e9ef;color:#11151b;border-color:#e6e9ef}"
-    "section{display:none}section.active{display:block}"
-    "pre{background:#0b0e12;border:1px solid #252c37;border-radius:8px;padding:14px;overflow:auto;max-height:70vh;white-space:pre-wrap;word-break:break-word;margin:10px 0}"
-    "select{background:#1a2029;color:#e6e9ef;border:1px solid #2d3542;border-radius:6px;padding:7px 10px;font:inherit}"
-    "table{width:100%;border-collapse:collapse;margin-top:10px}"
-    "th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #252c37;vertical-align:top}"
-    "th{color:#8b95a7;font-weight:600;width:26%}"
-    "td.val{white-space:pre-wrap;word-break:break-word}"
-    "mark{background:#5b4a12;color:#ffe9a8;border-radius:3px;padding:0 2px}"
-    ".bar{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}"
-    "</style></head><body>"
-    "<header><h1>NextUI Network Debug</h1><span id=\"state\" class=\"muted\">connecting...</span>"
-    "<span id=\"countdown\" class=\"muted\"></span><span class=\"muted\">read-only diagnostics</span></header>"
-    "<main><nav id=\"tabs\">"
-    "<button data-tab=\"logs\" class=\"active\">Logs</button>"
-    "<button data-tab=\"display\">Display layer</button>"
-    "<button data-tab=\"session\">Session</button>"
-    "<button data-tab=\"processes\">Processes</button>"
-    "<button data-tab=\"device\">Device</button>"
-    "</nav>"
-    "<section id=\"logs\" class=\"active\"><div class=\"bar\"><select id=\"lognames\">"
-    "<option value=\"keymon\">keymon</option><option value=\"devserv\">devserv</option>"
-    "<option value=\"nextui\">nextui</option><option value=\"moonlight\">Moonlight</option>"
-    "<option value=\"wiliwili\">WiliWili</option><option value=\"suspend\">suspend</option>"
-    "<option value=\"netdebug\">netdebug</option></select>"
-    "<span class=\"muted\" id=\"logmeta\"></span></div><pre id=\"logtext\"></pre></section>"
-    "<section id=\"display\"><pre id=\"displaytext\"></pre></section>"
-    "<section id=\"session\"><pre id=\"sessiontext\"></pre></section>"
-    "<section id=\"processes\"><pre id=\"processtext\"></pre></section>"
-    "<section id=\"device\"><table><tbody id=\"devicetable\"></tbody></table></section>"
-    "</main><script>"
-    "const token=new URLSearchParams(location.search).get('token')||'';"
-    "let active='logs';"
-    "const $=id=>document.getElementById(id);"
-    "function url(path){const u=new URL(path,location.origin);u.searchParams.set('token',token);return u;}"
-    "async function getJson(path){const r=await fetch(url(path),{cache:'no-store'});"
-    "if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}"
-    "function setText(id,text,highlight){const el=$(id);el.textContent='';"
-    "if(!highlight){el.textContent=text||'';return;}"
-    "const re=/(nextui|keymon|devserv|moonlight|wiliwili|netdebug)/ig;let last=0,m;"
-    "while((m=re.exec(text))){el.appendChild(document.createTextNode(text.slice(last,m.index)));"
-    "const mk=document.createElement('mark');mk.textContent=m[0];el.appendChild(mk);last=m.index+m[0].length;}"
-    "el.appendChild(document.createTextNode(text.slice(last)));}"
-    "async function refreshStatus(){try{const s=await getJson('/api/status');"
-    "$('state').textContent='listening on '+s.bind+':'+s.port;"
-    "$('state').className='ok';$('countdown').textContent=s.remaining_seconds+'s left of '+s.timeout_seconds+'s';"
-    "return s;}catch(e){$('state').textContent='unavailable: '+e.message;$('state').className='bad';}}"
-    "async function refreshLogs(){const name=$('lognames').value;"
-    "try{const l=await getJson('/api/logs?name='+encodeURIComponent(name));"
-    "$('logmeta').textContent=(l.exists?'':'missing: ')+l.path+(l.truncated?' (tail)':'');"
-    "setText('logtext',l.text,false);}catch(e){$('logmeta').textContent='';$('logtext').textContent='error: '+e.message;}}"
-    "async function refreshDisplay(){try{const d=await getJson('/api/display');"
-    "$('displaytext').textContent=(d.exists?'':'missing: '+d.path+'\\n\\n')+d.text;}catch(e){$('displaytext').textContent='error: '+e.message;}}"
-    "async function refreshSession(){try{const s=await getJson('/api/session');"
-    "let text=s.text||'';if(!s.available)text='nextdev is not available at the configured path';"
-    "else{try{text=JSON.stringify(JSON.parse(text),null,2);}catch(_){}}"
-    "$('sessiontext').textContent=text;}catch(e){$('sessiontext').textContent='error: '+e.message;}}"
-    "async function refreshProcesses(){try{const p=await getJson('/api/processes');"
-    "setText('processtext',p.text||'ps produced no output',true);}catch(e){$('processtext').textContent='error: '+e.message;}}"
-    "async function refreshDevice(){try{const d=await getJson('/api/device');"
-    "const body=$('devicetable');body.textContent='';"
-    "for(const item of d.items){const tr=document.createElement('tr');"
-    "const th=document.createElement('th');th.textContent=item.name;"
-    "const td=document.createElement('td');td.className='val';"
-    "td.textContent=item.exists?item.value:'(missing) '+item.path;"
-    "if(!item.exists)td.className='val warn';tr.appendChild(th);tr.appendChild(td);body.appendChild(tr);}}"
-    "catch(e){$('devicetable').textContent='error: '+e.message;}}"
-    "async function refresh(){await refreshStatus();"
-    "if(active==='logs')await refreshLogs();else if(active==='display')await refreshDisplay();"
-    "else if(active==='session')await refreshSession();else if(active==='processes')await refreshProcesses();"
-    "else if(active==='device')await refreshDevice();}"
-    "document.querySelectorAll('nav button').forEach(button=>button.addEventListener('click',()=>{"
-    "active=button.dataset.tab;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b===button));"
-    "document.querySelectorAll('section').forEach(s=>s.classList.toggle('active',s.id===active));refresh();}));"
-    "$('lognames').addEventListener('change',refreshLogs);"
-    "refresh();setInterval(refresh,3000);"
-    "</script></body></html>";
+static int api_exec(const char* command, Buffer* body)
+{
+    Buffer standard_out;
+    Buffer standard_error;
+    int exit_code = -1;
+    int timed_out = 0;
+    int truncated = 0;
+    int started;
+
+    buffer_init(&standard_out);
+    buffer_init(&standard_error);
+    started = run_shell_command(command, &standard_out, &standard_error, &exit_code,
+                                &timed_out, &truncated);
+    if (!started)
+    {
+        buffer_append_text(body,
+                           "{\"ok\":false,\"error\":\"spawn_failed\",\"stdout\":\"\","
+                           "\"stderr\":\"\",\"exit_code\":-1,\"timed_out\":false,"
+                           "\"truncated\":false}");
+        buffer_free(&standard_out);
+        buffer_free(&standard_error);
+        return 0;
+    }
+
+    buffer_append_text(body, "{\"ok\":true,\"stdout\":");
+    buffer_append_json_string(body, standard_out.data ? standard_out.data : "");
+    buffer_append_text(body, ",\"stderr\":");
+    buffer_append_json_string(body, standard_error.data ? standard_error.data : "");
+    buffer_appendf(body,
+                   ",\"exit_code\":%d,\"timed_out\":%s,\"truncated\":%s,"
+                   "\"output_limit\":%u}",
+                   exit_code, timed_out ? "true" : "false", truncated ? "true" : "false",
+                   NETDEBUG_EXEC_OUTPUT_LIMIT);
+    buffer_free(&standard_out);
+    buffer_free(&standard_error);
+    return 1;
+}
+
+static int api_screenshot(Buffer* body, char* error, size_t error_size)
+{
+    NetDebugPng png;
+
+    if (NETDEBUG_capture_screen_png(g_fb_path, g_fb_width, g_fb_height, g_fb_stride,
+                                    g_fb_bpp, &png, error, error_size)
+        != 0)
+    {
+        buffer_append_text(body, "{\"ok\":false,\"error\":");
+        buffer_append_json_string(body, error);
+        buffer_append_text(body, "}");
+        return 0;
+    }
+
+    if (!buffer_append(body, (const char*)png.data, png.size))
+    {
+        NETDEBUG_free_screen_png(&png);
+        snprintf(error, error_size, "out_of_memory");
+        buffer_init(body);
+        buffer_append_text(body, "{\"ok\":false,\"error\":\"out_of_memory\"}");
+        return 0;
+    }
+    NETDEBUG_free_screen_png(&png);
+    return 1;
+}
 
 /* ------------------------------------------------------------------------- */
 /* HTTP                                                                      */
@@ -1115,6 +1274,41 @@ static int token_matches(const char* candidate)
     return difference == 0;
 }
 
+static int hex_digit(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static void url_decode(const char* source, size_t source_length, char* out, size_t out_size)
+{
+    size_t input = 0;
+    size_t output = 0;
+
+    if (out_size == 0) return;
+    while (input < source_length && output + 1 < out_size)
+    {
+        if (source[input] == '%' && input + 2 < source_length
+            && hex_digit(source[input + 1]) >= 0 && hex_digit(source[input + 2]) >= 0)
+        {
+            int high = hex_digit(source[input + 1]);
+            int low = hex_digit(source[input + 2]);
+            out[output++] = (char)((high << 4) | low);
+            input += 3;
+        }
+        else if (source[input] == '+')
+        {
+            out[output++] = ' ';
+            input++;
+        }
+        else
+            out[output++] = source[input++];
+    }
+    out[output] = '\0';
+}
+
 static void query_value(const char* query, const char* name, char* out, size_t out_size)
 {
     const char* cursor = query;
@@ -1134,9 +1328,7 @@ static void query_value(const char* query, const char* name, char* out, size_t o
             if (key_length == strlen(name) && strncmp(cursor, name, key_length) == 0)
             {
                 size_t value_length = part_length - key_length - 1;
-                size_t copy = value_length < out_size - 1 ? value_length : out_size - 1;
-                memcpy(out, equals + 1, copy);
-                out[copy] = '\0';
+                url_decode(equals + 1, value_length, out, out_size);
                 return;
             }
         }
@@ -1185,31 +1377,79 @@ static void header_value(const char* request, const char* name, char* out, size_
     }
 }
 
-static void handle_request(int descriptor, const char* request)
+static int request_header_span(const char* request, size_t request_length,
+                               size_t* header_end, size_t* body_length)
+{
+    const char* marker;
+    size_t offset;
+
+    marker = strstr(request, "\r\n\r\n");
+    if (marker == NULL) return 0;
+    offset = (size_t)(marker - request) + 4;
+    if (offset > request_length) return 0;
+    *header_end = offset;
+    *body_length = request_length - offset;
+    return 1;
+}
+
+static int request_content_length(const char* request, size_t* length, int* present)
+{
+    char value[32];
+
+    *length = 0;
+    *present = 0;
+    header_value(request, "Content-Length", value, sizeof value);
+    if (value[0] == '\0') return 1;
+    {
+        char* end = NULL;
+        unsigned long parsed;
+
+        errno = 0;
+        parsed = strtoul(value, &end, 10);
+        if (end == value || *end != '\0' || errno != 0) return 0;
+        *length = (size_t)parsed;
+        *present = 1;
+    }
+    return 1;
+}
+
+static void handle_request(int descriptor, const char* request, size_t request_length)
 {
     char method[8];
     char target[2048];
     char version[16];
     char token[NETDEBUG_TOKEN_MAX];
     char header_token[NETDEBUG_TOKEN_MAX];
+    char command[NETDEBUG_MAX_COMMAND + 1];
+    char error_text[128];
     char* question;
     const char* path;
+    const char* request_body;
     char* query;
     Buffer body;
+    size_t header_end = 0;
+    size_t body_available = 0;
+    size_t content_length = 0;
+    int content_length_present = 0;
     int status = 200;
     const char* reason = "OK";
     const char* type = "application/json";
-    const char* error = NULL;
+    int is_head;
 
     if (sscanf(request, "%7s %2047s %15s", method, target, version) != 3)
     {
         send_response(descriptor, 400, "Bad Request", "text/plain", "Bad request\n", 12, 0);
         return;
     }
-    if (strcmp(method, "GET") != 0 && strcmp(method, "HEAD") != 0)
+    if (strcmp(method, "GET") != 0 && strcmp(method, "HEAD") != 0 && strcmp(method, "POST") != 0)
     {
         send_response(descriptor, 405, "Method Not Allowed", "text/plain",
-                      "Read-only server\n", 17, 0);
+                      "Unsupported method\n", 19, 0);
+        return;
+    }
+    if (!request_header_span(request, request_length, &header_end, &body_available))
+    {
+        send_response(descriptor, 400, "Bad Request", "text/plain", "Bad request\n", 12, 0);
         return;
     }
 
@@ -1233,16 +1473,54 @@ static void handle_request(int descriptor, const char* request)
         return;
     }
     g_requests++;
+    is_head = strcmp(method, "HEAD") == 0;
+
+    request_body = request + header_end;
+    if (!request_content_length(request, &content_length, &content_length_present))
+    {
+        send_response(descriptor, 400, "Bad Request", "text/plain", "Bad Content-Length\n", 20, 0);
+        return;
+    }
+    if (content_length_present && content_length > body_available)
+    {
+        if (content_length > NETDEBUG_MAX_COMMAND)
+        {
+            static const char too_long[] =
+                "{\"ok\":false,\"error\":\"command_too_long\",\"limit\":2048}";
+            send_response(descriptor, 413, "Payload Too Large", "application/json",
+                          too_long, sizeof too_long - 1, 0);
+        }
+        else
+            send_response(descriptor, 400, "Bad Request", "text/plain", "Incomplete body\n",
+                          16, 0);
+        return;
+    }
+    {
+        char transfer_encoding[32];
+        header_value(request, "Transfer-Encoding", transfer_encoding, sizeof transfer_encoding);
+        if (transfer_encoding[0] != '\0' && content_length_present == 0)
+        {
+            send_response(descriptor, 411, "Length Required", "text/plain",
+                          "Content-Length required\n", 25, 0);
+            return;
+        }
+    }
 
     buffer_init(&body);
-    if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0)
+    if (strcmp(path, "/") == 0)
     {
-        type = "text/html; charset=utf-8";
-        buffer_append(&body, DASHBOARD, sizeof DASHBOARD - 1);
+        if (strcmp(method, "POST") == 0)
+        {
+            status = 405;
+            reason = "Method Not Allowed";
+            buffer_append_text(&body, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
+        }
+        else
+            (void)api_root(&body);
     }
-    else if (strcmp(path, "/api/status") == 0)
+    else if (strcmp(path, "/api/status") == 0 && strcmp(method, "POST") != 0)
         (void)api_status(&body);
-    else if (strcmp(path, "/api/logs") == 0)
+    else if (strcmp(path, "/api/logs") == 0 && strcmp(method, "POST") != 0)
     {
         if (!api_logs(query, &body))
         {
@@ -1250,25 +1528,108 @@ static void handle_request(int descriptor, const char* request)
             reason = "Bad Request";
         }
     }
-    else if (strcmp(path, "/api/display") == 0)
+    else if (strcmp(path, "/api/display") == 0 && strcmp(method, "POST") != 0)
         (void)api_display(&body);
-    else if (strcmp(path, "/api/session") == 0)
+    else if (strcmp(path, "/api/session") == 0 && strcmp(method, "POST") != 0)
         (void)api_session(&body);
-    else if (strcmp(path, "/api/processes") == 0)
+    else if (strcmp(path, "/api/processes") == 0 && strcmp(method, "POST") != 0)
         (void)api_processes(&body);
-    else if (strcmp(path, "/api/device") == 0)
+    else if (strcmp(path, "/api/device") == 0 && strcmp(method, "POST") != 0)
         (void)api_device(&body);
+    else if (strcmp(path, "/api/screenshot") == 0 && strcmp(method, "POST") != 0)
+    {
+        error_text[0] = '\0';
+        if (!api_screenshot(&body, error_text, sizeof error_text))
+        {
+            status = 501;
+            reason = "Not Implemented";
+        }
+        else
+            type = "image/png";
+    }
+    else if (strcmp(path, "/api/exec") == 0)
+    {
+        size_t command_length = 0;
+
+        if (strcmp(method, "POST") != 0)
+        {
+            status = 405;
+            reason = "Method Not Allowed";
+            buffer_append_text(&body, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
+        }
+        else if (content_length_present && content_length > NETDEBUG_MAX_COMMAND)
+        {
+            status = 413;
+            reason = "Payload Too Large";
+            buffer_append_text(&body,
+                               "{\"ok\":false,\"error\":\"command_too_long\","
+                               "\"limit\":2048}");
+        }
+        else
+        {
+            if (content_length_present && content_length > 0)
+            {
+                if (memchr(request_body, '\0', content_length) != NULL)
+                {
+                    status = 400;
+                    reason = "Bad Request";
+                    buffer_append_text(&body, "{\"ok\":false,\"error\":\"invalid_command\"}");
+                }
+                else
+                {
+                    memcpy(command, request_body, content_length);
+                    command[content_length] = '\0';
+                    command_length = content_length;
+                }
+            }
+            else
+            {
+                query_value(query, "command", command, sizeof command);
+                command_length = strlen(command);
+            }
+
+            if (status == 200 && command_length == 0)
+            {
+                status = 400;
+                reason = "Bad Request";
+                buffer_append_text(&body, "{\"ok\":false,\"error\":\"empty_command\"}");
+            }
+            else if (status == 200 && command_length > NETDEBUG_MAX_COMMAND)
+            {
+                status = 413;
+                reason = "Payload Too Large";
+                buffer_append_text(&body,
+                                   "{\"ok\":false,\"error\":\"command_too_long\","
+                                   "\"limit\":2048}");
+            }
+            else if (status == 200)
+            {
+                if (!api_exec(command, &body))
+                {
+                    status = 500;
+                    reason = "Internal Server Error";
+                }
+            }
+        }
+    }
     else
     {
-        status = 404;
-        reason = "Not Found";
-        error = "{\"ok\":false,\"error\":\"not_found\"}";
-        buffer_append_text(&body, error);
+        if (strcmp(method, "POST") == 0)
+        {
+            status = 405;
+            reason = "Method Not Allowed";
+            buffer_append_text(&body, "{\"ok\":false,\"error\":\"method_not_allowed\"}");
+        }
+        else
+        {
+            status = 404;
+            reason = "Not Found";
+            buffer_append_text(&body, "{\"ok\":false,\"error\":\"not_found\"}");
+        }
     }
 
     if (body.data == NULL) buffer_append_text(&body, "{}");
-    send_response(descriptor, status, reason, type, body.data, body.length,
-                  strcmp(method, "HEAD") == 0);
+    send_response(descriptor, status, reason, type, body.data, body.length, is_head);
     buffer_free(&body);
 }
 
@@ -1287,7 +1648,8 @@ static void usage(FILE* stream)
     fprintf(stream,
             "usage: netdebug --token TOKEN --settings PATH --pidfile PATH [options]\n"
             "\n"
-            "Read-only LAN diagnostics server. Every request needs ?token= or the\n"
+            "LAN debug server. /api/exec runs a shell for the token holder.\n"
+            "Every request needs ?token= or the\n"
             "X-Netdebug-Token header. The server exits by itself after --timeout.\n"
             "\n"
             "options:\n"
@@ -1298,8 +1660,15 @@ static void usage(FILE* stream)
             "  --sdcard-root DIR  SD card root for .system/version.txt\n"
             "  --sys-root DIR     prefix for /sys and /proc reads (host tests)\n"
             "  --nextdev PATH     nextdev binary (default $SYSTEM_PATH/bin/nextdev.elf)\n"
+            "  --fb PATH          framebuffer for /api/screenshot (default /dev/fb0)\n"
+            "  --fb-width N       synthetic framebuffer width (host tests)\n"
+            "  --fb-height N      synthetic framebuffer height (host tests)\n"
+            "  --fb-stride N      synthetic framebuffer stride in bytes (host tests)\n"
+            "  --fb-bpp N         synthetic framebuffer bits per pixel (host tests)\n"
+            "  --exec-timeout N   /api/exec timeout seconds, 1..60 (default %d)\n"
             "  --help             this text\n",
-            NETDEBUG_DEFAULT_PORT, NETDEBUG_DEFAULT_TIMEOUT_SECS);
+            NETDEBUG_DEFAULT_PORT, NETDEBUG_DEFAULT_TIMEOUT_SECS,
+            NETDEBUG_DEFAULT_EXEC_TIMEOUT_SECS);
 }
 
 int main(int argc, char* argv[])
@@ -1317,6 +1686,7 @@ int main(int argc, char* argv[])
     g_sdcard_root[0] = '\0';
     g_sys_root[0] = '\0';
     g_nextdev[0] = '\0';
+    snprintf(g_fb_path, sizeof g_fb_path, "%s", "/dev/fb0");
 
     environment = getenv("LOGS_PATH");
     if (environment != NULL && environment[0] != '\0')
@@ -1347,6 +1717,18 @@ int main(int argc, char* argv[])
             snprintf(g_sys_root, sizeof g_sys_root, "%s", argv[++index]);
         else if (strcmp(argv[index], "--nextdev") == 0 && index + 1 < argc)
             snprintf(g_nextdev, sizeof g_nextdev, "%s", argv[++index]);
+        else if (strcmp(argv[index], "--fb") == 0 && index + 1 < argc)
+            snprintf(g_fb_path, sizeof g_fb_path, "%s", argv[++index]);
+        else if (strcmp(argv[index], "--fb-width") == 0 && index + 1 < argc)
+            g_fb_width = atoi(argv[++index]);
+        else if (strcmp(argv[index], "--fb-height") == 0 && index + 1 < argc)
+            g_fb_height = atoi(argv[++index]);
+        else if (strcmp(argv[index], "--fb-stride") == 0 && index + 1 < argc)
+            g_fb_stride = atoi(argv[++index]);
+        else if (strcmp(argv[index], "--fb-bpp") == 0 && index + 1 < argc)
+            g_fb_bpp = atoi(argv[++index]);
+        else if (strcmp(argv[index], "--exec-timeout") == 0 && index + 1 < argc)
+            g_exec_timeout = atoi(argv[++index]);
         else if (strcmp(argv[index], "--help") == 0 || strcmp(argv[index], "-h") == 0)
         {
             usage(stdout);
@@ -1372,6 +1754,9 @@ int main(int argc, char* argv[])
     }
     if (g_timeout < 1) g_timeout = 1;
     if (g_timeout > 24 * 60 * 60) g_timeout = 24 * 60 * 60;
+    if (g_exec_timeout < 1) g_exec_timeout = 1;
+    if (g_exec_timeout > NETDEBUG_MAX_EXEC_TIMEOUT_SECS)
+        g_exec_timeout = NETDEBUG_MAX_EXEC_TIMEOUT_SECS;
     if (g_port < 0 || g_port > 65535)
     {
         fprintf(stderr, "netdebug: invalid port\n");
@@ -1452,7 +1837,8 @@ int main(int argc, char* argv[])
     }
 
     printf("netdebug: listening on %s:%d\n", g_bind_ip, g_port);
-    printf("netdebug: url %s\n", g_url);
+    printf("netdebug: url http://%s:%d/ (token is in Settings and the 0600 pid file)\n",
+           g_bind_ip, g_port);
     printf("netdebug: timeout %ds\n", g_timeout);
     printf("netdebug: logs %s\n", g_logs_path);
     fflush(stdout);
@@ -1516,12 +1902,29 @@ int main(int argc, char* argv[])
                 }
                 used += (size_t)count;
                 request[used] = '\0';
-                if (strstr(request, "\r\n\r\n") != NULL) break;
+                if (strstr(request, "\r\n\r\n") != NULL)
+                {
+                    size_t body_length = 0;
+                    size_t content_length = 0;
+                    size_t header_end = 0;
+                    int present = 0;
+
+                    if (request_header_span(request, used, &header_end, &body_length)
+                        && request_content_length(request, &content_length, &present))
+                    {
+                        if (!present || body_length >= content_length) break;
+                        /* A body larger than the request buffer is rejected by
+                         * the handler as incomplete/too large. */
+                        if (content_length > NETDEBUG_MAX_REQUEST) break;
+                    }
+                    else
+                        break;
+                }
             }
             if (used > 0)
             {
                 request[used] = '\0';
-                handle_request(client, request);
+                handle_request(client, request, used);
             }
             close(client);
         }

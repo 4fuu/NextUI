@@ -8,7 +8,7 @@ extern "C"
 {
 #endif
 
-/* Settings-side control for the read-only netdebug server. The server binary
+/* Settings-side control for the netdebug server. The server binary
  * lives in $SYSTEM_PATH/bin/netdebug.elf and is only spawned while the
  * "Network debugging" toggle is on. */
 #define NETDEBUG_DEFAULT_PORT 8686

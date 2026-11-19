@@ -20,18 +20,20 @@ include ../../$(PLATFORM)/platform/makefile.env
 
 TARGET = netdebug
 INCDIR = -I. -I../common/ -I../../$(PLATFORM)/platform/
-SOURCE = $(TARGET).c
+SOURCE = $(TARGET).c screenshot.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS += $(OPT)
 CFLAGS += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-# The server is deliberately libc-only. The platform env would otherwise add
-# SDL/samplerate/GL to every binary, which this one neither uses nor needs on a
-# card whose libraries may lag the launcher.
-LDFLAGS :=
+# The server needs libc, zlib (PNG compression, as nextupd already does) and
+# -lrt. The platform env would otherwise add SDL/samplerate/GL to every binary,
+# which this one neither uses nor needs on a card whose libraries may lag the
+# launcher.
+LDFLAGS := $(if $(PREFIX),-L$(PREFIX)/lib) $(if $(PREFIX_LOCAL),-L$(PREFIX_LOCAL)/lib)
 ifneq ($(UNAME_S),Darwin)
 LDFLAGS += -lrt
 endif
+LDFLAGS += -lz
 
 PRODUCT = build/$(PLATFORM)/$(TARGET).elf
 

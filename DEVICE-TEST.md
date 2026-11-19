@@ -220,62 +220,72 @@ Keep a second shell for `nextdev ... subscribe` and the devserv log.
 
 ## Network debugging acceptance (Brick Pro, tg5040)
 
-Target: tg5040 with Wi-Fi connected. Host tests cover the HTTP contract; this
-checklist is the physical LAN and lifecycle pass. The tool is read-only: no step
-here may change a setting, kill an app, or send input.
+Target: tg5040 with Wi-Fi connected. Host tests cover the HTTP/JSON contract and
+the synthetic framebuffer path; this checklist is the physical LAN, shell and
+screen-capture pass. `/api/exec` is an authorized debug shell, so keep the URL
+and token private during the test.
 
 1. **Default off, zero processes.** Fresh boot, without opening Settings:
-   `ps | grep netdebug` must be empty and `curl` to port 8686 must fail. The
-   launcher, keymon, devserv and overlay must behave exactly as before.
-2. **Enable.** Settings → System → Network debugging → On. Within about a
+   `ps | grep netdebug` must be empty and a connection to port 8686 must fail.
+   The launcher, keymon, devserv and overlay must behave exactly as before.
+2. **Enable.** Settings -> System -> Network debugging -> On. Within about a
    second the row says `On`, `Debug URL` shows
    `http://<lan-ip>:8686/?token=`, `Debug token` shows the 32-hex token, and
-   `Auto-off` counts down from `15:00`. The browser URL is those two values
-   joined with no space. `ps` shows exactly one `netdebug.elf`; no `python` or
-   helper shell is needed.
-3. **LAN-only bind.** On the device, `netstat -ltn` (or `ss -ltn`) must show the
-   listener on the device's LAN address, not `0.0.0.0` and not `127.0.0.1`
-   only. From a phone/computer on the same Wi-Fi, open the URL.
-4. **Token enforcement.** Open the URL without the token or with one character
-   changed: expect `403`. Open it with the full URL from Settings: the
-   dashboard appears. `curl -H "X-Netdebug-Token: <token>"` must also work.
-5. **Dashboard.** Confirm the page is self-contained (no network asset
-   requests) and the tabs show:
-   - Logs: keymon, devserv, nextui.txt, Moonlight.txt/WiliWili.txt if present,
-     suspend;
-   - Display layer: the live `/sys/class/disp/disp/attr/sys` text;
-   - Session: `overlay_host`, active app and session id from
-     `nextdev session-status`;
-   - Processes: busybox `ps`, with nextui/keymon/devserv/Moonlight/WiliWili
-     highlighted;
-   - Device: version, battery percent/status, USB online, Wi-Fi state,
-     `/sys/power/wake_lock`, power state.
-6. **Startup data.** While Moonlight is streaming, the session endpoint must
-   report the app and overlay host, the processes tab must show Moonlight, and
-   the display tab must show the current disp layers. Starting/stopping the
-   debug server must not disturb the stream, keymon input, or the overlay.
-7. **Toggle off.** Set Network debugging to Off. Within about a second `ps`
-   must show no `netdebug.elf`, the URL/auto-off rows must be empty, and the
-   browser must stop getting responses. Reopen Settings: the toggle is still
-   `Off` and `minuisettings.txt` contains `netdebug=0`.
-8. **Auto-off.** Enable again, leave Settings, and wait for the countdown. At
-   the deadline the server must exit by itself; `ps` is empty and the dashboard
-   is unreachable. Reopen Settings: the toggle is `Off` and the URL row is
-   empty. Repeat with the device suspended for part of the interval and note
-   whether the session ends promptly on wake.
-9. **No LAN address.** Disable Wi-Fi, then try to enable Network debugging.
-   The toggle must return to `Off` rather than staying on with a dead URL;
-   `$LOGS_PATH/netdebug.txt` must contain
-   `no private LAN IPv4 address`. Reconnect Wi-Fi and confirm enable works
-   again.
-10. **Reboot/stale state.** Enable, then power-cycle without toggling off.
+   `Auto-off` counts down from `15:00`. Selecting Debug URL shows the complete
+   URL on two hint lines. `ps` shows exactly one `netdebug.elf`.
+3. **LAN-only bind and token.** `netstat -ltn` (or `ss -ltn`) must show the
+   listener on the device's LAN address, not `0.0.0.0` and not loopback only.
+   From the computer/phone, `GET /api/status` without the token returns 403 and
+   with the token returns JSON. `X-Netdebug-Token` must work too.
+4. **No browser dashboard.** `GET /` returns the small JSON endpoint list with
+   `Content-Type: application/json`; `/index.html` returns 404. Confirm no HTML
+   page or script is served.
+5. **Client basics.** Run the Python client from the computer:
+   `status`, `logs keymon -n 50`, `display`, `ps`, and `device`. The values
+   must match the device (version, battery/USB, Wi-Fi, wake_lock, display
+   layers, process list). `logs` must not truncate or modify the source files.
+6. **Exec success and error.** Run:
+   - `exec "uname -a"` -> stdout, exit code 0;
+   - `exec "echo out; echo err >&2; exit 7"` -> stdout `out`, stderr `err`,
+     CLI exit code 7;
+   - `exec "cat /proc/uptime"` -> device uptime, proving the device shell is
+     being used.
+7. **Exec timeout and truncation.** Run `exec "sleep 30"` with the server
+   default (or a 1 s test build): it must return within the configured timeout,
+   report `timed_out:true` and an exit code around 137, and leave no orphaned
+   `sleep` process. Run `exec "yes A | head -c 100000"`: `truncated` must be
+   true and stdout must be capped at 64 KiB. Try a command longer than 2048
+   bytes: expect HTTP 413 and `command_too_long`.
+8. **Screenshot.** Run `screenshot -o brickpro.png` while the desktop is
+   visible. The file must be a valid PNG, 1024x768 on Brick Pro, and visually
+   match the screen (colors, orientation, stride). Repeat while Moonlight is
+   streaming. Note whether the captured frame is the live app frame; the system
+   overlay/HUD is a separate disp layer and is not expected in the PNG. Check
+   that a missing fb0 (for example a test build with `--fb` pointing nowhere)
+   returns 501 `no_framebuffer` as JSON, not a broken image.
+9. **Toggle off.** Set Network debugging to Off. Within about a second `ps`
+   shows no `netdebug.elf`, the URL/token/auto-off rows are empty, and the
+   client cannot connect. Reopen Settings: the toggle is `Off` and
+   `minuisettings.txt` contains `netdebug=0`.
+10. **Auto-off.** Enable again, leave Settings, and wait for the countdown. At
+    the deadline the server must exit by itself; `ps` is empty and the client
+    is unreachable. Reopen Settings: the toggle is `Off` and the URL row is
+    empty. Repeat with the device suspended for part of the interval and note
+    whether the session ends promptly on wake.
+11. **No LAN address.** Disable Wi-Fi, then try to enable Network debugging.
+    The toggle must return to `Off` rather than staying on with a dead URL;
+    `$LOGS_PATH/netdebug.txt` must contain `no private LAN IPv4 address`.
+    Reconnect Wi-Fi and confirm enable works again.
+12. **Reboot/stale state.** Enable, then power-cycle without toggling off.
     After boot the server must not run and Settings must report `Off`. Toggling
     on again must generate a different token.
-11. **Coexistence and logs.** Confirm `$LOGS_PATH/netdebug.txt` records the
-    listening URL, timeout and stop reason. Confirm devserv/keymon logs and the
-    overlay are unchanged, and that reading logs from the dashboard does not
-    truncate or modify them.
+13. **Security window.** Confirm the token is required for every endpoint,
+    including `/api/exec` and `/api/screenshot`, and that the server stops
+    accepting connections immediately after toggle off or timeout. Do not leave
+    the URL in shell history or screenshots used for the report.
 
-Report: the bind address and port from `netstat`, the token rejection status,
-one photo of the dashboard (English and Chinese Settings rows), `ps` before and
-after auto-off, and whether the countdown matched the server exit time.
+Report: the bind address and port from `netstat`, the 403/token results, one
+Settings photo in English and Chinese, one client `status`/`exec` output
+example, a screenshot PNG while the desktop or Moonlight is visible, `ps`
+before and after auto-off, and whether the countdown matched the server exit
+time. Note any fb0 page-flip or overlay capture limitation separately.

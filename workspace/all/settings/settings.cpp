@@ -657,7 +657,7 @@ int main(int argc, char *argv[])
             if (!prefix.empty())
                 netDebugUrlItem->setDesc(prefix + "\n" + netDebugTokenValue());
             else
-                netDebugUrlItem->setDesc(TR("Open this address in a browser on the same network."));
+                netDebugUrlItem->setDesc(TR("Point scripts/netdebug.py at this address."));
         };
 
         std::vector<AbstractMenuItem*> systemItems = {
@@ -734,7 +734,7 @@ int main(int argc, char *argv[])
 
         if(deviceInfo.hasWifi())
         {
-            netDebugToggle = new MenuItem{ListItemType::Generic, TR("Network debugging"), TR("Serve read-only logs and device state to a browser on the\nsame network. Turns off automatically."), {false, true}, on_off_tr,
+            netDebugToggle = new MenuItem{ListItemType::Generic, TR("Network debugging"), TR("Serve logs, device state and a token-gated debug shell on the LAN.\nTurns off automatically."), {false, true}, on_off_tr,
                 []() -> std::any { return NETDEBUG_isRunning() != 0; },
                 [&](const std::any &value) {
                     if (std::any_cast<bool>(value)) (void)NETDEBUG_enable();
@@ -753,7 +753,7 @@ int main(int argc, char *argv[])
                     ctx.dirty = 1;
                 }};
             systemItems.push_back(netDebugToggle);
-            netDebugUrlItem = new StaticMenuItem{ListItemType::Generic, TR("Debug URL"), TR("Open this address in a browser on the same network."),
+            netDebugUrlItem = new StaticMenuItem{ListItemType::Generic, TR("Debug URL"), TR("Point scripts/netdebug.py at this address."),
                 []() -> std::any { return netDebugUrlPrefix(); }};
             systemItems.push_back(netDebugUrlItem);
             systemItems.push_back(

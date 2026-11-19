@@ -29,7 +29,8 @@ SDL_LIBS="$(pkg-config --libs sdl2 SDL2_image SDL2_ttf)"
 # shellcheck disable=SC2086
 "$CC" "${CFLAGS[@]}" $SDL_FLAGS -Wall -Wextra -Werror \
     "$ROOT/workspace/all/netdebug/netdebug.c" \
-    -o "$BUILD_DIR/netdebug"
+    "$ROOT/workspace/all/netdebug/screenshot.c" \
+    -lz -o "$BUILD_DIR/netdebug"
 
 # config.c has pre-existing warnings unrelated to this feature; the control
 # helper and the test itself stay under -Werror.
