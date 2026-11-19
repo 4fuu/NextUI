@@ -67,6 +67,27 @@ Every start first sends an ID-less `session-stop`. That clears a session left
 behind by a lost stop and retries an orphan C2 LED release. A stale stop is
 therefore bounded by the next launch as well as by the generation id below.
 
+### Teardown cleanup
+
+`nextui_session_run` records the pid it launched as a session leader.
+`nextui_session_stop` then sweeps that session: any live process still carrying
+the same session id is an app leftover, whether it was a child of the app, had
+its own process group via `setpgid`, or was reparented to PID 1. Teardown sends
+`SIGTERM`, polls for `NEXTUI_APP_REAP_GRACE_MS` (default 500 ms, 200 ms polls),
+sends `SIGKILL` to survivors and confirms they left `/proc`. The sweep is
+bounded, only runs when an isolated app was started (the `eval` fallback with
+no `setsid` records no session), and runs before the device-field restore. A
+descendant that called `setsid` itself is outside the boundary and remains the
+pak's responsibility.
+
+Teardown also writes `/tmp/nextui_redraw`. The next launcher start consumes it
+and presents its first full frame one extra time, so a non-graceful app kill
+cannot leave the app's last frame on the panel until the next input event. The
+marker is only a request: a graceful app exit already restores the screen.
+This does not change the bounded exit wait, forced-kill or suspend paths, and
+`NEXTUI_REDRAW_PATH` exists only so host tests keep the marker in their own
+tree.
+
 ## Session identity
 
 - One active session. A second `session-start` returns `session_active` and
@@ -314,6 +335,13 @@ failure can delay, but never block, the app launch.
 - `run_launch_session_test.sh`: C4 normal (SIGTERM exits) and stuck (grace
   expires -> SIGKILL) apps, bounded elapsed time, no surviving child, one
   id-bearing stop, and `app-exit-result` normal/forced reporting.
+- `run_launch_session_test.sh`, teardown: an app command that returns while a
+  descendant is still alive in its session (the descendant is reparented), a
+  descendant that ignores SIGTERM and is SIGKILLed after the bounded grace, a
+  process outside the app session that must survive, bounded elapsed time, and
+  the one-shot `/tmp/nextui_redraw` request after teardown. Disabling the sweep
+  makes the orphan case fail, so the test guards the behavior rather than the
+  implementation.
 - `run_keymon_fn_forward_test.sh`: includes the real keymon.c and drives its
   forwarding seam against a temp socket: legacy FN2/FN3 defaults, live
   `minuisettings.txt` override, `none`/`pak:` no-ops, any-slot rebinding, press

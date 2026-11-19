@@ -19,6 +19,10 @@
 NEXTUI_SESSION_ACTIVE=0
 NEXTUI_SESSION_ID=""
 NEXTUI_DEVSERV_STARTED=0
+# Session (and pid) of the supervised app command, recorded by
+# nextui_session_run. Teardown uses it to find leftovers after the app
+# returned; empty means no isolated app was started.
+NEXTUI_APP_SESSION_PID=""
 
 nextui_session_socket() {
 	if [ -n "$NEXTUI_DEVSERV_SOCKET" ]; then
@@ -122,6 +126,7 @@ nextui_session_clear_stale() {
 nextui_session_start() {
 	NEXTUI_SESSION_ACTIVE=0
 	NEXTUI_SESSION_ID=""
+	NEXTUI_APP_SESSION_PID=""
 
 	nextui_devserv_start
 	nextui_session_export_pak
@@ -154,8 +159,116 @@ nextui_session_start() {
 	return 0
 }
 
+# Live (non-zombie) pids still in one session. The supervised app command is a
+# session leader, so its pid is the session id for the whole app: descendants
+# inherit it through fork and keep it through reparenting to PID 1, and a
+# setpgid child (the common engine spawn) does not leave it. A descendant that
+# calls setsid itself is outside this boundary by construction; the app owns
+# that cleanup.
+nextui_session_live_pids() {
+	_nextui_session=$1
+	for _nextui_dir in /proc/[0-9]*; do
+		[ -r "$_nextui_dir/stat" ] || continue
+		_nextui_pid=${_nextui_dir#/proc/}
+		_nextui_line=""
+		{ IFS= read -r _nextui_line < "$_nextui_dir/stat"; } 2>/dev/null
+		[ -n "$_nextui_line" ] || continue
+		# Strip "pid (comm) " up to the last ") " so a comm with spaces or
+		# parentheses cannot shift the fields: state, ppid, pgrp, session.
+		_nextui_rest=${_nextui_line##*) }
+		set -- $_nextui_rest
+		[ $# -ge 4 ] || continue
+		[ "$1" = "Z" ] && continue
+		[ "$4" = "$_nextui_session" ] || continue
+		[ "$_nextui_pid" = "$$" ] && continue
+		printf '%s\n' "$_nextui_pid"
+	done
+}
+
+# Defensive teardown sweep. The app command may return while a descendant it
+# started keeps running; a buggy pak can then stream or hold a lease with no
+# owner. Signal only the app's own session, never the launcher or the service
+# that runs in the launcher's session. Bounded: SIGTERM, a short grace,
+# SIGKILL, then confirm. A reparented orphan is not our child, so it cannot be
+# waited for here; PID 1 reaps it once it exits.
+nextui_session_reap() {
+	_nextui_session=$1
+	case "$_nextui_session" in
+		''|*[!0-9]*) return 0 ;;
+	esac
+	[ "$_nextui_session" -gt 1 ] 2>/dev/null || return 0
+
+	_nextui_left=$(nextui_session_live_pids "$_nextui_session")
+	[ -n "$_nextui_left" ] || return 0
+
+	if [ -n "$LOGS_PATH" ]; then
+		( mkdir -p "$LOGS_PATH" 2>/dev/null
+		  printf 'reap session %s: %s\n' "$_nextui_session" "$_nextui_left" ) \
+			>>"$LOGS_PATH/nextui-session.txt" 2>/dev/null || true
+	fi
+
+	for _nextui_pid in $_nextui_left; do
+		kill -TERM "$_nextui_pid" 2>/dev/null || true
+	done
+
+	# Same fractional-sleep probe as the supervisor: the rootfs may only have
+	# whole-second sleep, in which case one tick is one second.
+	_nextui_grace=${NEXTUI_APP_REAP_GRACE_MS:-500}
+	case "$_nextui_grace" in
+		''|*[!0-9]*) _nextui_grace=500 ;;
+	esac
+	_nextui_poll=200
+	if ! sleep 0.01 >/dev/null 2>&1; then
+		_nextui_poll=1000
+	fi
+	_nextui_ticks=$(( (_nextui_grace + _nextui_poll - 1) / _nextui_poll ))
+	[ "$_nextui_ticks" -gt 0 ] || _nextui_ticks=1
+
+	while [ "$_nextui_ticks" -gt 0 ]; do
+		_nextui_left=$(nextui_session_live_pids "$_nextui_session")
+		[ -n "$_nextui_left" ] || return 0
+		if [ "$_nextui_poll" = "200" ]; then
+			sleep 0.2
+		else
+			sleep 1
+		fi
+		_nextui_ticks=$((_nextui_ticks - 1))
+	done
+
+	for _nextui_pid in $(nextui_session_live_pids "$_nextui_session"); do
+		kill -KILL "$_nextui_pid" 2>/dev/null || true
+	done
+
+	# Confirmation is bounded too; zombies are already excluded by the scan.
+	_nextui_ticks=20
+	while [ "$_nextui_ticks" -gt 0 ]; do
+		[ -z "$(nextui_session_live_pids "$_nextui_session")" ] && return 0
+		if [ "$_nextui_poll" = "200" ]; then
+			sleep 0.2
+		else
+			sleep 1
+		fi
+		_nextui_ticks=$((_nextui_ticks - 1))
+	done
+	return 0
+}
+
+# A session ended, so the launcher is about to take the frame back. Ask the
+# next launcher start for one extra full present: after a non-graceful kill
+# the app's last frame can still be the visible page and the launcher would
+# otherwise wait for an input event before presenting its own frame.
+nextui_session_request_redraw() {
+	_nextui_redraw=${NEXTUI_REDRAW_PATH:-/tmp/nextui_redraw}
+	: >"$_nextui_redraw" 2>/dev/null || true
+}
+
 nextui_session_stop() {
 	[ "$NEXTUI_SESSION_ACTIVE" = "1" ] || return 0
+
+	# Reap before the service restores device state, so nothing the app left
+	# behind can still write to the display, the mixer or an LED lease.
+	nextui_session_reap "$NEXTUI_APP_SESSION_PID"
+	NEXTUI_APP_SESSION_PID=""
 
 	if nextui_session_nextdev_bin >/dev/null 2>&1; then
 		_nextui_socket=$(nextui_session_socket)
@@ -165,6 +278,8 @@ nextui_session_stop() {
 			nextui_session_nextdev --socket "$_nextui_socket" session-stop >/dev/null 2>&1 || true
 		fi
 	fi
+
+	nextui_session_request_redraw
 
 	NEXTUI_SESSION_ACTIVE=0
 	NEXTUI_SESSION_ID=""
@@ -251,6 +366,7 @@ nextui_session_supervise() {
 # normal app and a stuck app is still cleaned up without a PID from any client.
 nextui_session_run() {
 	_nextui_cmd=$1
+	NEXTUI_APP_SESSION_PID=""
 	if [ -z "$_nextui_cmd" ]; then
 		return 0
 	fi
@@ -264,6 +380,11 @@ nextui_session_run() {
 	# /usr/bin/setsid nor busybox, and the bounded supervisor is only safe when
 	# the app leads its own process group. External setsid remains a fallback
 	# for an older nextdev, then the previous unsupervised foreground eval.
+	#
+	# Every setsid form below puts the app in a new session whose leader is
+	# $!, so teardown can sweep that session even after a descendant was
+	# reparented to PID 1. The eval fallback has no such boundary and records
+	# nothing.
 	_nextui_setsid_bin=$(nextui_session_setsid_bin) || _nextui_setsid_bin=""
 	if [ -n "$_nextui_setsid_bin" ]; then
 		"$_nextui_setsid_bin" setsid sh -c "$_nextui_cmd" &
@@ -279,6 +400,7 @@ nextui_session_run() {
 	fi
 
 	_nextui_pid=$!
+	NEXTUI_APP_SESSION_PID=$_nextui_pid
 	nextui_session_supervise "$_nextui_pid"
 	wait "$_nextui_pid"
 	return $?

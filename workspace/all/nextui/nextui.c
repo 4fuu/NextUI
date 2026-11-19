@@ -2015,6 +2015,11 @@ int main (int argc, char *argv[]) {
 	// unsigned long first_draw = 0;
 
 	simple_mode = exists(SIMPLE_MODE_PATH);
+	/* A session ended before this start: its app may have left the last frame
+	 * on the panel after an ungraceful exit. The request is consumed after the
+	 * first full redraw below, and that frame is then presented a second time
+	 * so the desktop shows without waiting for an input event. */
+	int repaint_requested = exists(REDRAW_PATH);
 
 	LOG_info("NextUI\n");
 	InitSettings();
@@ -3090,6 +3095,17 @@ int main (int argc, char *argv[]) {
 			SDL_UnlockMutex(animqueueMutex);
 			SDL_UnlockMutex(thumbqueueMutex);
 			SDL_UnlockMutex(bgqueueMutex);
+		}
+
+		/* Session teardown asked for a full repaint. The draw above rebuilt the
+		 * whole frame; present it once more so whichever buffer page still
+		 * holds the app's last frame is replaced without an input event. */
+		if (repaint_requested) {
+			repaint_requested = 0;
+			GFX_flip(screen);
+			/* Keep the request until the present succeeded, so a crash
+			 * between draw and present is retried on the next start. */
+			unlink(REDRAW_PATH);
 		}
 
 		SDL_LockMutex(frameMutex);
