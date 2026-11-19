@@ -155,6 +155,12 @@ typedef struct
 	int currentTimezone; // index of timezone in tz database
 	bool wifi;
 	bool wifiDiagnostics;
+	// Short-lived, token-protected read-only LAN diagnostics. The server owns
+	// the expiry and clears these fields when it stops, so a stale flag never
+	// outlives a crashed session.
+	bool netDebugEnabled;
+	uint32_t netDebugExpiresAt;
+	char netDebugToken[65];
 	bool bluetooth;
 	bool bluetoothDiagnostics;
 	int bluetoothSamplerateLimit;
@@ -216,6 +222,7 @@ typedef struct
 #define CFG_DEFAULT_FN_ACTION "" // unset: use the per-slot default in fnActionDefault()
 #define CFG_DEFAULT_GAMEARTWIDTH 0.45
 #define CFG_DEFAULT_WIFI false
+#define CFG_DEFAULT_NETDEBUG false
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_SHOWQUICKWITCHERUI true
 #define CFG_DEFAULT_WIFI_DIAG false
@@ -300,6 +307,12 @@ void CFG_setPowerOffProtection(bool enable);
 // Keep the device awake while it is connected to a host as a USB device.
 bool CFG_getKeepAwakeWhenUSB(void);
 void CFG_setKeepAwakeWhenUSB(bool enable);
+// Short-lived read-only LAN diagnostics. The Settings toggle calls the
+// NETDEBUG_* control helpers, which persist the state through this setter.
+bool CFG_getNetDebugEnabled(void);
+const char* CFG_getNetDebugToken(void);
+uint32_t CFG_getNetDebugExpiresAt(void);
+void CFG_setNetDebugState(bool enabled, const char* token, uint32_t expiresAt);
 // Show/hide clock in the status pill.
 bool CFG_getShowClock(void);
 void CFG_setShowClock(bool show);

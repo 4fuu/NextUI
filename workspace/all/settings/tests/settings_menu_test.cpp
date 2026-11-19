@@ -22,12 +22,16 @@ extern "C"
 {
 #include "api.h"
 #include "defines.h"
+#include "i18n.h"
+
+int GFX_loadSystemFont(const char *fontPath);
 }
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -119,10 +123,80 @@ static SDL_Surface *drawInputMenu(std::vector<AbstractMenuItem *> items)
     return SDL_ConvertSurface(screen, screen->format, 0);
 }
 
+// Render the System page's network-debug rows in both languages. This is the
+// actual-render companion to the i18n fixture/width tests: the toggle, the
+// token URL and the countdown all use the real Fixed row renderer.
+static void renderNetworkDebugRows(const char *outDir, const char *language)
+{
+    char fontPath[512];
+    const char *fontFile = strcmp(language, "zh") == 0 ? "font3.ttf" : "font1.ttf";
+    const std::string url = "http://192.168.1.42:8686/?token=";
+    const std::string token = "0123456789abcdef0123456789abcdef";
+    const std::string fullUrl = url + "\n" + token;
+
+    CFG_setLanguage(language);
+    // The page's description strip uses THEME_COLOR4; set it explicitly so the
+    // headless render (which never runs InitSettings) shows the hint.
+    CFG_setColor(COLOR_LIST_TEXT, 0xffffffffU);
+    snprintf(fontPath, sizeof(fontPath), "%s/%s", RES_PATH, fontFile);
+    GFX_loadSystemFont(fontPath);
+    const std::vector<std::string> onOff = {TR("Off"), TR("On")};
+
+    std::vector<AbstractMenuItem *> items = {
+        new MenuItem{ListItemType::Generic, TR("Volume"), TR("Speaker volume"),
+                     {0, 1, 2, 3, 4, 5}, {"Muted", "20%", "40%", "60%", "80%", "100%"},
+                     []() -> std::any { return 2; }, nullptr, nullptr},
+        new MenuItem{ListItemType::Generic, TR("Network debugging"),
+                     TR("Serve logs, device state and a token-gated debug shell on the LAN.\n"
+                        "Turns off automatically."),
+                     {false, true}, onOff, []() -> std::any { return true; }, nullptr,
+                     nullptr},
+        new StaticMenuItem{ListItemType::Generic, TR("Debug URL"), fullUrl,
+                           [url]() -> std::any { return url; }},
+        new StaticMenuItem{ListItemType::Generic, TR("Debug token"),
+                           TR("The token required by the debug URL."),
+                           [token]() -> std::any { return token; }},
+        new StaticMenuItem{ListItemType::Generic, TR("Auto-off"),
+                           TR("Time remaining before network debugging turns off."),
+                           []() -> std::any { return std::string("14:59"); }},
+    };
+
+    MenuList list(MenuItemType::Fixed, TR("System"), items);
+    // Leave room for the bottom description strip so the hint is part of the
+    // actual render evidence; the Settings main loop reserves that space too.
+    SDL_Rect dst = {SCALE1(PADDING), 0, screen->w - SCALE1(PADDING * 2),
+                    screen->h - SCALE1(PADDING * 2) - SCALE1(PILL_SIZE)};
+    list.performLayout(dst);
+    SDL_FillRect(screen, NULL, 0);
+    list.draw(screen, dst, {0, 0, 0, 0});
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/netdebug-settings-%s.bmp", outDir, language);
+    if (SDL_SaveBMP(screen, path) == 0)
+        printf("saved %s\n", path);
+    else
+        printf("FAIL: could not save %s: %s\n", path, SDL_GetError());
+
+    // Select the Debug URL row so its hint (the full token URL) is drawn too.
+    (void)list.selectNext();
+    (void)list.selectNext();
+    SDL_FillRect(screen, NULL, 0);
+    list.draw(screen, dst, {0, 0, 0, 0});
+    snprintf(path, sizeof(path), "%s/netdebug-settings-%s-url.bmp", outDir, language);
+    if (SDL_SaveBMP(screen, path) == 0)
+        printf("saved %s\n", path);
+    else
+        printf("FAIL: could not save %s: %s\n", path, SDL_GetError());
+}
+
 int main(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
+    const char *screenshotDir = nullptr;
+    for (int index = 1; index < argc; index++)
+    {
+        if (strcmp(argv[index], "--screenshot") == 0 && index + 1 < argc)
+            screenshotDir = argv[++index];
+    }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
@@ -216,6 +290,13 @@ int main(int argc, char **argv)
     SDL_FreeSurface(pickerLong);
     SDL_FreeSurface(inputEmpty);
     SDL_FreeSurface(inputValid);
+
+    if (screenshotDir)
+    {
+        renderNetworkDebugRows(screenshotDir, "en");
+        renderNetworkDebugRows(screenshotDir, "zh");
+        CFG_setLanguage("en");
+    }
 
     GFX_quitAttached();
     TTF_Quit();

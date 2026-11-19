@@ -59,6 +59,7 @@ jobs:
           test -f workspace/all/settings/build/tg5040/settings.elf
           test -f workspace/all/devserv/build/tg5040/devserv.elf
           test -f workspace/all/nextdev/build/tg5040/nextdev.elf
+          test -f workspace/all/netdebug/build/tg5040/netdebug.elf
           test -f workspace/tg5040/keymon/keymon.elf
 
       # Transactional update package content, reusing the tree built above.

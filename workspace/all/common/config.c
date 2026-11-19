@@ -86,6 +86,8 @@ void CFG_defaults(NextUISettings *cfg)
         .currentTimezone = CFG_DEFAULT_TIMEZONE,
         .wifi = CFG_DEFAULT_WIFI,
         .wifiDiagnostics = CFG_DEFAULT_WIFI_DIAG,
+        .netDebugEnabled = CFG_DEFAULT_NETDEBUG,
+        .netDebugExpiresAt = 0,
         .bluetooth = CFG_DEFAULT_BLUETOOTH,
         .bluetoothDiagnostics = CFG_DEFAULT_BLUETOOTH_DIAG,
         .bluetoothSamplerateLimit = CFG_DEFAULT_BLUETOOTH_MAXRATE,
@@ -246,6 +248,7 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
         while (fgets(line, sizeof(line), file))
         {
             int temp_value;
+            unsigned int temp_unsigned;
             uint32_t temp_color;
             if (strncmp(line, "font=", 5) == 0)
             {
@@ -408,6 +411,24 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
             if (sscanf(line, "keepAwakeWhenUSB=%i", &temp_value) == 1)
             {
                 CFG_setKeepAwakeWhenUSB((bool)temp_value);
+                continue;
+            }
+            if (sscanf(line, "netdebug=%i", &temp_value) == 1)
+            {
+                settings.netDebugEnabled = (bool)temp_value;
+                continue;
+            }
+            if (sscanf(line, "netdebugExpires=%u", &temp_unsigned) == 1)
+            {
+                settings.netDebugExpiresAt = (uint32_t)temp_unsigned;
+                continue;
+            }
+            if (strncmp(line, "netdebugToken=", 14) == 0)
+            {
+                char *value = line + 14;
+                value[strcspn(value, "\r\n")] = 0;
+                strncpy(settings.netDebugToken, value, sizeof(settings.netDebugToken) - 1);
+                settings.netDebugToken[sizeof(settings.netDebugToken) - 1] = '\0';
                 continue;
             }
             if (sscanf(line, "switcherscale=%i", &temp_value) == 1)
@@ -792,6 +813,32 @@ bool CFG_getKeepAwakeWhenUSB(void)
 void CFG_setKeepAwakeWhenUSB(bool enable)
 {
     settings.keepAwakeWhenUSB = enable;
+    CFG_sync();
+}
+
+bool CFG_getNetDebugEnabled(void)
+{
+    return settings.netDebugEnabled;
+}
+
+const char* CFG_getNetDebugToken(void)
+{
+    return settings.netDebugToken;
+}
+
+uint32_t CFG_getNetDebugExpiresAt(void)
+{
+    return settings.netDebugExpiresAt;
+}
+
+void CFG_setNetDebugState(bool enabled, const char* token, uint32_t expiresAt)
+{
+    settings.netDebugEnabled = enabled;
+    settings.netDebugExpiresAt = enabled ? expiresAt : 0;
+    if (enabled && token)
+        snprintf(settings.netDebugToken, sizeof(settings.netDebugToken), "%s", token);
+    else
+        settings.netDebugToken[0] = '\0';
     CFG_sync();
 }
 
@@ -1314,6 +1361,14 @@ void CFG_get(const char *key, char *value)
     {
         sprintf(value, "%i", CFG_getKeepAwakeWhenUSB());
     }
+    else if (strcmp(key, "netdebug") == 0)
+    {
+        sprintf(value, "%i", CFG_getNetDebugEnabled());
+    }
+    else if (strcmp(key, "netdebugExpires") == 0)
+    {
+        sprintf(value, "%u", CFG_getNetDebugExpiresAt());
+    }
     else if (strcmp(key, "switcherscale") == 0)
     {
         sprintf(value, "%i", CFG_getGameSwitcherScaling());
@@ -1493,6 +1548,9 @@ void CFG_sync(void)
     fprintf(file, "suspendTimeout=%i\n", settings.suspendTimeoutSecs);
     fprintf(file, "powerOffProtection=%i\n", settings.powerOffProtection);
     fprintf(file, "keepAwakeWhenUSB=%i\n", settings.keepAwakeWhenUSB);
+    fprintf(file, "netdebug=%i\n", settings.netDebugEnabled);
+    fprintf(file, "netdebugExpires=%u\n", settings.netDebugExpiresAt);
+    fprintf(file, "netdebugToken=%s\n", settings.netDebugToken);
     fprintf(file, "switcherscale=%i\n", settings.gameSwitcherScaling);
     fprintf(file, "haptics=%i\n", settings.haptics);
     fprintf(file, "romfolderbg=%i\n", settings.romsUseFolderBackground);
@@ -1557,6 +1615,10 @@ void CFG_print(void)
     printf("\t\"suspendTimeout\": %i,\n", settings.suspendTimeoutSecs);
     printf("\t\"powerOffProtection\": %i,\n", settings.powerOffProtection);
     printf("\t\"keepAwakeWhenUSB\": %i,\n", settings.keepAwakeWhenUSB);
+    // The token is intentionally not printed: the Settings UI reads it through
+    // CFG_getNetDebugToken() and nextval must not become a token oracle.
+    printf("\t\"netdebug\": %i,\n", settings.netDebugEnabled);
+    printf("\t\"netdebugExpires\": %u,\n", settings.netDebugExpiresAt);
     printf("\t\"switcherscale\": %i,\n", settings.gameSwitcherScaling);
     printf("\t\"haptics\": %i,\n", settings.haptics);
     printf("\t\"romfolderbg\": %i,\n", settings.romsUseFolderBackground);

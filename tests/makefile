@@ -330,5 +330,18 @@ test: test-wifi-ssid
 test-wifi-ssid:
 	../workspace/all/settings/tests/run_wifi_ssid_test.sh
 
+# Network debugging: the token-gated HTTP API (including exec and screenshot)
+# and the Settings toggle's enable/start/stop/timeout path. Declared on its own
+# lines rather than added to the .PHONY and test lists above, so this hunk never
+# collides with another thread editing those lines.
+.PHONY: test-netdebug test-netdebug-control
+test: test-netdebug test-netdebug-control
+
+test-netdebug:
+	./run_netdebug_test.sh
+
+test-netdebug-control:
+	./run_netdebug_control_test.sh
+
 clean:
 	rm -f $(TEST_BIN)

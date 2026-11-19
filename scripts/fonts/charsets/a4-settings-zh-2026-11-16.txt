@@ -19,8 +19,11 @@
 #
 # 2026-11-17: dropped the three game-art Appearance rows and their six i18n
 # entries, which no longer describe this app desktop (330 -> 324).
+#
+# 2026-11-19: added the Network debugging System rows and the 32-character
+# token/URL labels (324 -> 332).
 
-# ---- values (324) ----
+# ---- values (332) ----
 最近游玩
 最近
 收藏
@@ -197,6 +200,14 @@ FN 开关关闭 LED
 绕过原厂关机流程以避免“limbo bug”，直接指示 PMIC 软断开电池。
 USB 连接时保持唤醒
 作为 USB 设备连接电脑时（不仅是充电）防止息屏和休眠。
+网络调试
+在局域网提供日志、设备状态和令牌保护的调试 shell，超时后自动关闭。
+调试地址
+在电脑上使用 scripts/netdebug.py 连接此地址。
+调试令牌
+调试地址所需的令牌。
+自动关闭
+网络调试关闭前的剩余时间。
 风扇转速
 选择风扇转速百分比(安静/标准/性能或 0-100%)
 静音

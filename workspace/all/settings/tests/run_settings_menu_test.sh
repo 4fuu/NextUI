@@ -104,5 +104,7 @@ done
     -o "$BUILD_DIR/settings_menu_test" \
     $SDL_LIBS $COMMON_LIBS "${SANITIZE_LDFLAGS[@]}"
 
+mkdir -p "$BUILD_DIR/shared"
 ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}" \
-SDL_VIDEODRIVER=dummy "$BUILD_DIR/settings_menu_test"
+SHARED_USERDATA_PATH="$BUILD_DIR/shared" \
+SDL_VIDEODRIVER=dummy "$BUILD_DIR/settings_menu_test" "$@"

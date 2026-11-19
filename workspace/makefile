@@ -28,6 +28,7 @@ ifeq ($(PLATFORM), desktop)
 	cd ./all/nextstate/ && make
 	cd ./all/devserv/ && make
 	cd ./all/nextdev/ && make
+	cd ./all/netdebug/ && make
 	cd ./all/nextupd/ && make
 	cd ./all/settings/ && make
 else 
@@ -54,6 +55,7 @@ endif
 	cd ./all/nextstate/ && make
 	cd ./all/devserv/ && make
 	cd ./all/nextdev/ && make
+	cd ./all/netdebug/ && make
 	cd ./all/nextupd/ && make
 	cd ./all/settings/ && make
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
@@ -99,6 +101,7 @@ endif
 	cd ./all/nextstate/ && make clean
 	cd ./all/devserv/ && make clean
 	cd ./all/nextdev/ && make clean
+	cd ./all/netdebug/ && make clean
 	cd ./all/nextupd/ && make clean
 	cd ./all/settings/ && make clean
 	cd ./all/audiomon/ && make clean
