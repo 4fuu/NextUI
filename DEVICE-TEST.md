@@ -244,6 +244,13 @@ and token private during the test.
    `status`, `logs keymon -n 50`, `display`, `ps`, and `device`. The values
    must match the device (version, battery/USB, Wi-Fi, wake_lock, display
    layers, process list). `logs` must not truncate or modify the source files.
+   Check the reported paths, not only the values: display must be
+   `/sys/class/disp/disp/attr/sys`; device paths must be
+   `/sys/class/power_supply/...`, `/sys/class/net/...`,
+   `/sys/power/wake_lock`, `/sys/power/state`, and
+   `/proc/sys/kernel/osrelease`. There must be no `/sys/sys/...` or
+   `/sys/proc/...` path, and all of those device items must have
+   `exists:true`.
 6. **Exec success and error.** Run:
    - `exec "uname -a"` -> stdout, exit code 0;
    - `exec "echo out; echo err >&2; exit 7"` -> stdout `out`, stderr `err`,

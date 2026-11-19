@@ -92,6 +92,14 @@ Every endpoint requires the token as `?token=...` or the
 Log names are a fixed allowlist: `keymon`, `devserv`, `nextui`, `moonlight`,
 `wiliwili`, `suspend`, `netdebug`.
 
+Device reads default to the real mounts: `--sys-root` is `/sys` and
+`--proc-root` is `/proc`. `/api/display` reports
+`/sys/class/disp/disp/attr/sys`; `/api/device` reports `/sys/class/...` and
+`/sys/power/...` paths plus `/proc/sys/kernel/osrelease`. The two roots are
+independent, so a sysfs path is never doubled and the kernel version never
+becomes `/sys/proc/...`. The options exist for host fixtures; Settings passes
+`--sys-root /sys` explicitly and leaves `--proc-root` at `/proc`.
+
 ### `/api/exec`
 
 The command comes from the POST body or the `command` query parameter. It is
@@ -148,6 +156,10 @@ Settings.
   clears the persisted flag. The PID is only signalled when the state file's
   token matches the current settings token and `/proc/<pid>/comm` is
   `netdebug`.
+- The Settings spawn passes `--sys-root /sys` explicitly and builds
+  `LD_LIBRARY_PATH` as `$SYSTEM_PATH/lib` plus the inherited value, so
+  `/api/session` can run `nextdev` even when Settings itself was not started by
+  the normal `launch.sh`.
 - After a reboot the server never starts on its own. A stale `netdebug=1`
   without a live PID is reported as `Off`; toggling on replaces it.
 
@@ -185,12 +197,14 @@ make setup && make common PLATFORM=desktop
 ```
 
 `run_netdebug_test.sh` builds the real server and drives it with curl against a
-synthetic SD-card/sysfs tree: token rejection, the JSON-only root, every read
-endpoint, exec success/error/timeout/truncation/command limits, 32-bpp and
-16-bpp padded PNG captures, the client, the self-timeout, and the token race.
-`run_netdebug_control_test.sh` links the real `config.c` and control helper and
-covers Settings toggle on → server starts → toggle off → process stops, plus
-the timeout clearing the flag.
+synthetic SD-card/sysfs/procfs tree: token rejection, the JSON-only root, every
+read endpoint, exact `/sys` and `/proc` path assembly (no doubled `/sys/sys`),
+exec success/error/timeout/truncation/command limits, 32-bpp and 16-bpp padded
+PNG captures, the client, the default-root path check, the self-timeout, and
+the token race. `run_netdebug_control_test.sh` links the real `config.c` and
+control helper and covers Settings toggle on → server starts → toggle off →
+process stops, `LD_LIBRARY_PATH` propagation, plus the timeout clearing the
+flag.
 
 The server can also be exercised by hand:
 

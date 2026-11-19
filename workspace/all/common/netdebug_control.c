@@ -251,6 +251,23 @@ static void generate_token(char* out, size_t out_size)
     out[sizeof bytes * 2] = '\0';
 }
 
+/* The server inherits its environment from Settings, but keep the bundled
+ * library path explicit so direct Settings launches also give the spawned
+ * shell and nextdev the same loader path as launch.sh. */
+static void ensure_library_path(void)
+{
+    const char* current = getenv("LD_LIBRARY_PATH");
+    char value[PATH_MAX * 2];
+    int length;
+
+    if (current != NULL && current[0] != '\0')
+        length = snprintf(value, sizeof value, "%s/lib:%s", SYSTEM_PATH, current);
+    else
+        length = snprintf(value, sizeof value, "%s/lib", SYSTEM_PATH);
+    if (length > 0 && (size_t)length < sizeof value)
+        (void)setenv("LD_LIBRARY_PATH", value, 1);
+}
+
 static void wait_for_exit(long pid, int attempts)
 {
     int index;
@@ -317,16 +334,17 @@ static int spawn_server(const char* token, int port, int timeout)
             if (descriptor > STDERR_FILENO) close(descriptor);
         }
 
+        ensure_library_path();
         if (bind != NULL && bind[0] != '\0')
             execl(binary, "netdebug", "--token", token, "--timeout", timeout_text,
                   "--port", port_text, "--settings", settings, "--pidfile", pidfile,
-                  "--logs", logs, "--sdcard-root", SDCARD_PATH, "--nextdev", nextdev,
-                  "--bind", bind, (char*)NULL);
+                  "--logs", logs, "--sdcard-root", SDCARD_PATH, "--sys-root", "/sys",
+                  "--nextdev", nextdev, "--bind", bind, (char*)NULL);
         else
             execl(binary, "netdebug", "--token", token, "--timeout", timeout_text,
                   "--port", port_text, "--settings", settings, "--pidfile", pidfile,
-                  "--logs", logs, "--sdcard-root", SDCARD_PATH, "--nextdev", nextdev,
-                  (char*)NULL);
+                  "--logs", logs, "--sdcard-root", SDCARD_PATH, "--sys-root", "/sys",
+                  "--nextdev", nextdev, (char*)NULL);
         fprintf(stderr, "netdebug: cannot start %s: %s\n", binary, strerror(errno));
         _exit(127);
     }

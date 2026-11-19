@@ -59,6 +59,8 @@
 
 #define NETDEBUG_DEFAULT_PORT 8686
 #define NETDEBUG_DEFAULT_TIMEOUT_SECS 900
+#define NETDEBUG_DEFAULT_SYS_ROOT "/sys"
+#define NETDEBUG_DEFAULT_PROC_ROOT "/proc"
 #define NETDEBUG_TOKEN_MAX 65
 #define NETDEBUG_MAX_REQUEST 16384
 #define NETDEBUG_MAX_LOG_BYTES (256u * 1024u)
@@ -77,6 +79,7 @@ static char g_pidfile[PATH_MAX];
 static char g_logs_path[PATH_MAX];
 static char g_sdcard_root[PATH_MAX];
 static char g_sys_root[PATH_MAX];
+static char g_proc_root[PATH_MAX];
 static char g_nextdev[PATH_MAX];
 static char g_fb_path[PATH_MAX];
 static char g_bind_ip[INET_ADDRSTRLEN];
@@ -1132,11 +1135,13 @@ static int api_device(Buffer* body)
     append_device_item(body, &first, "wifi_carrier", path, "");
     path_join(path, sizeof path, g_sys_root, "/class/net/wlan0/address");
     append_device_item(body, &first, "wifi_mac", path, "");
-    path_join(path, sizeof path, g_sys_root, "/sys/power/wake_lock");
+    path_join(path, sizeof path, g_sys_root, "/power/wake_lock");
     append_device_item(body, &first, "wake_lock", path, "");
-    path_join(path, sizeof path, g_sys_root, "/sys/power/state");
+    path_join(path, sizeof path, g_sys_root, "/power/state");
     append_device_item(body, &first, "power_state", path, "");
-    path_join(path, sizeof path, g_sys_root, "/proc/sys/kernel/osrelease");
+    /* /proc is a separate mount from /sys. Keep its root independent so a
+     * test sys-root or a device sys-root can never produce /sys/proc. */
+    path_join(path, sizeof path, g_proc_root, "/sys/kernel/osrelease");
     append_device_item(body, &first, "kernel", path, "");
     buffer_append_text(body, "],\"lan_ip\":");
     buffer_append_json_string(body, g_bind_ip);
@@ -1661,7 +1666,10 @@ static void usage(FILE* stream)
             "  --bind ADDR        bind address override (default: first private LAN IPv4)\n"
             "  --logs DIR         log directory (default $LOGS_PATH)\n"
             "  --sdcard-root DIR  SD card root for .system/version.txt\n"
-            "  --sys-root DIR     prefix for /sys and /proc reads (host tests)\n"
+            "  --sys-root DIR     sysfs root (default " NETDEBUG_DEFAULT_SYS_ROOT
+            "; host tests)\n"
+            "  --proc-root DIR    procfs root for the kernel version (default "
+            NETDEBUG_DEFAULT_PROC_ROOT "; host tests)\n"
             "  --nextdev PATH     nextdev binary (default $SYSTEM_PATH/bin/nextdev.elf)\n"
             "  --fb PATH          framebuffer for /api/screenshot (default /dev/fb0)\n"
             "  --fb-width N       synthetic framebuffer width (host tests)\n"
@@ -1687,7 +1695,8 @@ int main(int argc, char* argv[])
     g_settings_path[0] = '\0';
     g_pidfile[0] = '\0';
     g_sdcard_root[0] = '\0';
-    g_sys_root[0] = '\0';
+    snprintf(g_sys_root, sizeof g_sys_root, "%s", NETDEBUG_DEFAULT_SYS_ROOT);
+    snprintf(g_proc_root, sizeof g_proc_root, "%s", NETDEBUG_DEFAULT_PROC_ROOT);
     g_nextdev[0] = '\0';
     snprintf(g_fb_path, sizeof g_fb_path, "%s", "/dev/fb0");
 
@@ -1718,6 +1727,8 @@ int main(int argc, char* argv[])
             snprintf(g_sdcard_root, sizeof g_sdcard_root, "%s", argv[++index]);
         else if (strcmp(argv[index], "--sys-root") == 0 && index + 1 < argc)
             snprintf(g_sys_root, sizeof g_sys_root, "%s", argv[++index]);
+        else if (strcmp(argv[index], "--proc-root") == 0 && index + 1 < argc)
+            snprintf(g_proc_root, sizeof g_proc_root, "%s", argv[++index]);
         else if (strcmp(argv[index], "--nextdev") == 0 && index + 1 < argc)
             snprintf(g_nextdev, sizeof g_nextdev, "%s", argv[++index]);
         else if (strcmp(argv[index], "--fb") == 0 && index + 1 < argc)

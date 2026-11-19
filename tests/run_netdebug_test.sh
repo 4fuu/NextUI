@@ -49,7 +49,7 @@ mkdir -p "$WORK_DIR/shared" "$WORK_DIR/logs" "$WORK_DIR/sdcard/.system" \
     "$WORK_DIR/sys/class/power_supply/axp2202-battery" \
     "$WORK_DIR/sys/class/power_supply/axp2202-usb" \
     "$WORK_DIR/sys/class/net/wlan0" \
-    "$WORK_DIR/sys/sys/power" "$WORK_DIR/sys/proc/sys/kernel"
+    "$WORK_DIR/sys/power" "$WORK_DIR/proc/sys/kernel"
 
 printf '%s\n' '2026.1118.4' > "$WORK_DIR/sdcard/.system/version.txt"
 printf 'BUF enable ch[2] lyr[0] z[17] alpha_mode=PIXEL\nCOLOR alpha_mode=GLOBAL\n' \
@@ -60,9 +60,9 @@ printf '1\n' > "$WORK_DIR/sys/class/power_supply/axp2202-usb/online"
 printf 'up\n' > "$WORK_DIR/sys/class/net/wlan0/operstate"
 printf '1\n' > "$WORK_DIR/sys/class/net/wlan0/carrier"
 printf 'aa:bb:cc:dd:ee:ff\n' > "$WORK_DIR/sys/class/net/wlan0/address"
-printf 'PowerManagerService.Display\n' > "$WORK_DIR/sys/sys/power/wake_lock"
-printf 'mem freezegun\n' > "$WORK_DIR/sys/sys/power/state"
-printf '6.1.0-nextui\n' > "$WORK_DIR/sys/proc/sys/kernel/osrelease"
+printf 'PowerManagerService.Display\n' > "$WORK_DIR/sys/power/wake_lock"
+printf 'mem freezegun\n' > "$WORK_DIR/sys/power/state"
+printf '6.1.0-nextui\n' > "$WORK_DIR/proc/sys/kernel/osrelease"
 seq 1 400 | sed 's/^/keymon line /' > "$WORK_DIR/logs/keymon.txt"
 printf 'devserv: listening on /tmp/nextui-devserv.sock\n' > "$WORK_DIR/logs/devserv.txt"
 printf 'nextui: ready\n' > "$WORK_DIR/logs/nextui.txt"
@@ -116,11 +116,16 @@ write_settings() {
 start_server() {
     local settings="$1" token="$2" timeout="$3"
     shift 3
+    local roots=(--sys-root "$WORK_DIR/sys" --proc-root "$WORK_DIR/proc")
+    if [[ "${1:-}" == "--default-roots" ]]; then
+        roots=()
+        shift
+    fi
     SERVER_LOG="$WORK_DIR/netdebug-$timeout-$$.log"
     "$BUILD_DIR/netdebug" --port 0 --bind 127.0.0.1 --token "$token" \
         --timeout "$timeout" --settings "$settings" \
         --pidfile "$WORK_DIR/shared/netdebug.pid" --logs "$WORK_DIR/logs" \
-        --sdcard-root "$WORK_DIR/sdcard" --sys-root "$WORK_DIR/sys" \
+        --sdcard-root "$WORK_DIR/sdcard" "${roots[@]}" \
         --nextdev "$WORK_DIR/fake-nextdev" --exec-timeout 1 \
         --fb "$FB_PATH" --fb-width "$FB_WIDTH" --fb-height "$FB_HEIGHT" \
         --fb-stride "$FB_STRIDE" --fb-bpp "$FB_BPP" "$@" > "$SERVER_LOG" 2>&1 &
@@ -298,6 +303,38 @@ and {item["name"]: item["value"] for item in d["items"]}["power_state"] == "mem 
 and {item["name"]: item["value"] for item in d["items"]}["kernel"] == "6.1.0-nextui"
 '
 
+# The fixture is a stand-in for the device's /sys and /proc mounts. Check that
+# every path is rooted exactly once and that /proc is not nested under /sys.
+python3 - "$WORK_DIR/device.json" "$WORK_DIR/display.json" "$WORK_DIR" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    device = json.load(handle)
+with open(sys.argv[2], encoding="utf-8") as handle:
+    display = json.load(handle)
+root = sys.argv[3]
+items = {item["name"]: item for item in device["items"]}
+expected = {
+    "version": root + "/sdcard/.system/version.txt",
+    "battery_capacity": root + "/sys/class/power_supply/axp2202-battery/capacity",
+    "battery_status": root + "/sys/class/power_supply/axp2202-battery/status",
+    "usb_online": root + "/sys/class/power_supply/axp2202-usb/online",
+    "wifi_operstate": root + "/sys/class/net/wlan0/operstate",
+    "wifi_carrier": root + "/sys/class/net/wlan0/carrier",
+    "wifi_mac": root + "/sys/class/net/wlan0/address",
+    "wake_lock": root + "/sys/power/wake_lock",
+    "power_state": root + "/sys/power/state",
+    "kernel": root + "/proc/sys/kernel/osrelease",
+}
+for name, path in expected.items():
+    assert items[name]["exists"] is True, (name, items[name])
+    assert items[name]["path"] == path, (name, items[name]["path"], path)
+    assert "/sys/sys/" not in items[name]["path"], items[name]["path"]
+assert display["exists"] is True
+assert display["path"] == root + "/sys/class/disp/disp/attr/sys", display["path"]
+PY
+
 rm -f "$WORK_DIR/logs/WiliWili.txt"
 fetch "/api/logs?name=wiliwili&token=$TOKEN" "$WORK_DIR/logs.json" 200
 json_expr "$WORK_DIR/logs.json" 'd["ok"] is True and d["exists"] is False and d["text"] == ""'
@@ -404,6 +441,44 @@ grep -Fq 'PID' "$WORK_DIR/client-ps.txt" || fail "client ps output"
 
 kill -TERM "$PID4"
 wait "$PID4" 2>/dev/null || true
+SERVER_PID=""
+
+# --- default sys/proc roots ----------------------------------------------
+# Without override flags the server must use /sys and /proc, not an empty
+# prefix or a /sys prefix for proc. Values are host-dependent here; the
+# synthetic-root checks above cover exists=true on the device layout.
+write_settings "$SETTINGS" "$TOKEN" 1 9999999999
+start_server "$SETTINGS" "$TOKEN" 30 --default-roots
+PID5="$SERVER_PID"
+fetch "/api/display?token=$TOKEN" "$WORK_DIR/display-default.json" 200
+fetch "/api/device?token=$TOKEN" "$WORK_DIR/device-default.json" 200
+python3 - "$WORK_DIR/device-default.json" "$WORK_DIR/display-default.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    device = json.load(handle)
+with open(sys.argv[2], encoding="utf-8") as handle:
+    display = json.load(handle)
+items = {item["name"]: item["path"] for item in device["items"]}
+expected = {
+    "battery_capacity": "/sys/class/power_supply/axp2202-battery/capacity",
+    "battery_status": "/sys/class/power_supply/axp2202-battery/status",
+    "usb_online": "/sys/class/power_supply/axp2202-usb/online",
+    "wifi_operstate": "/sys/class/net/wlan0/operstate",
+    "wifi_carrier": "/sys/class/net/wlan0/carrier",
+    "wifi_mac": "/sys/class/net/wlan0/address",
+    "wake_lock": "/sys/power/wake_lock",
+    "power_state": "/sys/power/state",
+    "kernel": "/proc/sys/kernel/osrelease",
+}
+for name, path in expected.items():
+    assert items[name] == path, (name, items[name], path)
+    assert "/sys/sys/" not in items[name], items[name]
+assert display["path"] == "/sys/class/disp/disp/attr/sys", display["path"]
+PY
+kill -TERM "$PID5"
+wait "$PID5" 2>/dev/null || true
 SERVER_PID=""
 
 # --- self-timeout ---------------------------------------------------------

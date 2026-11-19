@@ -12,6 +12,7 @@
  * path, whose values are harmless for this test.
  */
 #include <errno.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -22,6 +23,7 @@
 #include <unistd.h>
 
 #include "config.h"
+#include "defines.h"
 #include "netdebug_control.h"
 
 static int failures;
@@ -141,6 +143,52 @@ static int process_running(long pid)
     return 1;
 }
 
+static int process_environment_contains(long pid, const char* expected)
+{
+    char path[64];
+    char data[16384];
+    size_t length;
+    char* entry;
+    FILE* file;
+
+    if (pid <= 1) return 0;
+    snprintf(path, sizeof path, "/proc/%ld/environ", pid);
+    file = fopen(path, "rb");
+    if (file == NULL) return 0;
+    length = fread(data, 1, sizeof data - 1, file);
+    fclose(file);
+    data[length] = '\0';
+    for (entry = data; entry < data + length; entry += strlen(entry) + 1)
+    {
+        if (strcmp(entry, expected) == 0) return 1;
+    }
+    return 0;
+}
+
+static int process_command_line_has_pair(long pid, const char* option, const char* value)
+{
+    char path[64];
+    char data[8192];
+    size_t length;
+    char* entry;
+    int found_option = 0;
+    FILE* file;
+
+    if (pid <= 1) return 0;
+    snprintf(path, sizeof path, "/proc/%ld/cmdline", pid);
+    file = fopen(path, "rb");
+    if (file == NULL) return 0;
+    length = fread(data, 1, sizeof data - 1, file);
+    fclose(file);
+    data[length] = '\0';
+    for (entry = data; entry < data + length; entry += strlen(entry) + 1)
+    {
+        if (found_option) return strcmp(entry, value) == 0;
+        if (strcmp(entry, option) == 0) found_option = 1;
+    }
+    return 0;
+}
+
 static void write_settings(const char* text)
 {
     char path[4096];
@@ -162,6 +210,7 @@ int main(int argc, char** argv)
     char url[512];
     char token[NETDEBUG_TOKEN_MAX];
     char value[128];
+    char expected_library[PATH_MAX * 2];
     int remaining;
     long pid;
 
@@ -182,9 +231,21 @@ int main(int argc, char** argv)
     CFG_setNetDebugState(false, "", 0);
     CHECK(NETDEBUG_isRunning() == 0, "a fresh configuration must be off");
 
+    /* The server must inherit LD_LIBRARY_PATH and prepend the bundled lib
+     * directory, just like launch.sh does for the launcher itself. */
+    setenv("LD_LIBRARY_PATH", "/netdebug-test-library", 1);
+    snprintf(expected_library, sizeof expected_library,
+             "LD_LIBRARY_PATH=%s/lib:/netdebug-test-library", SYSTEM_PATH);
+
     /* Enable through the same helper the Settings row calls. */
     CHECK(NETDEBUG_enable() == 0, "NETDEBUG_enable starts the server");
     CHECK(NETDEBUG_isRunning() != 0, "enabled session is detected");
+    pid = pidfile_pid();
+    CHECK(pid > 1, "enable published the server pid");
+    CHECK(process_environment_contains(pid, expected_library),
+          "server did not receive %s", expected_library);
+    CHECK(process_command_line_has_pair(pid, "--sys-root", "/sys"),
+          "server was not started with --sys-root /sys");
     CHECK(CFG_getNetDebugEnabled(), "the persisted enabled flag is on");
     CHECK(strlen(CFG_getNetDebugToken()) == 32, "token is 32 hex characters");
     CHECK(settings_has("netdebug=1"), "minuisettings.txt has netdebug=1");
