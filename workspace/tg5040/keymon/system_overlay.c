@@ -1083,8 +1083,9 @@ static int set_layer(int enabled, int dim, int buffer, int x, int y, int width, 
 		fprintf(stderr,
 				"system-overlay: ch%u z%u dim lyr%u COLOR a[globl %u] fill 0x%08x; "
 				"panel lyr%u BUF\n",
-				disp_backend.channel, disp_backend.zorder, disp_backend.dim_layer,
-				UI_OVERLAY_DIM_ALPHA, 0xFF000000u, disp_backend.panel_layer);
+				disp_backend.channel, (unsigned)disp_backend.zorder,
+				(unsigned)disp_backend.dim_layer, (unsigned)UI_OVERLAY_DIM_ALPHA,
+				0xFF000000u, (unsigned)disp_backend.panel_layer);
 
 		build_dim_layer(&configs[count], dim, width, height);
 		count++;
