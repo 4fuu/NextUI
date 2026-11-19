@@ -23,17 +23,17 @@ and the existing session supervisor, never `kill --`.
    Wi-Fi/Bluetooth show their current state. The Moonlight picture must remain
    visible around the panel, uniformly dimmed by about 55% with no vertical
    gradient, and there must be no in-panel footer and no full-screen black
-   frame. With the panel open, `cat /sys/class/disp/disp/attr/sys` must list the
-   dim as `COLOR enable ch[2] lyr[0] z[17] ... a[globl 140]` and the panel as
-   `BUF enable ch[2] lyr[1] ...`; the keymon console logs the same layer pair
-   with `fill 0xff000000` once.
+   frame. With the panel open, `cat /sys/class/disp/disp/attr/sys` must list one
+   `BUF enable ch[2] lyr[...] z[17]` layer and no COLOR row; the keymon console
+   logs the same layer with `BUF pixel-alpha, baked dim alpha 140` once.
 2. **Input is owned while HOME is open.** With the panel open, press the d-pad
    up/down: the row highlight moves only in the panel and Moonlight receives no
    input. The Moonlight picture around the panel must not flicker or go black
    and each step must feel immediate: only the panel rectangle is repainted, the
-   dim layer is never re-blended. Press A: the selected row runs (Resume closes,
-   Exit closes the app, Wi-Fi/Bluetooth toggle). Press B or HOME: the panel
-   closes immediately. After closing, Moonlight must receive d-pad/A/B again.
+   dim outside it is never repainted. Press A: the selected row runs (Resume
+   closes, Exit closes the app, Wi-Fi/Bluetooth toggle). Press B or HOME: the
+   panel closes immediately. After closing, Moonlight must receive d-pad/A/B
+   again.
    Confirm with `evtest`/the Moonlight input test that no key is stuck or
    swallowed.
 3. **Exit to desktop.** Open HOME, move to `Exit to desktop`, press A. The panel
@@ -90,18 +90,18 @@ and the existing session supervisor, never `kill --`.
 
 ## Known limits
 
-- The overlay is two sunxi disp2 layers on a UI channel above fb0: a
-  full-screen `LAYER_MODE_COLOR` dim (opaque black fill, global alpha 140, a
-  uniform 55% wash; no scanout buffer and no per-frame CPU) and a full-screen
-  ARGB buffer layer for the panel. The dim is configured once, so a selection
-  move must not repaint or reconfigure it. The app still owns fb0; disabling
-  both layers restores its untouched frame. The channel stacking, the per-pixel
-  alpha panel layer, the COLOR fill and the double-buffered flip still need this
-  physical pass. On retest the app must be visible and uniformly dimmed behind
-  the panel (no top-to-bottom ramp), the hint bar must show the uniform wash
-  behind its pills (no black band), and a selection move must not repaint the
-  whole screen. The dim must appear in an unadapted third-party app even when
-  the driver can only allocate the two panel `DISP_MEM` slots.
+- The overlay is one sunxi disp2 BUF layer on a UI channel above fb0. The
+  full-screen ARGB buffer carries both the baked 55% dim (black, alpha 140)
+  and the opaque panel; there is no separate COLOR layer. A full frame fills the
+  whole buffer with the dim, and a selection move refills only the panel
+  rectangle, so the dim outside it is static. The app still owns fb0; disabling
+  the one layer restores its untouched frame. The channel/zorder stacking, the
+  per-pixel alpha buffer and the double-buffered flip still need this physical
+  pass. On retest the app must be visible and uniformly dimmed behind the panel
+  (no top-to-bottom ramp), the hint bar must show the same wash behind its pills
+  (no black band), and a selection move must not repaint the whole screen. The
+  dim must appear in an unadapted third-party app even when the driver can only
+  allocate one or two `DISP_MEM` buffers.
 - While HOME is open, keymon holds `EVIOCGRAB` on the evdev nodes that expose
   HOME/volume/navigation. This is intentional: the app must not receive panel
   input. Every close, session-end, HUD switch, normal exit and SIGTERM path

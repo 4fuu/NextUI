@@ -7,14 +7,16 @@
  * GFX_blitHardwareIndicator's top-right pill. A reference surface is rendered
  * with the same GFX calls and the overlay's opaque pixels must match it.
  *
- * It also inspects the ARGB buffers themselves: the panel must stay opaque,
- * HUD corners must be fully transparent, and a selection move or HOME/HUD
- * switch must present the other buffer without disabling the layer. The dim is
- * a bufferless COLOR layer (opaque black fill, global alpha 140 = 55%), so the
- * backend must allocate only the two panel buffers: a driver that cannot give a
- * third DISP_MEM slot still gets a dim. The dim is configured once: navigation
- * must never repaint or reconfigure it, and the hint bar paints no background
- * of its own, so only the opacity of its pills separates it from the wash.
+ * It also inspects the ARGB buffers themselves: the single full-screen BUF
+ * layer carries both the dim and the panel. Pixels outside the panel, footer
+ * and battery group must hold exactly the baked dim (black, alpha 140), the
+ * panel must stay opaque, HUD corners must be fully transparent, and a
+ * selection move or HOME/HUD switch must present the other buffer without
+ * disabling the layer. There is no COLOR layer and no third scanout slot: the
+ * dim is pixels in the same buffer as the panel, matching UIOverlay's in-app
+ * path. Navigation must not repaint the dim outside the panel rectangle, and
+ * the hint bar paints no background of its own, so only the opacity of its
+ * pills separates it from the wash.
  *
  * No /dev/disp, SDL window, evdev node or device is touched.
  */
@@ -82,8 +84,6 @@ typedef struct
 	int enable_calls;
 	int disable_calls;
 	int enabled;
-	int dim;
-	int dim_calls;
 	int buffer;
 	int width;
 	int height;
@@ -132,7 +132,7 @@ static void fake_release(void* user, SystemOverlayBuffer* buffers, int count, si
 	display->buffers = 0;
 }
 
-static int fake_commit(void* user, int enabled, int dim, int buffer, int x, int y, int width, int height,
+static int fake_commit(void* user, int enabled, int buffer, int x, int y, int width, int height,
 					   int buffer_width, int buffer_height)
 {
 	FakeDisplay* display = (FakeDisplay*)user;
@@ -141,10 +141,8 @@ static int fake_commit(void* user, int enabled, int dim, int buffer, int x, int 
 	(void)y;
 	if (enabled && !display->enabled) display->enable_calls++;
 	if (!enabled && display->enabled) display->disable_calls++;
-	if (enabled && dim != display->dim) display->dim_calls++;
 	display->commit_calls++;
 	display->enabled = enabled;
-	display->dim = dim;
 	display->buffer = buffer;
 	display->width = width;
 	display->height = height;
@@ -318,9 +316,10 @@ static SDL_Rect home_panel_rect(void)
 }
 
 /* Everything outside the panel, the footer strip and the hardware group must
- * stay transparent so the app's frame shows through. A software dim wash would
- * light up every one of these pixels. */
-static int count_opaque_outside_chrome(void)
+ * hold exactly the baked dim, so only the app is visible through the single
+ * BUF layer. Any other value would be a stray software wash or leftover
+ * chrome. */
+static int count_non_dim_outside_chrome(void)
 {
 	int width = 0;
 	int height = 0;
@@ -349,7 +348,7 @@ static int count_opaque_outside_chrome(void)
 				continue;
 			if (y >= footer_y) continue;
 			if (x >= battery_x && y < battery_height) continue;
-			if ((pixels[y * width + x] >> 24) != 0) count++;
+			if (pixels[y * width + x] != SYSTEM_OVERLAY_DIM_COLOR) count++;
 		}
 	}
 	return count;
@@ -421,7 +420,6 @@ static int fake_disp_ioctl(int descriptor, unsigned long request, unsigned long 
 static void production_backend_test(void)
 {
 	char path[] = "/tmp/nextui-disp-XXXXXX";
-	struct disp_layer_config dim;
 	struct disp_layer_config panel;
 	const uint32_t* pixels;
 	SDL_Rect panel_rect;
@@ -446,76 +444,73 @@ static void production_backend_test(void)
 	CHECK(SystemOverlay_available(), "production overlay available");
 	CHECK(fake_disp.get_calls > 0, "production backend read fb0's layer config");
 	CHECK(fake_disp.alloc_calls == SYSTEM_OVERLAY_PANEL_BUFFERS,
-		  "production backend allocates only the two panel scanout slots");
+		  "production backend allocates only the two full-screen buffers");
 
 	PWR_setBatteryStatus(1, 82);
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "production HOME render");
-	CHECK(fake_disp.last_count == 2, "HOME commits the dim and panel layers together");
+	CHECK(fake_disp.last_count == 1, "HOME commits one full-screen BUF layer");
 
-	dim = fake_disp.last[0];
-	panel = fake_disp.last[1];
-	CHECK(dim.enable && panel.enable, "production HOME enables both layers");
-	CHECK(dim.channel == 2 && panel.channel == 2, "overlay owns UI channel 2");
-	CHECK(dim.info.zorder == 17 && panel.info.zorder == 17, "overlay channel zorder is 17");
-	CHECK(dim.channel != (unsigned int)fake_disp.fb0_channel, "overlay does not reuse fb0's channel");
-	CHECK(dim.info.zorder > fake_disp.fb0_zorder, "overlay zorder is strictly above fb0's");
-	CHECK(dim.layer_id < panel.layer_id, "panel layer is above the dim layer");
-	CHECK(dim.info.mode == LAYER_MODE_COLOR, "dim is a flat COLOR layer, not a scanout buffer");
-	CHECK(dim.info.alpha_mode == DISP_ALPHA_MODE_GLOBAL, "dim uses global alpha");
-	CHECK(dim.info.alpha_value == UI_OVERLAY_DIM_ALPHA && dim.info.alpha_value == 140,
-		  "dim is the shared 55% alpha");
-	CHECK(dim.info.color == 0xFF000000u,
-		  "COLOR fill is opaque black; a zero alpha word is the invisible regression");
-	/* info.color shares its union storage with fb.addr[0], so the color word
-	 * appears there; COLOR mode fetches no image and ignores the address. */
-	CHECK(dim.info.fb.addr[0] != 0x40000000ULL && dim.info.fb.addr[0] != 0x40400000ULL,
-		  "dim COLOR layer does not point at a panel scanout buffer");
-	CHECK(dim.info.screen_win.width == 1024 && dim.info.screen_win.height == 768,
-		  "dim covers the whole screen");
-	printf("dim layer: COLOR fill 0xFF000000, global alpha %u (55%%), no scanout address\n",
-		   (unsigned)dim.info.alpha_value);
-	CHECK(panel.info.mode == LAYER_MODE_BUFFER, "panel is a buffer layer");
-	CHECK(panel.info.alpha_mode == DISP_ALPHA_MODE_PIXEL, "panel keeps per-pixel alpha");
+	panel = fake_disp.last[0];
+	CHECK(panel.enable, "production HOME enables the buffer layer");
+	CHECK(panel.channel == 2, "overlay owns UI channel 2");
+	CHECK(panel.info.zorder == 17, "overlay channel zorder is 17");
+	CHECK(panel.channel != (unsigned int)fake_disp.fb0_channel, "overlay does not reuse fb0's channel");
+	CHECK(panel.info.zorder > fake_disp.fb0_zorder, "overlay zorder is strictly above fb0's");
+	CHECK(panel.info.mode == LAYER_MODE_BUFFER, "the one layer is a buffer layer");
+	CHECK(panel.info.alpha_mode == DISP_ALPHA_MODE_PIXEL, "buffer uses per-pixel alpha");
+	CHECK(panel.info.fb.pre_multiply == false, "buffer keeps straight (unpremultiplied) alpha");
 	CHECK(panel.info.screen_win.width == 1024 && panel.info.screen_win.height == 768,
-		  "panel is a full-screen layer");
+		  "buffer covers the whole screen");
+	CHECK(panel.info.fb.size[0].width == 1024 && panel.info.fb.size[0].height == 768,
+		  "one full-screen scanout buffer");
 	/* Both fake slots mmap the same file, so only the configured address is
 	 * meaningful here; the production driver maps each DISP_MEM slot. */
 	CHECK(panel.info.fb.addr[0] == 0x40000000ULL, "panel starts on the first scanout buffer");
 
 	pixels = SystemOverlay_pixels(&width, &height);
 	CHECK(pixels && width == 1024 && height == 768, "production panel buffer geometry");
-	CHECK(pixels && (pixels[0] >> 24) == 0, "production HOME has no software dim wash");
+	CHECK(pixels && pixels[0] == SYSTEM_OVERLAY_DIM_COLOR,
+		  "HOME bakes the 55% dim into the buffer outside the panel");
+	CHECK(SYSTEM_OVERLAY_DIM_ALPHA == UI_OVERLAY_DIM_ALPHA && SYSTEM_OVERLAY_DIM_COLOR == 0x8C000000u,
+		  "baked dim is opaque black at the shared 140 alpha");
 	panel_rect = home_panel_rect();
 	CHECK(pixels && (pixels[(panel_rect.y + panel_rect.h - SCALE1(4)) * width + panel_rect.x +
 							panel_rect.w / 2] >>
 					 24) == 0xFF,
-		  "production panel is opaque");
+		  "production panel is opaque over the baked dim");
+	printf("single BUF layer: dim 0x%08X outside the panel, panel opaque, no COLOR layer\n",
+		   (unsigned)SYSTEM_OVERLAY_DIM_COLOR);
 
 	commits = fake_disp.set_calls;
 	CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "production selection move");
 	CHECK(fake_disp.set_calls == commits + 1, "selection move commits once");
-	CHECK(fake_disp.last_count == 1, "selection move resubmits only the panel layer");
-	CHECK(fake_disp.last[0].layer_id == panel.layer_id, "selection move keeps the panel layer");
+	CHECK(fake_disp.last_count == 1, "selection move resubmits the one buffer layer");
+	CHECK(fake_disp.last[0].layer_id == panel.layer_id, "selection move keeps the layer");
 	CHECK(fake_disp.last[0].channel == 2 && fake_disp.last[0].info.zorder == 17,
 		  "selection move keeps the channel and zorder");
 	CHECK(fake_disp.last[0].info.fb.addr[0] == 0x40400000ULL,
 		  "selection move flips to the second scanout buffer");
+	pixels = SystemOverlay_pixels(&width, &height);
+	CHECK(pixels && pixels[0] == SYSTEM_OVERLAY_DIM_COLOR,
+		  "selection move keeps the baked dim outside the panel");
 
 	CHECK(SystemOverlay_showIndicator(SYSTEM_OVERLAY_VOLUME) == 0, "production HUD render");
-	CHECK(fake_disp.last_count == 2, "HUD commits the dim state with the panel");
-	CHECK(!fake_disp.last[0].enable && fake_disp.last[1].enable,
-		  "HUD disables the dim layer and keeps the panel");
+	CHECK(fake_disp.last_count == 1, "HUD commits the same one buffer layer");
+	CHECK(fake_disp.last[0].enable, "HUD keeps the buffer layer enabled");
+	pixels = SystemOverlay_pixels(&width, &height);
+	CHECK(pixels && (pixels[0] >> 24) == 0, "HUD buffer is transparent outside the pill");
 
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "production HOME after HUD");
-	CHECK(fake_disp.last_count == 2 && fake_disp.last[0].enable &&
-			  fake_disp.last[0].info.mode == LAYER_MODE_COLOR &&
-			  fake_disp.last[0].info.color == 0xFF000000u,
-		  "HOME re-enables the opaque-black COLOR dim layer");
+	CHECK(fake_disp.last_count == 1 && fake_disp.last[0].enable &&
+			  fake_disp.last[0].info.mode == LAYER_MODE_BUFFER,
+		  "HOME re-enables the single BUF layer");
+	pixels = SystemOverlay_pixels(&width, &height);
+	CHECK(pixels && pixels[0] == SYSTEM_OVERLAY_DIM_COLOR, "HOME restores the baked dim");
 
 	SystemOverlay_hide();
 	CHECK(!SystemOverlay_visible(), "production hide");
-	CHECK(fake_disp.last_count == 2 && !fake_disp.last[0].enable && !fake_disp.last[1].enable,
-		  "hide disables both overlay layers");
+	CHECK(fake_disp.last_count == 1 && !fake_disp.last[0].enable,
+		  "hide disables the one overlay layer");
 
 	SystemOverlay_shutdown();
 	CHECK(!SystemOverlay_available(), "production shutdown");
@@ -554,13 +549,12 @@ static int show_home_and_check(void)
 	CHECK(mismatches == 0, "HOME battery matches GFX_blitHardwareGroup");
 	SDL_FreeSurface(reference);
 
-	/* The dim is the backend's COLOR layer: the panel scanout buffer must stay
-	 * fully transparent where the app should show through. */
-	CHECK(fake.dim == 1, "HOME commits the flat COLOR dim layer");
-	/* A software dim wash would paint all of this, starting at the corner. */
-	CHECK((pixel_at(0, 0) >> 24) == 0, "HOME leaves the app area transparent");
-	CHECK(count_opaque_outside_chrome() == 0,
-		  "the app area outside the panel, footer and battery stays transparent");
+	/* The single BUF layer carries the dim: the panel scanout buffer holds the
+	 * exact black/alpha-140 wash wherever the app should show through. */
+	CHECK(pixel_at(0, 0) == SYSTEM_OVERLAY_DIM_COLOR,
+		  "HOME bakes the uniform dim into the buffer");
+	CHECK(count_non_dim_outside_chrome() == 0,
+		  "the app area outside the panel, footer and battery holds only the dim");
 
 	/* The panel itself must stay opaque. Sample its bottom padding, which is
 	 * inside the rounded body and contains no text or icon. */
@@ -642,10 +636,10 @@ int main(void)
 	SystemOverlay_pixels(&width, &height);
 	CHECK(width == 1024 && height == 768, "scanout buffer has the screen geometry");
 
-	/* The dim is a bufferless COLOR layer. Only the renderer's own transparent
-	 * panel buffers exist, so there is no dim image to inspect or repaint. */
+	/* The dim is baked into the same two full-screen buffers as the panel.
+	 * There is no separate dim image, layer or scanout slot. */
 	for (int i = 0; i < SYSTEM_OVERLAY_SCANOUT_BUFFERS; i++)
-		CHECK(fake.pixels[i] != NULL, "panel scanout buffer is allocated");
+		CHECK(fake.pixels[i] != NULL, "full-screen scanout buffer is allocated");
 
 	PWR_setBatteryStatus(1, 82);
 
@@ -653,7 +647,8 @@ int main(void)
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "initial HOME render");
 	CHECK(fake.commit_calls == 1, "opening HOME presents one frame");
 	CHECK(fake.enable_calls == 1, "opening HOME configures the layer once");
-	CHECK(fake.dim == 1, "opening HOME enables the hardware dim");
+	CHECK(pixel_at(0, 0) == SYSTEM_OVERLAY_DIM_COLOR,
+		  "opening HOME bakes the uniform dim into the buffer");
 	CHECK(fake.buffer == 0, "the first frame uses the first scanout buffer");
 	CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_ACCEPT) == 1,
 		  "HOME selects Resume by default");
@@ -665,15 +660,13 @@ int main(void)
 
 	/* A selection move redraws only the panel rectangle in the offscreen
 	 * buffer. It must not disable/re-enable the layer, change its geometry or
-	 * touch a single pixel outside the panel (in particular not re-blend the
-	 * dim). The first move after opening also repaints the chrome in the
-	 * second scanout buffer, so the panel-only claim is measured on the next
-	 * move. */
+	 * touch a single pixel outside the panel (the baked dim stays put). The
+	 * first move after opening also repaints the chrome in the second scanout
+	 * buffer, so the panel-only claim is measured on the next move. */
 	{
 		int commits = fake.commit_calls;
 		int enables = fake.enable_calls;
 		int disables = fake.disable_calls;
-		int dim_calls = fake.dim_calls;
 		int first_front = fake.buffer;
 		int target;
 		SDL_Rect panel = home_panel_rect();
@@ -703,8 +696,8 @@ int main(void)
 		CHECK(fake.buffer == target, "panel-only move flips to the other scanout buffer");
 		CHECK(fake.width == 1024 && fake.height == 768,
 			  "selection move keeps the full-screen geometry");
-		CHECK(fake.dim == 1 && fake.dim_calls == dim_calls,
-			  "selection move leaves the hardware dim untouched");
+		CHECK(pixel_at(0, 0) == SYSTEM_OVERLAY_DIM_COLOR,
+			  "selection move keeps the baked dim outside the panel");
 
 		if (before)
 		{
@@ -768,17 +761,17 @@ int main(void)
 			for (int x = 0; x < fake.width; x++)
 			{
 				uint32_t value = pixel_at(x, y);
-				if ((value >> 24) != 0) bottom++;
-				/* The strip's outer columns are never covered by a pill, so any
-				 * pixel there would be a background fill. */
-				if (x < SCALE1(PADDING) && (value >> 24) != 0) backdrop = 1;
+				if ((value >> 24) == 0xFF) bottom++;
+				/* The strip's outer columns are never covered by a pill, so
+				 * anything other than the baked dim is a background fill. */
+				if (x < SCALE1(PADDING) && value != SYSTEM_OVERLAY_DIM_COLOR) backdrop = 1;
 			}
 		}
 		CHECK(bottom > 1000, "bottom hint bar pills are drawn at the screen bottom");
-		CHECK(!backdrop, "hint bar paints no background over the uniform dim");
-		CHECK((pixel_at(0, fake.height - 1) >> 24) == 0,
+		CHECK(!backdrop, "hint bar paints no background over the baked dim");
+		CHECK(pixel_at(0, fake.height - 1) == SYSTEM_OVERLAY_DIM_COLOR,
 			  "the dim shows through at the bottom-left corner");
-		CHECK((pixel_at(fake.width - 1, fake.height - 1) >> 24) == 0,
+		CHECK(pixel_at(fake.width - 1, fake.height - 1) == SYSTEM_OVERLAY_DIM_COLOR,
 			  "the dim shows through at the bottom-right corner");
 	}
 
@@ -797,8 +790,8 @@ int main(void)
 		CHECK(fake.enabled, "HOME to HUD keeps the layer enabled");
 		CHECK(fake.enable_calls == enables, "HOME to HUD does not re-enable the layer");
 		CHECK(fake.disable_calls == disables, "HOME to HUD does not disable the layer");
-		CHECK(fake.dim == 0, "HOME to HUD turns the dim layer off");
 		CHECK(fake.buffer != buffer, "HOME to HUD flips to the other scanout buffer");
+		CHECK((pixel_at(0, 0) >> 24) == 0, "HOME to HUD clears the baked dim");
 	}
 
 	/* A HUD has no dim: everything outside the top-right pill stays fully
@@ -834,6 +827,11 @@ int main(void)
 
 	CHECK(count_color(THEME_COLOR1) > 1000, "volume bar grows with the value");
 
+	/* The first HUD frame clears one buffer; the second HUD update must clear
+	 * the other, so no buffer can later show a leftover baked dim. */
+	CHECK(((uint32_t*)fake.pixels[0])[0] == 0 && ((uint32_t*)fake.pixels[1])[0] == 0,
+		  "both buffers cleared the baked dim after the HUD frames");
+
 	test_brightness = 0;
 	CHECK(SystemOverlay_showIndicator(SYSTEM_OVERLAY_BRIGHTNESS) == 0, "brightness HUD");
 	CHECK(SystemOverlay_mode() == SYSTEM_OVERLAY_BRIGHTNESS, "brightness HUD mode");
@@ -861,22 +859,24 @@ int main(void)
 		CHECK(fake.enabled, "HUD to HOME keeps the layer enabled");
 		CHECK(fake.enable_calls == enables, "HUD to HOME does not re-enable the layer");
 		CHECK(fake.disable_calls == disables, "HUD to HOME does not disable the layer");
-		CHECK(fake.dim == 1, "HUD to HOME turns the dim layer back on");
 		CHECK(fake.buffer != buffer, "HUD to HOME flips to the other scanout buffer");
+		CHECK(pixel_at(0, 0) == SYSTEM_OVERLAY_DIM_COLOR,
+			  "HUD to HOME restores the baked dim");
 	}
 
-	/* The dim is a COLOR layer with no scanout image, so navigation must not
-	 * need another DISP_MEM slot and must not disable/re-enable the layer. */
+	/* The dim is baked pixels, so navigation must not need another DISP_MEM
+	 * slot and must not disable/re-enable the layer. Both buffers keep the
+	 * dim outside the panel. */
 	{
 		int acquires = fake.acquire_calls;
-		int dim_calls = fake.dim_calls;
 
 		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "dim check move down");
 		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_UP) == 0, "dim check move up");
 		CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "dim check HOME");
 		CHECK(fake.acquire_calls == acquires, "navigation never asks for another scanout slot");
-		CHECK(fake.dim == 1 && fake.dim_calls == dim_calls,
-			  "navigation keeps the COLOR dim configured");
+		for (int i = 0; i < SYSTEM_OVERLAY_SCANOUT_BUFFERS; i++)
+			CHECK(fake.pixels[i][0] == SYSTEM_OVERLAY_DIM_COLOR,
+				  "both buffers keep the baked dim outside the panel");
 	}
 
 	SystemOverlay_hide();
@@ -900,8 +900,8 @@ int main(void)
 
 	/* If the driver can only give one buffer, keep drawing in place instead of
 	 * failing: the same buffer is committed until the layer is disabled. The
-	 * bufferless COLOR dim still works, which is the third-party case PR #71
-	 * lost when the third DISP_MEM slot was unavailable. */
+	 * baked dim still works, which is the third-party case PR #71 lost when the
+	 * third DISP_MEM slot was unavailable. */
 	{
 		memset(&fake, 0, sizeof fake);
 		fake.max_buffers = 1;
@@ -909,7 +909,8 @@ int main(void)
 			  "single-buffer initialization");
 		CHECK(fake.buffers == 1, "single-buffer fallback acquired one buffer");
 		CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "single-buffer HOME");
-		CHECK(fake.dim == 1, "single-buffer fallback still dims with the COLOR layer");
+		CHECK(pixel_at(0, 0) == SYSTEM_OVERLAY_DIM_COLOR,
+			  "single-buffer fallback still bakes the dim");
 		int commits = fake.commit_calls;
 		int buffer = fake.buffer;
 		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0,
@@ -920,17 +921,18 @@ int main(void)
 		CHECK(fake.release_calls == 1, "single-buffer shutdown releases its buffer");
 	}
 
-	/* A backend that has only the panel double buffer is the normal case now:
-	 * the COLOR dim needs no third slot, so it still commits a dim layer. */
+	/* A backend with only the two full-screen buffers is the normal case:
+	 * both carry the dim and the panel, so there is no extra slot to fail. */
 	{
 		memset(&fake, 0, sizeof fake);
 		fake.max_buffers = SYSTEM_OVERLAY_PANEL_BUFFERS;
 		CHECK(SystemOverlay_initWithDisplay(&display, 1024, 768) == 0,
 			  "panel-only initialization");
 		CHECK(fake.buffers == SYSTEM_OVERLAY_PANEL_BUFFERS,
-			  "panel-only fallback keeps both panel buffers");
+			  "panel-only backend keeps both buffers");
 		CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "panel-only HOME");
-		CHECK(fake.dim == 1, "panel-only backend still commits the COLOR dim");
+		CHECK(pixel_at(0, 0) == SYSTEM_OVERLAY_DIM_COLOR,
+			  "panel-only backend still bakes the dim");
 		CHECK(fake.buffer == 0, "panel-only HOME uses the first buffer");
 		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "panel-only move");
 		CHECK(fake.buffer == 1, "panel-only fallback still flips buffers");

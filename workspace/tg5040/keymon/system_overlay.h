@@ -7,31 +7,32 @@
  * (channel 1 / layer 0). The display engine composites those layers over any
  * SDL app, and disabling them restores the untouched application frame.
  *
- * The overlay uses two layers on a UI channel of its own:
- *   - a full-screen LAYER_MODE_COLOR layer that paints uniform black at global
- *     alpha 140 (a 55% wash), and
- *   - a full-screen ARGB buffer layer with pixel alpha above it, which holds
- *     only the HOME panel or the hardware HUD pill.
+ * The overlay uses one full-screen ARGB BUFFER layer on a UI channel of its
+ * own. That single layer carries both the uniform dim and the HOME panel or
+ * HUD pill: pixels outside the panel are black at alpha 140, and the panel
+ * itself stays opaque. This mirrors the in-app UIOverlay path, which composites
+ * its dim and panel into one SDL surface before flipping, and that path is
+ * known to dim correctly on device.
+ *
+ * A separate COLOR dim layer was tried and is not used. The Brick Pro kept the
+ * layer enabled at ch2/lyr0/z17 with globl 140 and fill 0xFF000000, the kernel
+ * reported no disp errors, and the panel above it rendered, but the COLOR layer
+ * produced no visible wash in a third-party app. Baking the dim into the same
+ * buffer avoids COLOR-mode composition, a second layer, and the same-channel
+ * zorder interaction entirely.
  *
  * A UI channel is required: DE2 ignores the alpha of UI-format layers on a VI
  * channel. The channel sits above fb0's channel through its zorder (see
- * disp2_layer.h).
- *
- * The dim is a COLOR layer on purpose. The DE2 UI overlay takes a COLOR fill
- * from OVL_UI_FILL_COLOR, whose bits 31:24 are the fill alpha, and
- * de_rtmx_set_lay_fcolor() writes info.color verbatim on a UI channel. The fill
- * must therefore be opaque black (0xFF000000): with info.color=0x00000000 the
- * 0xFF fill alpha is missing and global alpha multiplies to zero, which is why
- * v2026.1118.3 showed no dim. Opaque black plus alpha_mode=GLOBAL/140 is a real
- * 55% uniform wash. It consumes no scanout buffer, so it also works when
- * DISP_MEM can only provide the panel buffers.
+ * disp2_layer.h). The one BUF layer uses per-pixel alpha, pre_multiply=false.
  *
  * The panel buffer is double buffered: the frame is drawn into the buffer the
  * display engine is not scanning, then presented by changing the layer address
- * in one DISP_LAYER_SET_CONFIG. The layers stay enabled for the whole HOME/HUD
- * session, so a selection move never disables or reconfigures the dim layer and
- * only the panel rectangle is cleared and drawn again. Navigation costs no CPU
- * for the dim.
+ * in one DISP_LAYER_SET_CONFIG. A full frame fills the whole buffer with the
+ * dim colour before drawing the opaque panel and chrome, so the dim is static.
+ * A selection move refills only the panel rectangle with the same dim colour
+ * (the rounded panel corners must still show dim) and redraws the panel; the
+ * rest of the buffer is untouched. Navigation therefore costs no full-screen
+ * clear or blend.
  */
 #ifndef NEXTUI_SYSTEM_OVERLAY_H
 #define NEXTUI_SYSTEM_OVERLAY_H
@@ -43,15 +44,22 @@
 extern "C" {
 #endif
 
-/* Scanout layout requested from the backend. The panel keeps its PR #69
- * double buffer. The dim is a COLOR layer and needs no scanout buffer, so a
- * backend only ever allocates panel buffers. */
+/* Scanout layout requested from the backend. The single full-screen buffer
+ * carries the dim and the panel, so two buffers are the complete double buffer
+ * and no extra dim slot or layer exists. */
 #define SYSTEM_OVERLAY_PANEL_BUFFERS 2
 #define SYSTEM_OVERLAY_SCANOUT_BUFFERS SYSTEM_OVERLAY_PANEL_BUFFERS
 
-/* The bottom hint bar has no background fill of its own: the uniform dim is
- * the only thing behind GFX_blitButtonGroup's opaque pills. A launcher-style
- * slab, even translucent, would read as a black band over the flat wash. */
+/* The dim baked into the panel buffer: opaque black RGB with the shared
+ * UIOverlay dim alpha. UI_OVERLAY_DIM_ALPHA is 140 (55%), and the pixel is
+ * therefore 0x8C000000 in ARGB8888. */
+#define SYSTEM_OVERLAY_DIM_ALPHA 140u
+#define SYSTEM_OVERLAY_DIM_COLOR (SYSTEM_OVERLAY_DIM_ALPHA << 24)
+
+/* The bottom hint bar has no background fill of its own: the dim baked into the
+ * panel buffer is the only thing behind GFX_blitButtonGroup's opaque pills. A
+ * launcher-style slab, even translucent, would read as a black band over the
+ * flat wash. */
 
 typedef enum
 {
@@ -74,17 +82,15 @@ typedef enum
 /*
  * Display backend. acquire allocates up to count scanout buffers of size bytes
  * each and returns how many it got (1..count, or 0 on failure). The renderer
- * asks for SYSTEM_OVERLAY_SCANOUT_BUFFERS, which are all panel buffers: the
- * double buffer it flips between. A backend that returns fewer buffers still
- * works: all returned buffers are panel buffers and every frame redraws in
- * place. The dim is not one of them; it is a bufferless COLOR layer.
+ * asks for SYSTEM_OVERLAY_SCANOUT_BUFFERS: the full-screen buffers that carry
+ * both the dim and the panel. A backend that returns fewer buffers still works:
+ * every frame redraws in place. There is no separate dim buffer or layer.
  *
- * commit enables or disables the layers, positions width x height of the named
- * panel buffer on screen, and is called once per visual update. dim selects the
- * flat COLOR dim layer for this frame (HOME yes, HUD no). A backend that
- * supports two panel buffers presents them by changing the panel layer address
- * in one config commit; the layers themselves stay enabled. The test harness
- * supplies a malloc-backed backend with the same layout.
+ * commit enables or disables the one panel layer, positions width x height of
+ * the named buffer on screen, and is called once per visual update. A backend
+ * that supports two buffers presents them by changing the layer address in one
+ * config commit; the layer itself stays enabled. The test harness supplies a
+ * malloc-backed backend with the same layout.
  */
 typedef struct
 {
@@ -97,7 +103,7 @@ typedef struct
 	void* user;
 	int (*acquire)(void* user, size_t size, int count, SystemOverlayBuffer* buffers);
 	void (*release)(void* user, SystemOverlayBuffer* buffers, int count, size_t size);
-	int (*commit)(void* user, int enabled, int dim, int buffer, int screen_x, int screen_y,
+	int (*commit)(void* user, int enabled, int buffer, int screen_x, int screen_y,
 				  int width, int height, int buffer_width, int buffer_height);
 } SystemOverlayDisplay;
 
