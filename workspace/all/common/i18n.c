@@ -240,6 +240,14 @@ static const I18nEntry zhTable[] = {
     {"Bypasses the stock shutdown procedure to avoid the \"limbo bug\".\nInstructs the PMIC directly to soft disconnect the battery.", "绕过原厂关机流程以避免“limbo bug”，直接指示 PMIC 软断开电池。"},
     {"Keep awake over USB", "USB 连接时保持唤醒"},
     {"Prevent screen-off and sleep while connected to a\ncomputer as a USB device (not just charging).", "作为 USB 设备连接电脑时（不仅是充电）防止息屏和休眠。"},
+    {"Network debugging", "网络调试"},
+    {"Serve read-only logs and device state to a browser on the\nsame network. Turns off automatically.", "在局域网浏览器中查看只读日志与设备状态，超时后自动关闭。"},
+    {"Debug URL", "调试地址"},
+    {"Open this address in a browser on the same network.", "在同一网络的浏览器中打开此地址。"},
+    {"Debug token", "调试令牌"},
+    {"The token required by the debug URL.", "调试地址所需的令牌。"},
+    {"Auto-off", "自动关闭"},
+    {"Time remaining before network debugging turns off.", "网络调试关闭前的剩余时间。"},
     {"Fan Speed", "风扇转速"},
     // Halfwidth parens here: the key ends in "%)", and the i18n test requires the
     // zh value to carry the same printf signature, so the ")" must stay ASCII.

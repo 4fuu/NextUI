@@ -217,3 +217,65 @@ Keep a second shell for `nextdev ... subscribe` and the devserv log.
 3. Battery: percent/charging/USB must match the status pill and a charger
    plug/unplug. A missing or out-of-range platform value must appear as
    `available:false` with `detail`, never as 0 % or 100 %.
+
+## Network debugging acceptance (Brick Pro, tg5040)
+
+Target: tg5040 with Wi-Fi connected. Host tests cover the HTTP contract; this
+checklist is the physical LAN and lifecycle pass. The tool is read-only: no step
+here may change a setting, kill an app, or send input.
+
+1. **Default off, zero processes.** Fresh boot, without opening Settings:
+   `ps | grep netdebug` must be empty and `curl` to port 8686 must fail. The
+   launcher, keymon, devserv and overlay must behave exactly as before.
+2. **Enable.** Settings → System → Network debugging → On. Within about a
+   second the row says `On`, `Debug URL` shows
+   `http://<lan-ip>:8686/?token=`, `Debug token` shows the 32-hex token, and
+   `Auto-off` counts down from `15:00`. The browser URL is those two values
+   joined with no space. `ps` shows exactly one `netdebug.elf`; no `python` or
+   helper shell is needed.
+3. **LAN-only bind.** On the device, `netstat -ltn` (or `ss -ltn`) must show the
+   listener on the device's LAN address, not `0.0.0.0` and not `127.0.0.1`
+   only. From a phone/computer on the same Wi-Fi, open the URL.
+4. **Token enforcement.** Open the URL without the token or with one character
+   changed: expect `403`. Open it with the full URL from Settings: the
+   dashboard appears. `curl -H "X-Netdebug-Token: <token>"` must also work.
+5. **Dashboard.** Confirm the page is self-contained (no network asset
+   requests) and the tabs show:
+   - Logs: keymon, devserv, nextui.txt, Moonlight.txt/WiliWili.txt if present,
+     suspend;
+   - Display layer: the live `/sys/class/disp/disp/attr/sys` text;
+   - Session: `overlay_host`, active app and session id from
+     `nextdev session-status`;
+   - Processes: busybox `ps`, with nextui/keymon/devserv/Moonlight/WiliWili
+     highlighted;
+   - Device: version, battery percent/status, USB online, Wi-Fi state,
+     `/sys/power/wake_lock`, power state.
+6. **Startup data.** While Moonlight is streaming, the session endpoint must
+   report the app and overlay host, the processes tab must show Moonlight, and
+   the display tab must show the current disp layers. Starting/stopping the
+   debug server must not disturb the stream, keymon input, or the overlay.
+7. **Toggle off.** Set Network debugging to Off. Within about a second `ps`
+   must show no `netdebug.elf`, the URL/auto-off rows must be empty, and the
+   browser must stop getting responses. Reopen Settings: the toggle is still
+   `Off` and `minuisettings.txt` contains `netdebug=0`.
+8. **Auto-off.** Enable again, leave Settings, and wait for the countdown. At
+   the deadline the server must exit by itself; `ps` is empty and the dashboard
+   is unreachable. Reopen Settings: the toggle is `Off` and the URL row is
+   empty. Repeat with the device suspended for part of the interval and note
+   whether the session ends promptly on wake.
+9. **No LAN address.** Disable Wi-Fi, then try to enable Network debugging.
+   The toggle must return to `Off` rather than staying on with a dead URL;
+   `$LOGS_PATH/netdebug.txt` must contain
+   `no private LAN IPv4 address`. Reconnect Wi-Fi and confirm enable works
+   again.
+10. **Reboot/stale state.** Enable, then power-cycle without toggling off.
+    After boot the server must not run and Settings must report `Off`. Toggling
+    on again must generate a different token.
+11. **Coexistence and logs.** Confirm `$LOGS_PATH/netdebug.txt` records the
+    listening URL, timeout and stop reason. Confirm devserv/keymon logs and the
+    overlay are unchanged, and that reading logs from the dashboard does not
+    truncate or modify them.
+
+Report: the bind address and port from `netstat`, the token rejection status,
+one photo of the dashboard (English and Chinese Settings rows), `ps` before and
+after auto-off, and whether the countdown matched the server exit time.

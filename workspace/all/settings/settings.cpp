@@ -11,6 +11,7 @@ extern "C"
 
 #include <csignal>
 #include <cstdlib>
+#include <ctime>
 #include <dirent.h>
 #include <fstream>
 #include <memory>
@@ -30,6 +31,11 @@ extern "C"
 #include "sysupdatemenu.hpp"
 #include "appinstallmenu.hpp"
 #include "toolrunner.hpp"
+
+extern "C"
+{
+#include "netdebug_control.h"
+}
 
 #define BUSYBOX_STOCK_VERSION "1.27.2"
 
@@ -153,6 +159,24 @@ static std::vector<std::string> translateLabels(const std::vector<std::string>& 
 }
 
 static const std::vector<std::string> on_off = {"Off", "On"};
+
+// The full URL with a 32-character token is wider than the Fixed row value
+// area on a 1024px panel, so the System page shows the address prefix and the
+// token as two adjacent rows. The prefix keeps "?token=" visible.
+static std::string netDebugUrlPrefix()
+{
+    char url[512];
+    if (NETDEBUG_getUrl(url, sizeof url) != 0) return "";
+    char *token = strstr(url, "?token=");
+    if (token != nullptr) token[7] = '\0';
+    return std::string(url);
+}
+
+static std::string netDebugTokenValue()
+{
+    if (!NETDEBUG_isRunning()) return "";
+    return std::string(CFG_getNetDebugToken());
+}
 
 static const std::vector<std::string> scaling_strings = {"Fullscreen", "Fit", "Fill"};
 static const std::vector<std::any> scaling = {(int)GFX_SCALE_FULLSCREEN, (int)GFX_SCALE_FIT, (int)GFX_SCALE_FILL};
@@ -621,6 +645,21 @@ int main(int argc, char *argv[])
 
         auto displayMenu = new MenuList(MenuItemType::Fixed, TR("Display"), displayItems);
 
+        // Kept so the one-second refresh below can re-read the live state: the
+        // server clears the persisted flag when its timeout expires. The URL
+        // row's hint carries the full token URL when selected, while the row
+        // value stays split so it cannot overlap the label on a 1024px panel.
+        MenuItem* netDebugToggle = nullptr;
+        StaticMenuItem* netDebugUrlItem = nullptr;
+        auto refreshNetDebugHint = [&]() {
+            if (netDebugUrlItem == nullptr) return;
+            std::string prefix = netDebugUrlPrefix();
+            if (!prefix.empty())
+                netDebugUrlItem->setDesc(prefix + "\n" + netDebugTokenValue());
+            else
+                netDebugUrlItem->setDesc(TR("Open this address in a browser on the same network."));
+        };
+
         std::vector<AbstractMenuItem*> systemItems = {
             new MenuItem{ListItemType::Generic, TR("Volume"), TR("Speaker volume"),
             {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20},
@@ -691,6 +730,44 @@ int main(int argc, char *argv[])
                 [](const std::any &value) { CFG_setKeepAwakeWhenUSB(std::any_cast<bool>(value)); },
                 []() { CFG_setKeepAwakeWhenUSB(CFG_DEFAULT_KEEPAWAKEWHENUSB); }}
             );
+        }
+
+        if(deviceInfo.hasWifi())
+        {
+            netDebugToggle = new MenuItem{ListItemType::Generic, TR("Network debugging"), TR("Serve read-only logs and device state to a browser on the\nsame network. Turns off automatically."), {false, true}, on_off_tr,
+                []() -> std::any { return NETDEBUG_isRunning() != 0; },
+                [&](const std::any &value) {
+                    if (std::any_cast<bool>(value)) (void)NETDEBUG_enable();
+                    else (void)NETDEBUG_disable();
+                    // A failed start (no LAN address, port busy) must not leave
+                    // the row showing On, and turning off must not leave the
+                    // previous token URL in the hint.
+                    if (netDebugToggle != nullptr) netDebugToggle->reselect();
+                    refreshNetDebugHint();
+                    ctx.dirty = 1;
+                },
+                [&]() {
+                    NETDEBUG_reset();
+                    if (netDebugToggle != nullptr) netDebugToggle->reselect();
+                    refreshNetDebugHint();
+                    ctx.dirty = 1;
+                }};
+            systemItems.push_back(netDebugToggle);
+            netDebugUrlItem = new StaticMenuItem{ListItemType::Generic, TR("Debug URL"), TR("Open this address in a browser on the same network."),
+                []() -> std::any { return netDebugUrlPrefix(); }};
+            systemItems.push_back(netDebugUrlItem);
+            systemItems.push_back(
+                new StaticMenuItem{ListItemType::Generic, TR("Debug token"), TR("The token required by the debug URL."),
+                []() -> std::any { return netDebugTokenValue(); }});
+            systemItems.push_back(
+                new StaticMenuItem{ListItemType::Generic, TR("Auto-off"), TR("Time remaining before network debugging turns off."),
+                []() -> std::any {
+                    int remaining = NETDEBUG_remainingSeconds();
+                    if (remaining < 0) return std::string("");
+                    char text[32];
+                    snprintf(text, sizeof text, "%d:%02d", remaining / 60, remaining % 60);
+                    return std::string(text);
+                }});
         }
 
         if(deviceInfo.hasActiveCooling())
@@ -958,6 +1035,29 @@ int main(int argc, char *argv[])
             ctx.menu->handleInput(ctx.dirty, appQuit);
 
             PWR_update(&ctx.dirty, &ctx.show_setting, nullptr, nullptr);
+
+            // The debug session is short-lived and the countdown/URL rows are
+            // live readings. Only tick while the toggle is on; when it is off
+            // this costs nothing (the server itself is not running either).
+            if (netDebugToggle != nullptr && CFG_getNetDebugEnabled())
+            {
+                static time_t lastNetDebugTick = 0;
+                time_t now = time(NULL);
+                if (now != lastNetDebugTick)
+                {
+                    lastNetDebugTick = now;
+                    if (!NETDEBUG_isRunning())
+                    {
+                        // The server timed out (or a reboot left a stale flag).
+                        // Drop it from memory too, so a later settings change
+                        // cannot write the dead session back to disk.
+                        CFG_setNetDebugState(false, "", 0);
+                    }
+                    netDebugToggle->reselect();
+                    refreshNetDebugHint();
+                    ctx.dirty = 1;
+                }
+            }
 
             int is_online = PWR_isOnline();
             if (was_online!=is_online)
