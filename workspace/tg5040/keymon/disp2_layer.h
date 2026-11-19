@@ -21,11 +21,12 @@
 //     layers therefore needs a UI channel.
 //   - A COLOR-mode layer on a UI channel gets its fill from
 //     OVL_UI_FILL_COLOR, whose bits 31:24 are the fill alpha (DE2.0 spec
-//     5.10.8.7), and de_rtmx_set_lay_fcolor() writes info.color verbatim there.
-//     v2026.1118.3 configured a black fill at alpha_mode=GLOBAL, alpha_value=140
-//     and color=0x00000000, and the Brick Pro showed no dim at all: the fill is
-//     fully transparent. Put the dim in an ARGB buffer layer (pixel alpha),
-//     which is also the only way to express the top-to-bottom gradient.
+//     5.10.8.7), and de_rtmx_set_lay_fcolor() writes info.color verbatim there
+//     (`ui_lay_cfg[layno].lay_fcolor.dwval = en ? color : 0`). A black fill at
+//     alpha_mode=GLOBAL/alpha_value=140 is therefore only visible when the
+//     color word is opaque: v2026.1118.3 used color=0x00000000 and the Brick
+//     Pro showed no dim at all. The system overlay uses 0xFF000000 plus global
+//     140 for a bufferless 55% uniform wash.
 #ifndef NEXTUI_DISP2_LAYER_H
 #define NEXTUI_DISP2_LAYER_H
 

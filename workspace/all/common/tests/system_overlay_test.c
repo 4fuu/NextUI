@@ -7,13 +7,14 @@
  * GFX_blitHardwareIndicator's top-right pill. A reference surface is rendered
  * with the same GFX calls and the overlay's opaque pixels must match it.
  *
- * It also inspects the ARGB buffers themselves: the static dim buffer must hold
- * a black top-to-bottom alpha ramp (lighter at the top), the panel must stay
- * opaque, HUD corners must be fully transparent, and a selection move or
- * HOME/HUD switch must present the other buffer without disabling the layer.
- * The gradient is written once at init: navigation must never repaint it, and
- * the hint bar paints no background of its own, so only the opacity of its pills
- * separates it from the gradient.
+ * It also inspects the ARGB buffers themselves: the panel must stay opaque,
+ * HUD corners must be fully transparent, and a selection move or HOME/HUD
+ * switch must present the other buffer without disabling the layer. The dim is
+ * a bufferless COLOR layer (opaque black fill, global alpha 140 = 55%), so the
+ * backend must allocate only the two panel buffers: a driver that cannot give a
+ * third DISP_MEM slot still gets a dim. The dim is configured once: navigation
+ * must never repaint or reconfigure it, and the hint bar paints no background
+ * of its own, so only the opacity of its pills separates it from the wash.
  *
  * No /dev/disp, SDL window, evdev node or device is touched.
  */
@@ -74,6 +75,7 @@ typedef struct
 	uint32_t canary[SYSTEM_OVERLAY_SCANOUT_BUFFERS][16];
 	int buffers;
 	int max_buffers;
+	int requested;
 	int acquire_calls;
 	int release_calls;
 	int commit_calls;
@@ -97,6 +99,7 @@ static int fake_acquire(void* user, size_t size, int count, SystemOverlayBuffer*
 
 	display->acquire_calls++;
 	if (count > SYSTEM_OVERLAY_SCANOUT_BUFFERS) count = SYSTEM_OVERLAY_SCANOUT_BUFFERS;
+	display->requested = count;
 	if (display->max_buffers > 0 && count > display->max_buffers)
 		count = display->max_buffers;
 	for (int i = 0; i < count; i++)
@@ -442,8 +445,8 @@ static void production_backend_test(void)
 	CHECK(SystemOverlay_init(1024, 768) == 0, "production backend initialize");
 	CHECK(SystemOverlay_available(), "production overlay available");
 	CHECK(fake_disp.get_calls > 0, "production backend read fb0's layer config");
-	CHECK(fake_disp.alloc_calls == SYSTEM_OVERLAY_SCANOUT_BUFFERS,
-		  "production backend allocated the panel and dim scanout slots");
+	CHECK(fake_disp.alloc_calls == SYSTEM_OVERLAY_PANEL_BUFFERS,
+		  "production backend allocates only the two panel scanout slots");
 
 	PWR_setBatteryStatus(1, 82);
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "production HOME render");
@@ -457,15 +460,20 @@ static void production_backend_test(void)
 	CHECK(dim.channel != (unsigned int)fake_disp.fb0_channel, "overlay does not reuse fb0's channel");
 	CHECK(dim.info.zorder > fake_disp.fb0_zorder, "overlay zorder is strictly above fb0's");
 	CHECK(dim.layer_id < panel.layer_id, "panel layer is above the dim layer");
-	CHECK(dim.info.mode == LAYER_MODE_BUFFER, "dim is a buffer layer with the gradient");
-	CHECK(dim.info.alpha_mode == DISP_ALPHA_MODE_PIXEL, "dim uses the gradient's pixel alpha");
-	CHECK(dim.info.fb.pre_multiply == false, "dim keeps straight (unpremultiplied) alpha");
-	CHECK(dim.info.fb.addr[0] == 0x40800000ULL,
-		  "dim layer points at the static gradient scanout buffer");
-	CHECK(dim.info.fb.size[0].width == 1024 && dim.info.fb.size[0].height == 768,
-		  "dim gradient buffer is full screen");
+	CHECK(dim.info.mode == LAYER_MODE_COLOR, "dim is a flat COLOR layer, not a scanout buffer");
+	CHECK(dim.info.alpha_mode == DISP_ALPHA_MODE_GLOBAL, "dim uses global alpha");
+	CHECK(dim.info.alpha_value == UI_OVERLAY_DIM_ALPHA && dim.info.alpha_value == 140,
+		  "dim is the shared 55% alpha");
+	CHECK(dim.info.color == 0xFF000000u,
+		  "COLOR fill is opaque black; a zero alpha word is the invisible regression");
+	/* info.color shares its union storage with fb.addr[0], so the color word
+	 * appears there; COLOR mode fetches no image and ignores the address. */
+	CHECK(dim.info.fb.addr[0] != 0x40000000ULL && dim.info.fb.addr[0] != 0x40400000ULL,
+		  "dim COLOR layer does not point at a panel scanout buffer");
 	CHECK(dim.info.screen_win.width == 1024 && dim.info.screen_win.height == 768,
 		  "dim covers the whole screen");
+	printf("dim layer: COLOR fill 0xFF000000, global alpha %u (55%%), no scanout address\n",
+		   (unsigned)dim.info.alpha_value);
 	CHECK(panel.info.mode == LAYER_MODE_BUFFER, "panel is a buffer layer");
 	CHECK(panel.info.alpha_mode == DISP_ALPHA_MODE_PIXEL, "panel keeps per-pixel alpha");
 	CHECK(panel.info.screen_win.width == 1024 && panel.info.screen_win.height == 768,
@@ -500,8 +508,9 @@ static void production_backend_test(void)
 
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "production HOME after HUD");
 	CHECK(fake_disp.last_count == 2 && fake_disp.last[0].enable &&
-			  fake_disp.last[0].info.mode == LAYER_MODE_BUFFER,
-		  "HOME re-enables the gradient dim layer");
+			  fake_disp.last[0].info.mode == LAYER_MODE_COLOR &&
+			  fake_disp.last[0].info.color == 0xFF000000u,
+		  "HOME re-enables the opaque-black COLOR dim layer");
 
 	SystemOverlay_hide();
 	CHECK(!SystemOverlay_visible(), "production hide");
@@ -545,9 +554,9 @@ static int show_home_and_check(void)
 	CHECK(mismatches == 0, "HOME battery matches GFX_blitHardwareGroup");
 	SDL_FreeSurface(reference);
 
-	/* The dim is its own static gradient buffer now: the panel scanout buffer
-	 * must stay fully transparent where the app should show through. */
-	CHECK(fake.dim == 1, "HOME commits the gradient dim layer");
+	/* The dim is the backend's COLOR layer: the panel scanout buffer must stay
+	 * fully transparent where the app should show through. */
+	CHECK(fake.dim == 1, "HOME commits the flat COLOR dim layer");
 	/* A software dim wash would paint all of this, starting at the corner. */
 	CHECK((pixel_at(0, 0) >> 24) == 0, "HOME leaves the app area transparent");
 	CHECK(count_opaque_outside_chrome() == 0,
@@ -625,47 +634,18 @@ int main(void)
 	CHECK(SystemOverlay_initWithDisplay(&display, 1024, 768) == 0, "overlay initialization");
 	CHECK(SystemOverlay_available(), "overlay reports available");
 	CHECK(fake.acquire_calls == 1, "one acquire call for the scanout buffers");
-	CHECK(fake.buffers == SYSTEM_OVERLAY_SCANOUT_BUFFERS,
-		  "two panel buffers plus the static dim buffer acquired");
+	CHECK(fake.requested == SYSTEM_OVERLAY_PANEL_BUFFERS &&
+			  fake.buffers == SYSTEM_OVERLAY_PANEL_BUFFERS,
+		  "the backend is asked for only the two panel buffers");
+	CHECK(SYSTEM_OVERLAY_SCANOUT_BUFFERS == SYSTEM_OVERLAY_PANEL_BUFFERS,
+		  "the dim needs no extra scanout slot");
 	SystemOverlay_pixels(&width, &height);
 	CHECK(width == 1024 && height == 768, "scanout buffer has the screen geometry");
 
-	/* The dim is a static ARGB buffer, not a flat COLOR layer: black RGB with a
-	 * top-to-bottom alpha ramp, darker at the bottom. It must exist before the
-	 * first frame and must not be a uniform wash. */
-	{
-		const uint32_t* dim = (const uint32_t*)fake.pixels[SYSTEM_OVERLAY_DIM_BUFFER];
-		int previous = -1;
-		int monotonic = 1;
-		int uniform = 1;
-		int black = 1;
-
-		CHECK(dim != NULL, "gradient dim buffer is allocated");
-		if (dim)
-		{
-			CHECK((dim[0] >> 24) == SYSTEM_OVERLAY_DIM_TOP_ALPHA,
-				  "gradient dim starts at the top alpha");
-			CHECK((dim[(height - 1) * width] >> 24) == SYSTEM_OVERLAY_DIM_BOTTOM_ALPHA,
-				  "gradient dim ends at the bottom alpha");
-			CHECK(SYSTEM_OVERLAY_DIM_TOP_ALPHA < SYSTEM_OVERLAY_DIM_BOTTOM_ALPHA,
-				  "gradient dim top is lighter than the bottom");
-			for (int y = 0; y < height; y++)
-			{
-				uint32_t value = dim[y * width];
-				int alpha = (int)(value >> 24);
-				if (alpha < previous) monotonic = 0;
-				if ((value & 0x00FFFFFFu) != 0) black = 0;
-				if (dim[y * width + width - 1] != value) uniform = 0;
-				previous = alpha;
-			}
-			CHECK(monotonic, "gradient dim alpha only increases towards the bottom");
-			CHECK(uniform, "gradient dim fills every row edge to edge");
-			CHECK(black, "gradient dim RGB stays black");
-			printf("dim gradient: alpha %d at the top -> %d at the bottom, black RGB, "
-				   "%d bytes rendered once at init\n",
-				   (int)(dim[0] >> 24), (int)(dim[(height - 1) * width] >> 24), fake.size);
-		}
-	}
+	/* The dim is a bufferless COLOR layer. Only the renderer's own transparent
+	 * panel buffers exist, so there is no dim image to inspect or repaint. */
+	for (int i = 0; i < SYSTEM_OVERLAY_SCANOUT_BUFFERS; i++)
+		CHECK(fake.pixels[i] != NULL, "panel scanout buffer is allocated");
 
 	PWR_setBatteryStatus(1, 82);
 
@@ -775,8 +755,8 @@ int main(void)
 	CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "HOME render after device actions");
 
 	/* The bottom hint bar is outside the panel and uses the launcher's button
-	 * primitives, but paints no background: the gradient dim is the only thing
-	 * behind the pills, so the bar reads as part of the ramp instead of a black
+	 * primitives, but paints no background: the uniform dim is the only thing
+	 * behind the pills, so the bar reads as part of the wash instead of a black
 	 * band. Every label sits on its own opaque pill, so contrast is unaffected. */
 	{
 		int bottom = 0;
@@ -795,11 +775,11 @@ int main(void)
 			}
 		}
 		CHECK(bottom > 1000, "bottom hint bar pills are drawn at the screen bottom");
-		CHECK(!backdrop, "hint bar paints no background over the gradient");
+		CHECK(!backdrop, "hint bar paints no background over the uniform dim");
 		CHECK((pixel_at(0, fake.height - 1) >> 24) == 0,
-			  "the gradient shows through at the bottom-left corner");
+			  "the dim shows through at the bottom-left corner");
 		CHECK((pixel_at(fake.width - 1, fake.height - 1) >> 24) == 0,
-			  "the gradient shows through at the bottom-right corner");
+			  "the dim shows through at the bottom-right corner");
 	}
 
 	/* HOME -> HUD keeps the layer enabled and flips the finished HUD frame. It
@@ -885,30 +865,18 @@ int main(void)
 		CHECK(fake.buffer != buffer, "HUD to HOME flips to the other scanout buffer");
 	}
 
-	/* The gradient is static: it is painted once at init, so navigation must
-	 * never rewrite it. Scribble over the dim buffer, drive panel-only moves,
-	 * and prove the renderer leaves the bytes exactly as it found them. */
+	/* The dim is a COLOR layer with no scanout image, so navigation must not
+	 * need another DISP_MEM slot and must not disable/re-enable the layer. */
 	{
-		unsigned char* bytes = (unsigned char*)fake.pixels[SYSTEM_OVERLAY_DIM_BUFFER];
-		int repainted = 0;
+		int acquires = fake.acquire_calls;
+		int dim_calls = fake.dim_calls;
 
-		CHECK(bytes != NULL, "gradient dim buffer is still allocated");
-		if (bytes)
-		{
-			memset(bytes, 0xA5, fake.size);
-			CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "gradient sentinel move down");
-			CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_UP) == 0, "gradient sentinel move up");
-			CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "gradient sentinel HOME");
-			for (size_t i = 0; i < fake.size; i++)
-			{
-				if (bytes[i] != 0xA5)
-				{
-					repainted = 1;
-					break;
-				}
-			}
-			CHECK(!repainted, "the gradient dim is rendered once, never per navigation");
-		}
+		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "dim check move down");
+		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_UP) == 0, "dim check move up");
+		CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "dim check HOME");
+		CHECK(fake.acquire_calls == acquires, "navigation never asks for another scanout slot");
+		CHECK(fake.dim == 1 && fake.dim_calls == dim_calls,
+			  "navigation keeps the COLOR dim configured");
 	}
 
 	SystemOverlay_hide();
@@ -931,7 +899,9 @@ int main(void)
 	CHECK(!SystemOverlay_available(), "shutdown clears availability");
 
 	/* If the driver can only give one buffer, keep drawing in place instead of
-	 * failing: the same buffer is committed until the layer is disabled. */
+	 * failing: the same buffer is committed until the layer is disabled. The
+	 * bufferless COLOR dim still works, which is the third-party case PR #71
+	 * lost when the third DISP_MEM slot was unavailable. */
 	{
 		memset(&fake, 0, sizeof fake);
 		fake.max_buffers = 1;
@@ -939,7 +909,7 @@ int main(void)
 			  "single-buffer initialization");
 		CHECK(fake.buffers == 1, "single-buffer fallback acquired one buffer");
 		CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "single-buffer HOME");
-		CHECK(fake.dim == 0, "single-buffer fallback has no gradient buffer to dim with");
+		CHECK(fake.dim == 1, "single-buffer fallback still dims with the COLOR layer");
 		int commits = fake.commit_calls;
 		int buffer = fake.buffer;
 		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0,
@@ -950,8 +920,8 @@ int main(void)
 		CHECK(fake.release_calls == 1, "single-buffer shutdown releases its buffer");
 	}
 
-	/* A backend with room for the panel double buffer but not the gradient
-	 * still runs the overlay: it just commits without a dim layer. */
+	/* A backend that has only the panel double buffer is the normal case now:
+	 * the COLOR dim needs no third slot, so it still commits a dim layer. */
 	{
 		memset(&fake, 0, sizeof fake);
 		fake.max_buffers = SYSTEM_OVERLAY_PANEL_BUFFERS;
@@ -960,7 +930,7 @@ int main(void)
 		CHECK(fake.buffers == SYSTEM_OVERLAY_PANEL_BUFFERS,
 			  "panel-only fallback keeps both panel buffers");
 		CHECK(SystemOverlay_showHome("Moonlight.pak") == 0, "panel-only HOME");
-		CHECK(fake.dim == 0, "panel-only fallback commits no dim layer");
+		CHECK(fake.dim == 1, "panel-only backend still commits the COLOR dim");
 		CHECK(fake.buffer == 0, "panel-only HOME uses the first buffer");
 		CHECK(SystemOverlay_input(SYSTEM_OVERLAY_INPUT_DOWN) == 0, "panel-only move");
 		CHECK(fake.buffer == 1, "panel-only fallback still flips buffers");

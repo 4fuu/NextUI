@@ -36,7 +36,6 @@ typedef struct
 	SDL_Surface* screens[SYSTEM_OVERLAY_SCANOUT_BUFFERS];
 	int buffer_count;
 	int scanout_count;
-	int dim_ready;
 	int draw_index;
 	int front_index;
 	Uint32 presented_at;
@@ -99,10 +98,10 @@ static int overlay_commit(int enabled, int dim)
 
 	int index = overlay.draw_index;
 	if (index < 0 || index >= overlay.buffer_count) index = 0;
-	/* dim asks for the gradient layer; without a gradient buffer the overlay
-	 * still works, it just cannot darken the app. */
-	int dim_layer = (dim && overlay.dim_ready) ? 1 : 0;
-	int result = overlay.display.commit(overlay.display.user, 1, dim_layer, index, 0, 0,
+	/* dim selects the flat COLOR layer. It needs no scanout buffer, so it is
+	 * available whenever the display backend is: a backend that could only
+	 * allocate one panel buffer still dims the app. */
+	int result = overlay.display.commit(overlay.display.user, 1, dim, index, 0, 0,
 										overlay.screen_width, overlay.screen_height,
 										overlay.screen_width, overlay.screen_height);
 	if (result == 0)
@@ -162,39 +161,11 @@ static SDL_Rect battery_rect(SDL_Surface* screen)
 }
 
 
-/* The gradient dim lives in its own scanout buffer and is painted once at init:
- * black RGB with a linear vertical alpha ramp, lighter at the top. Navigation
- * only repaints the panel buffer, so this costs no CPU after startup. */
-static void render_dim_gradient(SDL_Surface* screen)
-{
-	int stride;
-	uint32_t* pixels;
-	int span;
-
-	if (!screen || !screen->pixels || screen->w <= 0 || screen->h <= 0) return;
-	pixels = (uint32_t*)screen->pixels;
-	stride = (int)(screen->pitch / sizeof(uint32_t));
-	span = screen->h > 1 ? screen->h - 1 : 0;
-
-	for (int y = 0; y < screen->h; y++)
-	{
-		int alpha = SYSTEM_OVERLAY_DIM_TOP_ALPHA;
-		if (span > 0)
-			alpha += (SYSTEM_OVERLAY_DIM_BOTTOM_ALPHA - SYSTEM_OVERLAY_DIM_TOP_ALPHA) * y / span;
-		uint32_t value = (uint32_t)alpha << 24;
-		uint32_t* row = pixels + (size_t)y * (size_t)stride;
-		for (int x = 0; x < screen->w; x++) row[x] = value;
-	}
-}
-
 static void home_footer(SDL_Surface* screen)
 {
-	/* No background fill. The launcher paints an opaque THEME_COLOR7 slab, and
-	 * even a translucent version compounds with the gradient's darkest stop at
-	 * the bottom of the screen and reads as a black band. Leaving the strip
-	 * transparent makes the hint bar part of the gradient; every label already
-	 * sits on its own opaque GFX_blitButtonGroup pill, so contrast does not
-	 * depend on a bar behind it. */
+	/* No background fill. The uniform COLOR dim is the only thing behind the
+	 * hint bar; every label already sits on its own opaque GFX_blitButtonGroup
+	 * pill, so contrast does not depend on a bar behind it. */
 
 	/* Same GFX_blitButtonGroup primitives as the launcher's bottom bar. The
 	 * resident panel owns the key set, so it labels the actual d-pad/A/B/HOME
@@ -372,7 +343,7 @@ static UIOverlay* create_overlay(void)
 	if (ui)
 	{
 		UIOverlay_setFooterVisible(ui, 0);
-		/* The resident overlay dims with its own static gradient layer. */
+		/* The resident overlay dims with its own flat COLOR layer. */
 		UIOverlay_setDimVisible(ui, 0);
 	}
 	return ui;
@@ -623,28 +594,9 @@ int SystemOverlay_initWithDisplay(const SystemOverlayDisplay* display, int scree
 		overlay.buffer_count = 2;
 	}
 
-	/* The extra buffer is the static gradient dim. A backend that could not
-	 * give it still runs the panel; it just has nothing to dim with. */
-	if (count >= SYSTEM_OVERLAY_SCANOUT_BUFFERS)
-	{
-		overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER] = SDL_CreateRGBSurfaceWithFormatFrom(
-			overlay.buffers[SYSTEM_OVERLAY_DIM_BUFFER].pixels, screen_width, screen_height, 32,
-			screen_width * 4, SDL_PIXELFORMAT_ARGB8888);
-		if (!overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER])
-		{
-			fprintf(stderr, "system-overlay: dim buffer wrapper failed: %s\n", SDL_GetError());
-			SDL_FreeSurface(overlay.screens[1]);
-			overlay.screens[1] = NULL;
-			GFX_quitAttached();
-			overlay.screens[0] = NULL;
-			display->release(display->user, overlay.buffers, count, pixel_bytes);
-			return -1;
-		}
-		/* Rendered once here and never again: navigation repaints the panel
-		 * only, which is the PR #69 latency fix. */
-		render_dim_gradient(overlay.screens[SYSTEM_OVERLAY_DIM_BUFFER]);
-		overlay.dim_ready = 1;
-	}
+	/* The dim is a bufferless COLOR layer configured by the backend, so there
+	 * is nothing else to allocate or paint here even when the driver could
+	 * only provide one panel buffer. */
 
 	overlay.display = *display;
 	overlay.screen_width = screen_width;
@@ -688,7 +640,7 @@ const uint32_t* SystemOverlay_pixels(int* width, int* height)
 }
 
 /* ------------------------------------------------------------------------- */
-/* Production backend: gradient dim buffer + panel buffer on a UI channel
+/* Production backend: flat COLOR dim layer + panel buffer on a UI channel
  * above fb0 (channel 1 / layer 0).                                           */
 
 #define DISP_FB0_CHANNEL 1
@@ -977,8 +929,8 @@ static int layer_is_free(unsigned int channel, unsigned int layer)
 	return config.enable ? 0 : 1;
 }
 
-/* The gradient dim layer has to be below the panel buffer layer; layer3 is the
- * highest priority inside a channel, layer0 the lowest (DE2.0 spec 5.10.3.2). */
+/* The flat dim layer sits below the panel buffer layer; layer3 is the highest
+ * priority inside a channel, layer0 the lowest (DE2.0 spec 5.10.3.2). */
 static int plan_layers(void)
 {
 	unsigned int candidate;
@@ -1030,26 +982,27 @@ static void set_geometry(struct disp_layer_info* info, int x, int y, int width, 
 
 static void build_dim_layer(struct disp_layer_config* config, int enabled, int width, int height)
 {
-	int have_buffer = disp_backend.count > (int)SYSTEM_OVERLAY_DIM_BUFFER;
+	init_layer_config(config, disp_backend.dim_layer, enabled);
+	if (!enabled) return;
 
-	init_layer_config(config, disp_backend.dim_layer, enabled && have_buffer);
-	if (!enabled || !have_buffer) return;
-
-	/* Static ARGB buffer with the vertical alpha ramp, composited with pixel
-	 * alpha exactly like the panel. A COLOR-mode layer is deliberately not
-	 * used: OVL_UI_FILL_COLOR has its own alpha byte (DE2.0 spec 5.10.8.7,
-	 * bits 31:24) and de_rtmx_set_lay_fcolor() writes info.color verbatim on a
-	 * UI channel, so a 0x00000000 fill is fully transparent on the Brick Pro.
-	 * The panel layer already proves buffer pixel alpha works on this channel. */
-	config->info.mode = LAYER_MODE_BUFFER;
-	config->info.alpha_mode = DISP_ALPHA_MODE_PIXEL;
-	config->info.alpha_value = 0xff;
+	/* A COLOR layer is a full-screen fill with no image fetch and no scanout
+	 * buffer. The fill is opaque black: OVL_UI_FILL_COLOR carries its own
+	 * alpha in bits 31:24 (DE2.0 spec 5.10.8.7) and de_rtmx_set_lay_fcolor()
+	 * writes info.color verbatim on a UI channel
+	 * (`ui_lay_cfg[layno].lay_fcolor.dwval = en ? color : 0`). A 0x00000000
+	 * fill therefore multiplies global alpha by zero and is invisible, which
+	 * is the v2026.1118.3 no-dim regression. 0xFF000000 with global 140 is
+	 * the 55% uniform wash. */
+	config->info.mode = LAYER_MODE_COLOR;
+	config->info.alpha_mode = DISP_ALPHA_MODE_GLOBAL;
+	config->info.alpha_value = UI_OVERLAY_DIM_ALPHA;
+	config->info.color = 0xFF000000u;
 	set_geometry(&config->info, 0, 0, width, height);
-	config->info.fb.addr[0] = disp_backend.physical[SYSTEM_OVERLAY_DIM_BUFFER];
+	/* de_al_lyr_apply() reads fb.crop and the overlay size even for a colour
+	 * layer; the BSP's own disp_draw_colorbar() fills them the same way. No
+	 * image is fetched: info.color aliases the fb.addr[0] union word. */
 	config->info.fb.size[0].width = (unsigned int)width;
 	config->info.fb.size[0].height = (unsigned int)height;
-	/* SDL writes straight (unpremultiplied) alpha. */
-	config->info.fb.pre_multiply = false;
 }
 
 static void build_panel_layer(struct disp_layer_config* config, int enabled, int buffer, int x, int y,
@@ -1124,6 +1077,15 @@ static int set_layer(int enabled, int dim, int buffer, int x, int y, int width, 
 
 	if (first)
 	{
+		/* Device diagnostics: the kernel's own layer dump omits the fill
+		 * color word, so log it once. `cat /sys/class/disp/disp/attr/sys`
+		 * then shows the same layers as COLOR/BUF with a[globl 140]. */
+		fprintf(stderr,
+				"system-overlay: ch%u z%u dim lyr%u COLOR a[globl %u] fill 0x%08x; "
+				"panel lyr%u BUF\n",
+				disp_backend.channel, disp_backend.zorder, disp_backend.dim_layer,
+				UI_OVERLAY_DIM_ALPHA, 0xFF000000u, disp_backend.panel_layer);
+
 		build_dim_layer(&configs[count], dim, width, height);
 		count++;
 		build_panel_layer(&configs[count], 1, buffer, x, y, width, height, buffer_width,

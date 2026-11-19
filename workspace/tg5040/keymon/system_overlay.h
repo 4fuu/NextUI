@@ -8,9 +8,8 @@
  * SDL app, and disabling them restores the untouched application frame.
  *
  * The overlay uses two layers on a UI channel of its own:
- *   - a full-screen ARGB BUFFER layer that holds a static gradient dim: black
- *     with a vertical alpha ramp, lighter at the top and darker at the bottom,
- *     and
+ *   - a full-screen LAYER_MODE_COLOR layer that paints uniform black at global
+ *     alpha 140 (a 55% wash), and
  *   - a full-screen ARGB buffer layer with pixel alpha above it, which holds
  *     only the HOME panel or the hardware HUD pill.
  *
@@ -18,21 +17,21 @@
  * channel. The channel sits above fb0's channel through its zorder (see
  * disp2_layer.h).
  *
- * The dim is a buffer layer on purpose. A COLOR-mode layer looked cheaper, but
- * its OVL_UI_FILL_COLOR register carries its own alpha byte (bits 31:24) and
- * de_rtmx_set_lay_fcolor() writes info.color verbatim on a UI channel, so a
- * black fill with alpha 0 in the color word composites fully transparent: the
- * v2026.1118.3 Brick Pro build showed no dim at all. The panel layer already
- * proves that pixel alpha from an ARGB buffer is honoured on this channel, and
- * a buffer is also the only way to express a gradient.
+ * The dim is a COLOR layer on purpose. The DE2 UI overlay takes a COLOR fill
+ * from OVL_UI_FILL_COLOR, whose bits 31:24 are the fill alpha, and
+ * de_rtmx_set_lay_fcolor() writes info.color verbatim on a UI channel. The fill
+ * must therefore be opaque black (0xFF000000): with info.color=0x00000000 the
+ * 0xFF fill alpha is missing and global alpha multiplies to zero, which is why
+ * v2026.1118.3 showed no dim. Opaque black plus alpha_mode=GLOBAL/140 is a real
+ * 55% uniform wash. It consumes no scanout buffer, so it also works when
+ * DISP_MEM can only provide the panel buffers.
  *
- * The gradient is rendered once into its own scanout buffer at init and never
- * touched again, so navigation costs no CPU for the dim. The panel buffer is
- * double buffered: the frame is drawn into the buffer the display engine is not
- * scanning, then presented by changing the layer address in one
- * DISP_LAYER_SET_CONFIG. The layers stay enabled for the whole HOME/HUD
+ * The panel buffer is double buffered: the frame is drawn into the buffer the
+ * display engine is not scanning, then presented by changing the layer address
+ * in one DISP_LAYER_SET_CONFIG. The layers stay enabled for the whole HOME/HUD
  * session, so a selection move never disables or reconfigures the dim layer and
- * only the panel rectangle is cleared and drawn again.
+ * only the panel rectangle is cleared and drawn again. Navigation costs no CPU
+ * for the dim.
  */
 #ifndef NEXTUI_SYSTEM_OVERLAY_H
 #define NEXTUI_SYSTEM_OVERLAY_H
@@ -45,24 +44,14 @@ extern "C" {
 #endif
 
 /* Scanout layout requested from the backend. The panel keeps its PR #69
- * double buffer; the gradient dim is one extra static buffer. */
+ * double buffer. The dim is a COLOR layer and needs no scanout buffer, so a
+ * backend only ever allocates panel buffers. */
 #define SYSTEM_OVERLAY_PANEL_BUFFERS 2
-#define SYSTEM_OVERLAY_DIM_BUFFER SYSTEM_OVERLAY_PANEL_BUFFERS
-#define SYSTEM_OVERLAY_SCANOUT_BUFFERS (SYSTEM_OVERLAY_PANEL_BUFFERS + 1)
+#define SYSTEM_OVERLAY_SCANOUT_BUFFERS SYSTEM_OVERLAY_PANEL_BUFFERS
 
-/*
- * Gradient dim stops: black RGB with a vertical alpha ramp, lighter at the top
- * so the header keeps some of the app visible and darker at the bottom so the
- * panel and the hint bar read well. The ramp is linear between the two stops
- * and is rendered once into the static dim buffer, never per frame.
- */
-#define SYSTEM_OVERLAY_DIM_TOP_ALPHA 56
-#define SYSTEM_OVERLAY_DIM_BOTTOM_ALPHA 160
-
-/* The bottom hint bar has no background fill of its own: the gradient dim is
+/* The bottom hint bar has no background fill of its own: the uniform dim is
  * the only thing behind GFX_blitButtonGroup's opaque pills. A launcher-style
- * slab, even translucent, compounds with the gradient's darkest stop at the
- * bottom of the screen and reads as a black band. */
+ * slab, even translucent, would read as a black band over the flat wash. */
 
 typedef enum
 {
@@ -85,20 +74,17 @@ typedef enum
 /*
  * Display backend. acquire allocates up to count scanout buffers of size bytes
  * each and returns how many it got (1..count, or 0 on failure). The renderer
- * asks for SYSTEM_OVERLAY_SCANOUT_BUFFERS: the first
- * SYSTEM_OVERLAY_PANEL_BUFFERS are the double-buffered panel, and the last one
- * (SYSTEM_OVERLAY_DIM_BUFFER) holds the static gradient dim, which the renderer
- * paints once at init and never touches again. A backend that returns fewer
- * buffers still works: all returned buffers are then panel buffers and the
- * overlay commits without a dim.
+ * asks for SYSTEM_OVERLAY_SCANOUT_BUFFERS, which are all panel buffers: the
+ * double buffer it flips between. A backend that returns fewer buffers still
+ * works: all returned buffers are panel buffers and every frame redraws in
+ * place. The dim is not one of them; it is a bufferless COLOR layer.
  *
  * commit enables or disables the layers, positions width x height of the named
  * panel buffer on screen, and is called once per visual update. dim selects the
- * gradient dim layer for this frame (HOME yes, HUD no); the renderer passes 0
- * when the backend had no buffer for it. A backend that supports two panel
- * buffers presents them by changing the panel layer address in one config
- * commit; the layers themselves stay enabled. The test harness supplies a
- * malloc-backed backend with the same layout.
+ * flat COLOR dim layer for this frame (HOME yes, HUD no). A backend that
+ * supports two panel buffers presents them by changing the panel layer address
+ * in one config commit; the layers themselves stay enabled. The test harness
+ * supplies a malloc-backed backend with the same layout.
  */
 typedef struct
 {

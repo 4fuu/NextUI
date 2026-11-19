@@ -73,16 +73,20 @@ C4 has one resident observer, one hardware display layer, and one launch parent:
   `minuisettings.txt` through `CFG`. The overlay uses a UI channel of its own
   (channel 2; fb0 is channel 1, layer 0). Its zorder is read from fb0's layer
   config and set one above it, because DE2 stacks channels by zorder and ignores
-  the alpha of UI-format layers placed on a VI channel. The dim is a third,
-  static ARGB scanout buffer holding a black top-to-bottom alpha ramp (lighter
-  at the top), presented as a buffer layer with pixel alpha below the panel; it
-  is rendered once at init and never re-blended, so navigation costs no CPU for
-  it. A COLOR-mode fill layer is not used: its `OVL_UI_FILL_COLOR` alpha byte is
-  written verbatim from `info.color`, so a 0x00000000 fill composites fully
-  transparent (the v2026.1118.3 "no dim" regression). The bottom hint bar uses
-  `GFX_blitButtonGroup()` with no background of its own: the gradient is the
-  only thing behind the opaque pills, so the bar reads as part of the ramp
-  instead of a black band. Hiding disables both layers and the app's
+  the alpha of UI-format layers placed on a VI channel. The dim is a
+  full-screen `LAYER_MODE_COLOR` layer below the panel: `info.color=0xFF000000`
+  (opaque black fill) with `alpha_mode=GLOBAL` and `alpha_value=140`, giving a
+  uniform 55% black wash. It needs no scanout buffer and no CPU after the
+  layer is enabled, so it also works when `DISP_MEM` can only provide the panel
+  buffers. The opaque fill byte is required: `OVL_UI_FILL_COLOR` bits 31:24 are
+  the fill alpha and `de_rtmx_set_lay_fcolor()` writes `info.color` verbatim on
+  a UI channel, so a 0x00000000 fill multiplies global alpha to zero (the
+  v2026.1118.3 "no dim" regression). `cat /sys/class/disp/disp/attr/sys` while
+  HOME is open shows the dim as `COLOR enable ch[2] lyr[0] ... a[globl 140]`
+  and the panel as `BUF enable ch[2] lyr[1] ...`; keymon also logs the fill word
+  once. The bottom hint bar uses `GFX_blitButtonGroup()` with no background of
+  its own: the uniform wash is the only thing behind the opaque pills, so the
+  bar does not read as a black band. Hiding disables both layers and the app's
   frame was never touched. A selection move clears and redraws only the panel
   rectangle; the dim layer is not reconfigured. If `/dev/disp`, a free layer or
   the scanout allocation is unavailable, keymon logs the reason and HOME falls
