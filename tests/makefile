@@ -111,6 +111,18 @@ test-session-race:
 test-session-e2e:
 	../workspace/all/common/tests/run_session_e2e_test.sh
 
+.PHONY: test-bundled-apps
+test: test-bundled-apps
+
+# Bundled Tools apps: every one ships its payload under
+# .system/<platform>/apps and keeps only a shim in Tools, so a system update
+# replaces it. Covers the skeleton shape, migration of legacy cards, shim
+# execution and fallback, and real package-update/verify runs for every
+# platform. Declared on its own lines so this hunk never collides with another
+# thread editing the shared lists above.
+test-bundled-apps:
+	./run_bundled_apps_test.sh
+
 test-updater:
 	../workspace/all/nextupd/tests/run_tests.sh
 

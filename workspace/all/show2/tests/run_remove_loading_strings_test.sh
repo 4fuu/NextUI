@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 # Host test for the Remove Loading pak's localized splash text
-# (skeleton/EXTRAS/Tools/{tg5040,tg5050}/Remove Loading.pak/launch.sh).
+# (skeleton/SYSTEM/{tg5040,tg5050}/apps/Remove Loading.pak/launch.sh).
 #
-# The pak shows a "Done" splash through show2.elf when it finishes removing the
-# stock loading screen, then disables itself by renaming its own directory.
-# This test drives that real script against a throwaway SD card root with stub
-# show2.elf and sed binaries on PATH, so it never runs the real splash, never
-# touches /etc/init.d/runtrimui or /mnt/SDCARD, and never renames anything
-# outside its own temporary copy. The language is read exactly like
-# skeleton/BOOT/common/boot_strings.sh, and the same case list is used here.
+# The app shows a "Done" splash through show2.elf when it finishes removing the
+# stock loading screen, then disables its Tools pak by renaming the directory
+# the shim passes in NEXTUI_PAK_DIR. This test drives that real script against
+# a throwaway SD card root with stub show2.elf and sed binaries on PATH, so it
+# never runs the real splash, never touches /etc/init.d/runtrimui or
+# /mnt/SDCARD, and never renames anything outside its own temporary copy. The
+# language is read exactly like skeleton/BOOT/common/boot_strings.sh, and the
+# same case list is used here.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 SNIPPET="$ROOT/skeleton/BOOT/common/boot_strings.sh"
 PAKS=(
-    "$ROOT/skeleton/EXTRAS/Tools/tg5040/Remove Loading.pak/launch.sh"
-    "$ROOT/skeleton/EXTRAS/Tools/tg5050/Remove Loading.pak/launch.sh"
+    "$ROOT/skeleton/SYSTEM/tg5040/apps/Remove Loading.pak/launch.sh"
+    "$ROOT/skeleton/SYSTEM/tg5050/apps/Remove Loading.pak/launch.sh"
 )
 
 failures=0
@@ -80,9 +81,10 @@ probe() { # content pak_launch_sh
     dir="$(mktemp -d)"
     real_sed="$(command -v sed)"
 
-    local pak="$dir/Remove Loading.pak"
-    mkdir -p "$pak"
-    cp "$launch" "$pak/launch.sh"
+    local pak="$dir/sdcard/Tools/tg5040/Remove Loading.pak"
+    local app="$dir/sdcard/.system/tg5040/apps/Remove Loading.pak"
+    mkdir -p "$pak" "$app"
+    cp "$launch" "$app/launch.sh"
 
     local stubs="$dir/stubs"
     mkdir -p "$stubs"
@@ -110,7 +112,8 @@ EOF
 
     SHOW2_LOG="$dir/show2.log" SED_LOG="$dir/sed.log" \
         PATH="$stubs:$PATH" SDCARD_PATH="$sdcard" \
-        timeout 10 sh "$pak/launch.sh" >/dev/null 2>&1 || true
+        NEXTUI_PAK_DIR="$pak" \
+        timeout 10 sh "$app/launch.sh" >/dev/null 2>&1 || true
 
     if [ -f "$dir/show2.log" ]; then
         sed -n 's/.*--text=\([^ ]*\).*/\1/p' "$dir/show2.log" | tail -n 1
@@ -118,11 +121,12 @@ EOF
         echo "__NO_SPLASH__"
     fi
 
-    # The pak must disable itself exactly once it has shown the splash.
-    if [ -d "$pak.disabled" ] && [ ! -d "$pak" ]; then
+    # The Tools pak must disable itself exactly once the splash has shown; the
+    # system payload the script ran from must stay in place.
+    if [ -d "$pak.disabled" ] && [ ! -d "$pak" ] && [ -d "$app" ]; then
         :
     else
-        fail "$launch did not rename itself to .disabled"
+        fail "$launch did not rename the Tools pak to .disabled"
     fi
 
     rm -rf "$dir"

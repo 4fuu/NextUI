@@ -21,6 +21,9 @@
 #define SHARED_USERDATA_PATH SDCARD_PATH "/.userdata/shared"
 #define PAKS_PATH SYSTEM_PATH "/paks"
 #define BIN_PATH SYSTEM_PATH "/bin"
+// Bundled app payloads, replaced wholesale by a transactional system update.
+// Tools/<platform>/<app>.pak holds only its manifest and launcher shims.
+#define APPS_PATH SYSTEM_PATH "/apps"
 #define TOOLS_PATH SDCARD_PATH "/Tools/" PLATFORM
 #define RECENT_PATH SHARED_USERDATA_PATH "/.minui/recent.txt"
 #define SIMPLE_MODE_PATH SHARED_USERDATA_PATH "/enable-simple-mode"

@@ -78,6 +78,16 @@ an archive that cannot install:
   nested exactly as the device unpacks it (`$SDCARD/.system/<platform>/`),
   because the boot scripts launch
   `.system/<platform>/paks/MinUI.pak/launch.sh`
+- the bundled Tools apps ship inside the platform tree as
+  `.system/<platform>/apps/<Name>.pak/` (binary, launch script and resources).
+  `Tools/<platform>/<Name>.pak/` carries only `pak.json` and a launcher shim, so
+  a system update replaces every bundled app. This is why the archive still
+  refuses a top-level `Tools/`: the shims are a bootstrap artifact, not update
+  content. A card installed before the move keeps its old pak in place; the
+  boot launcher runs `bin/migrate-bundled-paks.sh`, which preserves the old
+  launcher as `launch.legacy.sh` and points `launch.sh` at the system copy.
+  New extras paks ship `launch.legacy.sh` too, so installing them over an old
+  system keeps each app runnable until the system update lands
 - the shared resource tree ships by default: `install` replaces the whole
   `.system`, so a package without `.system/res` would delete the device's
   fonts, icons and effects (`RES_PATH` in `workspace/all/common/defines.h`).

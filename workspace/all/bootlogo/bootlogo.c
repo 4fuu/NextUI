@@ -98,13 +98,15 @@ int loadImages()
         else if (exactMatch("rg34xx", device) || exactMatch("rg34xxsp", device)
             || exactMatch("rgsp", device)) folder = "720x480";
         else if (exactMatch("rgcubexx", device)) folder = "720x720";
-        snprintf(basepath, sizeof(basepath), "%s/Bootlogo.pak/%s/", TOOLS_PATH, folder);
+        // Presets ship beside the app in .system/<platform>/apps/Bootlogo.pak
+        // so a system update can replace them with the binary.
+        snprintf(basepath, sizeof(basepath), "%s/Bootlogo.pak/%s/", APPS_PATH, folder);
     }
     else if (exactMatch("brick", device) || exactMatch("brickpro", device)) {
-        snprintf(basepath, sizeof(basepath), "%s/Bootlogo.pak/brick/", TOOLS_PATH);
+        snprintf(basepath, sizeof(basepath), "%s/Bootlogo.pak/brick/", APPS_PATH);
     }
     else {
-        snprintf(basepath, sizeof(basepath), "%s/Bootlogo.pak/smartpro/", TOOLS_PATH);
+        snprintf(basepath, sizeof(basepath), "%s/Bootlogo.pak/smartpro/", APPS_PATH);
     }
 
     // grab all bmp files in the directory and load them with IMG_Load,

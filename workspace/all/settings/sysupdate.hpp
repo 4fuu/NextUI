@@ -12,14 +12,17 @@
  * System Update controller: process model and the running-settings-vs-.system
  * safety contract.
  *
- * - settings.elf runs from Tools/<platform>/Settings.pak/, a sibling of .system,
- *   so an install that swaps .system never replaces the running settings
- *   executable (its inode stays alive; the file is renamed, not the process).
+ * - settings.elf runs from .system/<platform>/apps/Settings.pak/, which is the
+ *   tree a system install replaces, so the Settings UI itself updates with the
+ *   system. The running process survives the swap because the transaction
+ *   renames the tree: the executable's inode and every mapped library stay
+ *   alive, and settings opens no .system file while the swap is in progress
+ *   (fonts and surfaces are preloaded at init and progress is shown by the
+ *   page's Status row, a preloaded string), so settings never reads a
+ *   half-replaced .system. The Tools/<platform>/Settings.pak launcher is a
+ *   stable shim into that directory.
  * - The controller spawns nextupd as a child with an explicit argv (posix_spawn,
- *   no shell); the child performs the swap and the parent waits on a pipe. During
- *   the swap settings opens no .system file: fonts and surfaces are preloaded at
- *   init and progress is shown by the page's Status row (a preloaded string), so
- *   settings never reads a half-replaced .system.
+ *   no shell); the child performs the swap and the parent waits on a pipe.
  * - install re-runs the full manifest/hash verification (and the detached
  *   signature when a trusted key is configured) against the staged bytes before
  *   it writes anything, so the pre-install re-check is the tool's, not a UI

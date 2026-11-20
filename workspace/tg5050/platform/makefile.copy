@@ -9,5 +9,5 @@ $(PLATFORM):
 	cp ./workspace/all/nextupd/build/$@/nextupd.elf ./build/BOOT/common/$@/
 
 	# extras
-	cp ./workspace/$@/other/NextCommander/output/NextCommander ./build/EXTRAS/Tools/$@/Files.pak/
-	cp -r ./workspace/$@/other/NextCommander/res ./build/EXTRAS/Tools/$@/Files.pak/
+	cp ./workspace/$@/other/NextCommander/output/NextCommander ./build/SYSTEM/$@/apps/Files.pak/
+	cp -r ./workspace/$@/other/NextCommander/res ./build/SYSTEM/$@/apps/Files.pak/

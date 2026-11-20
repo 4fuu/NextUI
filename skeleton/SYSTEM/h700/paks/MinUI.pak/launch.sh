@@ -27,6 +27,13 @@ export PATH="$SYSTEM_PATH/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 export LD_LIBRARY_PATH="$SYSTEM_PATH/lib:/usr/lib:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH"
 h700_setup_runtime
 
+# Cards installed before bundled apps moved into .system still carry the old
+# app payload in Tools. Point those paks at the system copy before the launcher
+# lists them; this is a no-op on current cards.
+if [ -x "$SYSTEM_PATH/bin/migrate-bundled-paks.sh" ]; then
+	"$SYSTEM_PATH/bin/migrate-bundled-paks.sh" || true
+fi
+
 #######################################
 
 if [ -f "/tmp/poweroff" ]; then

@@ -94,7 +94,7 @@ ifneq ($(PLATFORM), desktop)
 	# battery tracking
 	cp ./workspace/all/libbatmondb/build/$(PLATFORM)/libbatmondb.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/batmon/build/$(PLATFORM)/batmon.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/battery/build/$(PLATFORM)/battery.elf ./build/EXTRAS/Tools/$(PLATFORM)/Battery.pak/
+	cp ./workspace/all/battery/build/$(PLATFORM)/battery.elf ./build/SYSTEM/$(PLATFORM)/apps/Battery.pak/
 endif
 	cp ./workspace/$(PLATFORM)/libmsettings/libmsettings.so ./build/SYSTEM/$(PLATFORM)/lib
 	cp ./workspace/all/nextui/build/$(PLATFORM)/nextui.elf ./build/SYSTEM/$(PLATFORM)/bin/
@@ -103,11 +103,17 @@ endif
 	cp ./workspace/all/devserv/build/$(PLATFORM)/devserv.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/nextdev/build/$(PLATFORM)/nextdev.elf ./build/SYSTEM/$(PLATFORM)/bin/
 	cp ./workspace/all/netdebug/build/$(PLATFORM)/netdebug.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/$(PLATFORM)/Clock.pak/
-	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
-	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/EXTRAS/Tools/$(PLATFORM)/Settings.pak/
+	# Bundled apps live in .system/<platform>/apps/<name>.pak so the system
+	# update carries them. The Tools paks are launcher shims only; migration
+	# refreshes them from bin/bundled-app-shim.sh on cards installed before
+	# the move.
+	cp ./workspace/all/common/bundled-app-shim.sh ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/common/migrate-bundled-paks.sh ./build/SYSTEM/$(PLATFORM)/bin/
+	cp ./workspace/all/clock/build/$(PLATFORM)/clock.elf ./build/SYSTEM/$(PLATFORM)/apps/Clock.pak/
+	cp ./workspace/all/minput/build/$(PLATFORM)/minput.elf ./build/SYSTEM/$(PLATFORM)/apps/Input.pak/
+	cp ./workspace/all/settings/build/$(PLATFORM)/settings.elf ./build/SYSTEM/$(PLATFORM)/apps/Settings.pak/
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
-	cp ./workspace/all/ledcontrol/build/$(PLATFORM)/ledcontrol.elf ./build/EXTRAS/Tools/$(PLATFORM)/LedControl.pak/
+	cp ./workspace/all/ledcontrol/build/$(PLATFORM)/ledcontrol.elf ./build/SYSTEM/$(PLATFORM)/apps/LedControl.pak/
 ifeq ($(PLATFORM), tg5040)
 	# Limbo fix
 	cp ./workspace/$(PLATFORM)/poweroff_next/build/$(PLATFORM)/poweroff_next.elf ./build/SYSTEM/$(PLATFORM)/bin/poweroff_next
@@ -119,7 +125,7 @@ ifeq ($(PLATFORM), h700)
 	cp ./workspace/$(PLATFORM)/poweroff_next/build/$(PLATFORM)/reboot_next.elf ./build/SYSTEM/$(PLATFORM)/bin/reboot_next
 endif
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
-	cp ./workspace/all/bootlogo/build/$(PLATFORM)/bootlogo.elf ./build/EXTRAS/Tools/$(PLATFORM)/Bootlogo.pak/
+	cp ./workspace/all/bootlogo/build/$(PLATFORM)/bootlogo.elf ./build/SYSTEM/$(PLATFORM)/apps/Bootlogo.pak/
 endif
 ifneq (,$(filter $(PLATFORM),tg5040 tg5050 h700))
 	# Audio resampling. api.c resamples through libsamplerate, so every binary

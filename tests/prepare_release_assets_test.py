@@ -110,6 +110,16 @@ def build_tree(name):
     write_file(os.path.join(system, "bin", "nextui.elf"), b"\x7fELF fake\n", 0o755)
     write_file(os.path.join(system, "paks", "MinUI.pak", "launch.sh"),
                b"#!/bin/sh\nexec ./nextui.elf\n", 0o755)
+    # Bundled app payloads travel in the system tree, not Tools.
+    write_file(os.path.join(system, "apps", "Settings.pak", "launch.sh"),
+               b"#!/bin/sh\n./settings.elf > \"${LOGS_PATH:-/tmp}/settings.log\" 2>&1\n",
+               0o755)
+    write_file(os.path.join(system, "apps", "Settings.pak", "settings.elf"),
+               b"\x7fELF fake settings\n", 0o755)
+    write_file(os.path.join(system, "bin", "bundled-app-shim.sh"),
+               b"#!/bin/sh\nexit 0\n", 0o755)
+    write_file(os.path.join(system, "bin", "migrate-bundled-paks.sh"),
+               b"#!/bin/sh\nexit 0\n", 0o755)
     write_file(os.path.join(root, "SYSTEM", "res", "font3.ttf"), b"fake font\n")
     boot = os.path.join(root, "BOOT", ".tmp_update")
     write_file(os.path.join(boot, "updater"), b"#!/bin/sh\n", 0o755)
@@ -251,6 +261,20 @@ def main():
         expect("the unsigned set verifies independently",
                run(["check", "--package", archive, "--manifest", manifest,
                     "--platform", PLATFORM]), 0, "integrity only")
+        with zipfile.ZipFile(archive) as package:
+            packaged = set(package.namelist())
+        app_payloads = [
+            ".system/%s/apps/Settings.pak/launch.sh" % PLATFORM,
+            ".system/%s/apps/Settings.pak/settings.elf" % PLATFORM,
+            ".system/%s/bin/bundled-app-shim.sh" % PLATFORM,
+            ".system/%s/bin/migrate-bundled-paks.sh" % PLATFORM,
+        ]
+        missing = [path for path in app_payloads if path not in packaged]
+        if missing:
+            fail("the release archive carries bundled app payloads",
+                 "missing " + str(missing))
+        else:
+            ok("the release archive carries bundled app payloads")
         with open(os.path.join(first_out, "nextui-feed.json"), "r",
                   encoding="utf-8") as handle:
             prepared_feed = json.load(handle)

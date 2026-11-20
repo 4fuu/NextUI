@@ -1,27 +1,43 @@
 #!/bin/sh
+# NextUI bundled app shim.
+#
+# A bundled app's payload lives in .system/<platform>/apps/<pak name>/ and is
+# replaced by a system update. This pak stays in Tools only because the
+# launcher discovers apps there; it carries no app payload.
+#
+# A card installed before that move still carries the old payload beside this
+# script. Boot-time migration preserves the old launcher as launch.legacy.sh,
+# which this shim falls back to when the system copy is absent (for example
+# after a system rollback). New extras paks also ship launch.legacy.sh, so
+# installing them over an old system keeps the app runnable until the system
+# update lands.
 
-DIR="$(dirname "$0")"
-cd "$DIR"
+PAK_DIR=$(CDPATH= cd "$(dirname "$0")" && pwd) || exit 1
+PAK_NAME=$(basename "$PAK_DIR")
+PLATFORM=$(basename "$(dirname "$PAK_DIR")")
 
-sed -i '/^\/usr\/trimui\/bin\/sdl2display \/usr\/trimui\/bin\/splash.png \&/d' /mnt/SDCARD/.tmp_update/tg5050.sh
+if [ -z "${SDCARD_PATH:-}" ]; then
+    SDCARD_PATH=$(CDPATH= cd "$PAK_DIR/../../.." && pwd) || exit 1
+fi
+SYSTEM_PATH="$SDCARD_PATH/.system/$PLATFORM"
+APP_DIR="$SYSTEM_PATH/apps/$PAK_NAME"
 
-# Localized confirmation text, read exactly like skeleton/BOOT/common/
-# boot_strings.sh: zh when the shared settings file says so, English for a
-# missing file, an unknown value, or a payload without the file. The embedded
-# show2 font covers both strings (see workspace/all/show2/show2_strings.txt).
-DONE_TEXT="Done"
-REMOVE_LOADING_SETTINGS="$SDCARD_PATH/.userdata/shared/minuisettings.txt"
-if [ -f "$REMOVE_LOADING_SETTINGS" ]; then
-	remove_loading_lang=$(sed -n 's/^lang=//p' "$REMOVE_LOADING_SETTINGS" 2>/dev/null | tail -n 1 | tr -d '\r')
-	remove_loading_lang=$(printf '%s' "$remove_loading_lang" | tr '[:upper:]' '[:lower:]')
-	remove_loading_lang=$(printf '%s' "$remove_loading_lang" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-	case "$remove_loading_lang" in
-		zh | zh-* | zh_* | zh" "*)
-			DONE_TEXT="完成"
-			;;
-	esac
+# The payload may keep user-visible state beside the pak (Remove Loading
+# disables its own pak), so hand it the real Tools directory; it must never
+# write that state into .system.
+NEXTUI_PAK_DIR="$PAK_DIR"
+export NEXTUI_PAK_DIR
+
+if [ -x "$APP_DIR/launch.sh" ]; then
+    exec "$APP_DIR/launch.sh" "$@"
 fi
 
-show2.elf --mode=simple --image "$SDCARD_PATH/.system/res/logo.png" --text="$DONE_TEXT" --timeout=2
+# A pre-migration card still has the whole app beside this script. Use it when
+# .system/apps is absent, which is also a rollback to a pre-bundled-apps
+# system. Migration records that launcher as launch.legacy.sh.
+if [ -f "$PAK_DIR/launch.legacy.sh" ]; then
+    exec sh "$PAK_DIR/launch.legacy.sh" "$@"
+fi
 
-mv "$DIR" "$DIR.disabled"
+echo "NextUI: bundled app payload is missing: $APP_DIR/launch.sh" >&2
+exit 127
