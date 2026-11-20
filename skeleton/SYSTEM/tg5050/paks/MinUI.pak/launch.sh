@@ -91,6 +91,13 @@ echo -n 0 > /sys/class/gpio/gpio236/value
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:/usr/trimui/lib:$LD_LIBRARY_PATH
 export PATH=$SYSTEM_PATH/bin:/usr/trimui/bin:$PATH
 
+# Cards installed before bundled apps moved into .system still carry the old
+# app payload in Tools. Point those paks at the system copy before the launcher
+# lists them; this is a no-op on current cards.
+if [ -x "$SYSTEM_PATH/bin/migrate-bundled-paks.sh" ]; then
+	"$SYSTEM_PATH/bin/migrate-bundled-paks.sh" || true
+fi
+
 echo before leds `cat /proc/uptime` >> /tmp/nextui_boottime
 
 # leds_off

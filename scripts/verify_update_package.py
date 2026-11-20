@@ -8,6 +8,10 @@ script's source tree:
     archive's roots (Tools, Roms, Saves, Emus, minarch, cores, ...)
   - the device layout the boot scripts launch: .system/<platform>/bin/nextui.elf
     and .system/<platform>/paks/MinUI.pak/launch.sh
+  - every bundled app payload under .system/<platform>/apps/<Name>.pak/ has an
+    executable launch.sh, and the archive carries no app outside the source
+    set when --apps-source is given; the bundled-app shim and migration helper
+    are executable in .system/<platform>/bin/
   - the boot contract files under .tmp_update, executable where the boot
     scripts run them, including .tmp_update/<platform>/nextupd.elf
   - .system/version.txt equals the archive version
@@ -76,6 +80,11 @@ def main():
     parser.add_argument("--expect-res-count", type=int, default=None,
                         help="fail when the resource source no longer holds "
                              "this many files (guards a silently shrunken tree)")
+    parser.add_argument("--apps-source", default=None,
+                        help="the platform's bundled app payload tree "
+                             "(skeleton/SYSTEM/<platform>/apps); when given, "
+                             "every *.pak in it must be executable in the "
+                             "archive and no other app may be present")
     args = parser.parse_args()
 
     try:
@@ -169,6 +178,43 @@ def main():
         if error:
             return error
 
+    expected_apps = []
+    if args.apps_source:
+        apps_source = os.path.abspath(args.apps_source)
+        if not os.path.isdir(apps_source):
+            return fail("app payload source %s is not a directory"
+                        % args.apps_source)
+        expected_apps = sorted(
+            name for name in os.listdir(apps_source)
+            if name.endswith(".pak")
+            and os.path.isdir(os.path.join(apps_source, name)))
+        if not expected_apps:
+            return fail("app payload source %s holds no *.pak directories"
+                        % args.apps_source)
+        for app in expected_apps:
+            error = require(".system/%s/apps/%s/launch.sh"
+                            % (args.platform, app), 0o755,
+                            "the system update must carry this bundled app")
+            if error:
+                return error
+        for helper in ("bundled-app-shim.sh", "migrate-bundled-paks.sh"):
+            error = require(".system/%s/bin/%s" % (args.platform, helper),
+                            0o755, "the boot launcher runs the bundled-app "
+                                   "migration from here")
+            if error:
+                return error
+        prefix = ".system/%s/apps/" % args.platform
+        packaged_apps = set()
+        for name in file_names:
+            if name.startswith(prefix):
+                rest = name[len(prefix):]
+                if "/" in rest:
+                    packaged_apps.add(rest.split("/", 1)[0])
+        extra = sorted(packaged_apps - set(expected_apps))
+        if extra:
+            return fail("archive carries bundled apps that %s does not: %s"
+                        % (args.apps_source, summarize(extra)))
+
     res_source = os.path.abspath(args.res_source)
     if not os.path.isdir(res_source):
         return fail("resource source %s is not a directory" % res_source)
@@ -205,6 +251,9 @@ def main():
     print("  layout: .system/%s/bin/nextui.elf and "
           ".system/%s/paks/MinUI.pak/launch.sh (0755)"
           % (args.platform, args.platform))
+    if expected_apps:
+        print("  bundled apps: %d (%s)"
+              % (len(expected_apps), ", ".join(expected_apps)))
     print("  res: %d files, SHA-256 match %s"
           % (len(expected_res), args.res_source))
     return 0

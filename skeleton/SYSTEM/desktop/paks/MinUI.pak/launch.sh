@@ -37,6 +37,13 @@ export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:$LD_LIBRARY_PATH
 export DYLD_LIBRARY_PATH=$LD_LIBRARY_PATH:$DYLD_LIBRARY_PATH
 export PATH=$SYSTEM_PATH/bin:$PATH
 
+# Cards installed before bundled apps moved into .system still carry the old
+# app payload in Tools. Point those paks at the system copy before the launcher
+# lists them; this is a no-op on current cards.
+if [ -x "$SYSTEM_PATH/bin/migrate-bundled-paks.sh" ]; then
+	"$SYSTEM_PATH/bin/migrate-bundled-paks.sh" || true
+fi
+
 #batmon.elf & # &> $SDCARD_PATH/batmon.txt &
 
 #######################################

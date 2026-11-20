@@ -103,6 +103,13 @@ syslogd -S
 export LD_LIBRARY_PATH=$SYSTEM_PATH/lib:/usr/trimui/lib:$LD_LIBRARY_PATH
 export PATH=$SYSTEM_PATH/bin:/usr/trimui/bin:$PATH
 
+# Cards installed before bundled apps moved into .system still carry the old
+# app payload in Tools. Point those paks at the system copy before the launcher
+# lists them; this is a no-op on current cards.
+if [ -x "$SYSTEM_PATH/bin/migrate-bundled-paks.sh" ]; then
+	"$SYSTEM_PATH/bin/migrate-bundled-paks.sh" || true
+fi
+
 # leds_off
 echo 0 > /sys/class/led_anim/max_scale
 if [ "$TRIMUI_MODEL" = "Trimui Brick" ]; then

@@ -66,7 +66,26 @@ def main():
     parser.add_argument("--version", required=True)
     parser.add_argument("--res-source", default="skeleton/SYSTEM/res")
     parser.add_argument("--expect-res-count", type=int, default=None)
+    parser.add_argument("--apps-source", default=None,
+                        help="the platform's bundled app payload tree")
     args = parser.parse_args()
+
+    # The app to remove must be one the archive really carries.
+    app_launch = None
+    if args.apps_source:
+        with zipfile.ZipFile(args.archive) as archive:
+            candidates = sorted(
+                info.filename for info in archive.infolist()
+                if not info.is_dir()
+                and info.filename.startswith(
+                    ".system/%s/apps/" % args.platform)
+                and info.filename.endswith("/launch.sh"))
+        if candidates:
+            app_launch = candidates[-1]
+        if app_launch is None:
+            print("FAIL: the archive carries no app launch.sh to test with",
+                  file=sys.stderr)
+            return 1
 
     # The resource file to remove must be one the archive really carries.
     with zipfile.ZipFile(args.archive) as archive:
@@ -91,6 +110,8 @@ def main():
                        "--res-source", args.res_source]
             if args.expect_res_count is not None:
                 command += ["--expect-res-count", str(args.expect_res_count)]
+            if args.apps_source is not None:
+                command += ["--apps-source", args.apps_source]
             return subprocess.run(command, capture_output=True, text=True)
 
         baseline = verify(args.archive)
@@ -116,6 +137,16 @@ def main():
             ("bootstrap root",
              dict(add=(("Tools/Clock.pak/clock.elf", 0o755),))),
         )
+        controls = list(controls)
+        if app_launch is not None:
+            controls += [
+                ("missing bundled app launcher", dict(drop=(app_launch,))),
+                ("bundled app launcher without executable bit",
+                 dict(chmod=(app_launch, 0o644))),
+                ("bundled app outside the source set",
+                 dict(add=((".system/%s/apps/Ghost.pak/launch.sh"
+                           % args.platform, 0o755),))),
+            ]
 
         for index, (name, mutation) in enumerate(controls):
             mutated = os.path.join(work, "mutated-%d.zip" % index)

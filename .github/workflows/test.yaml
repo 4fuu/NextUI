@@ -94,6 +94,7 @@ jobs:
             --platform tg5040 \
             --version v0.0.0 \
             --res-source skeleton/SYSTEM/res \
+            --apps-source skeleton/SYSTEM/tg5040/apps \
             --expect-res-count 71
 
       # A content check that accepts everything would pass the step above, so
@@ -109,6 +110,7 @@ jobs:
             --platform tg5040 \
             --version v0.0.0 \
             --res-source skeleton/SYSTEM/res \
+            --apps-source skeleton/SYSTEM/tg5040/apps \
             --expect-res-count 71
 
       - name: Upload target binaries
